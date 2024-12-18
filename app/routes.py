@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, render_template, jsonify, request
 from .models import Station, Participant, db
 
 bp = Blueprint("main", __name__)
