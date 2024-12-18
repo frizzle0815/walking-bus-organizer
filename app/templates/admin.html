@@ -2,7 +2,9 @@
 
 {% block content %}
 <h1 class="text-center">Administration</h1>
+
 <div class="mt-5">
+    <!-- Haltestelle hinzufügen -->
     <h3>Haltestelle hinzufügen</h3>
     <form id="addStationForm" class="mb-4">
         <div class="mb-3">
@@ -12,8 +14,21 @@
         <button type="submit" class="btn btn-primary">Hinzufügen</button>
     </form>
 
+    <!-- Haltestellenübersicht -->
+    <h3>Haltestellen</h3>
+    <table class="table table-striped" id="stationsTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <!-- Teilnehmer hinzufügen -->
     <h3>Teilnehmer hinzufügen</h3>
-    <form id="addParticipantForm">
+    <form id="addParticipantForm" class="mb-4">
         <div class="mb-3">
             <label for="participantName" class="form-label">Name des Teilnehmers</label>
             <input type="text" id="participantName" class="form-control" required>
@@ -22,26 +37,83 @@
             <label for="stationSelect" class="form-label">Haltestelle</label>
             <select id="stationSelect" class="form-select"></select>
         </div>
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="monday">
-            <label class="form-check-label" for="monday">Montag</label>
-        </div>
-        <!-- Wiederholen für Dienstag bis Freitag -->
-        <button type="submit" class="btn btn-primary mt-3">Hinzufügen</button>
+        <button type="submit" class="btn btn-primary">Hinzufügen</button>
     </form>
+
+    <!-- Teilnehmerübersicht -->
+    <h3>Teilnehmer</h3>
+    <table class="table table-striped" id="participantsTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Haltestelle</th>
+                <th>Montag</th>
+                <th>Dienstag</th>
+                <th>Mittwoch</th>
+                <th>Donnerstag</th>
+                <th>Freitag</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
 </div>
 
 <script>
-    async function loadStationsForAdmin() {
+    async function loadStations() {
         const response = await axios.get('/api/stations');
         const stations = response.data;
         const stationSelect = document.getElementById('stationSelect');
+        const stationsTableBody = document.querySelector('#stationsTable tbody');
+
         stationSelect.innerHTML = '';
+        stationsTableBody.innerHTML = '';
+
         stations.forEach(station => {
+            // Populate station dropdown
             const option = document.createElement('option');
             option.value = station.id;
             option.textContent = station.name;
             stationSelect.appendChild(option);
+
+            // Populate station table
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${station.name}</td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="renameStation(${station.id})">Umbenennen</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteStation(${station.id})">Löschen</button>
+                </td>
+            `;
+            stationsTableBody.appendChild(row);
+        });
+    }
+
+    async function loadParticipants() {
+        const response = await axios.get('/api/stations');
+        const stations = response.data;
+        const participantsTableBody = document.querySelector('#participantsTable tbody');
+
+        participantsTableBody.innerHTML = '';
+
+        stations.forEach(station => {
+            station.participants.forEach(participant => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${participant.name}</td>
+                    <td>${station.name}</td>
+                    <td><input type="checkbox" ${participant.monday ? 'checked' : ''} onchange="updateParticipation(${participant.id}, 'monday', this.checked)"></td>
+                    <td><input type="checkbox" ${participant.tuesday ? 'checked' : ''} onchange="updateParticipation(${participant.id}, 'tuesday', this.checked)"></td>
+                    <td><input type="checkbox" ${participant.wednesday ? 'checked' : ''} onchange="updateParticipation(${participant.id}, 'wednesday', this.checked)"></td>
+                    <td><input type="checkbox" ${participant.thursday ? 'checked' : ''} onchange="updateParticipation(${participant.id}, 'thursday', this.checked)"></td>
+                    <td><input type="checkbox" ${participant.friday ? 'checked' : ''} onchange="updateParticipation(${participant.id}, 'friday', this.checked)"></td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="editParticipant(${participant.id})">Bearbeiten</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteParticipant(${participant.id})">Löschen</button>
+                    </td>
+                `;
+                participantsTableBody.appendChild(row);
+            });
         });
     }
 
@@ -50,21 +122,42 @@
         const stationName = document.getElementById('stationName').value;
         await axios.post('/admin/stations', { name: stationName });
         alert('Haltestelle hinzugefügt!');
-        loadStationsForAdmin();
+        loadStations();
     });
 
     document.getElementById('addParticipantForm').addEventListener('submit', async (event) => {
         event.preventDefault();
         const participantName = document.getElementById('participantName').value;
         const stationId = document.getElementById('stationSelect').value;
-        const days = {
-            monday: document.getElementById('monday').checked,
-            // ... Für andere Tage
-        };
-        await axios.post('/admin/participants', { name: participantName, station_id: stationId, ...days });
+        await axios.post('/admin/participants', { name: participantName, station_id: stationId });
         alert('Teilnehmer hinzugefügt!');
+        loadParticipants();
     });
 
-    loadStationsForAdmin();
+    async function deleteStation(id) {
+        try {
+            await axios.post(`/admin/stations/${id}/delete`);
+            alert('Haltestelle gelöscht!');
+            loadStations();
+            loadParticipants();
+        } catch (error) {
+            alert('Fehler beim Löschen: ' + error.response.data.error);
+        }
+    }
+
+    async function deleteParticipant(id) {
+        await axios.post(`/admin/participants/${id}/delete`);
+        alert('Teilnehmer gelöscht!');
+        loadParticipants();
+    }
+
+    async function updateParticipation(id, day, value) {
+        await axios.patch(`/admin/participants/${id}/edit`, { [day]: value });
+        alert('Teilnahme aktualisiert!');
+    }
+
+    // Initial load
+    loadStations();
+    loadParticipants();
 </script>
 {% endblock %}

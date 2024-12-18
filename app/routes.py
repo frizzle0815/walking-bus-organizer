@@ -1,14 +1,12 @@
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, redirect, url_for, flash
 from .models import Station, Participant, db
 
 bp = Blueprint("main", __name__)
 
 @bp.route('/')
 def index():
-    # Render the index.html template when the root URL is accessed
     return render_template('index.html')
 
-# API: Zentrale Ansicht
 @bp.route("/api/stations", methods=["GET"])
 def get_stations():
     stations = Station.query.all()
@@ -33,9 +31,10 @@ def update_participation(participant_id):
 
 @bp.route("/admin")
 def admin():
-    return render_template("admin.html")
+    stations = Station.query.all()
+    participants = Participant.query.all()
+    return render_template("admin.html", stations=stations, participants=participants)
 
-# Admin: Haltestelle erstellen
 @bp.route("/admin/stations", methods=["POST"])
 def create_station():
     data = request.json
@@ -52,28 +51,30 @@ def edit_station(station_id):
         station.name = new_name
         db.session.commit()
         flash(f"Haltestelle '{station.name}' wurde aktualisiert.")
-    return redirect(url_for('admin.stations'))
+    return redirect(url_for('main.admin'))
 
 @bp.route('/admin/stations/<int:station_id>/delete', methods=['POST'])
 def delete_station(station_id):
     station = Station.query.get_or_404(station_id)
-    db.session.delete(station)
-    db.session.commit()
-    flash(f"Haltestelle '{station.name}' wurde gelöscht.")
-    return redirect(url_for('admin.stations'))
+    if station.participants:
+        flash("Haltestelle kann nicht gelöscht werden, da noch Teilnehmer zugeordnet sind.")
+    else:
+        db.session.delete(station)
+        db.session.commit()
+        flash(f"Haltestelle '{station.name}' wurde gelöscht.")
+    return redirect(url_for('main.admin'))
 
-# Admin: Teilnehmer erstellen
 @bp.route("/admin/participants", methods=["POST"])
 def create_participant():
     data = request.json
     new_participant = Participant(
         name=data['name'],
         station_id=data.get('station_id'),
-        monday=data.get('monday', False),
-        tuesday=data.get('tuesday', False),
-        wednesday=data.get('wednesday', False),
-        thursday=data.get('thursday', False),
-        friday=data.get('friday', False)
+        monday=False,
+        tuesday=False,
+        wednesday=False,
+        thursday=False,
+        friday=False
     )
     db.session.add(new_participant)
     db.session.commit()
@@ -83,14 +84,23 @@ def create_participant():
 def edit_participant(participant_id):
     participant = Participant.query.get_or_404(participant_id)
     new_name = request.form.get('name')
-    new_station_id = request.form.get('station_id')  # Optional
+    new_station_id = request.form.get('station_id')
+    days = {
+        'monday': request.form.get('monday') == 'on',
+        'tuesday': request.form.get('tuesday') == 'on',
+        'wednesday': request.form.get('wednesday') == 'on',
+        'thursday': request.form.get('thursday') == 'on',
+        'friday': request.form.get('friday') == 'on',
+    }
     if new_name:
         participant.name = new_name
     if new_station_id:
         participant.station_id = new_station_id
+    for day, value in days.items():
+        setattr(participant, day, value)
     db.session.commit()
     flash(f"Teilnehmer '{participant.name}' wurde aktualisiert.")
-    return redirect(url_for('admin.participants'))
+    return redirect(url_for('main.admin'))
 
 @bp.route('/admin/participants/<int:participant_id>/delete', methods=['POST'])
 def delete_participant(participant_id):
@@ -98,4 +108,4 @@ def delete_participant(participant_id):
     db.session.delete(participant)
     db.session.commit()
     flash(f"Teilnehmer '{participant.name}' wurde gelöscht.")
-    return redirect(url_for('admin.participants'))
+    return redirect(url_for('main.admin'))
