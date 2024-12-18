@@ -31,6 +31,10 @@ def update_participation(participant_id):
     db.session.commit()
     return jsonify({"id": participant.id, "status_today": participant.status_today})
 
+@bp.route("/admin")
+def admin():
+    return render_template("admin.html")
+
 # Admin: Haltestelle erstellen
 @bp.route("/admin/stations", methods=["POST"])
 def create_station():
