@@ -3,6 +3,11 @@ from .models import Station, Participant, db
 
 bp = Blueprint("main", __name__)
 
+@bp.route('/')
+def index():
+    # Render the index.html template when the root URL is accessed
+    return render_template('index.html')
+
 # API: Zentrale Ansicht
 @bp.route("/api/stations", methods=["GET"])
 def get_stations():
