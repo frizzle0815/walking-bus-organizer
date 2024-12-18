@@ -1,0 +1,25 @@
+version: "3.8"
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - walking_bus_data:/app/instance
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: walkingbus
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: walkingbus
+    volumes:
+      - db_data:/var/lib/postgresql/data
+volumes:
+  db_data:
+    driver_opts:
+      type: none
+      device: /volume1/docker/walking-bus-organizer #Synology Diskstation
+      o: bind

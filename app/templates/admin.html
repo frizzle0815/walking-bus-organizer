@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="text-center">Administration</h1>
+<div class="mt-5">
+    <h3>Haltestelle hinzufügen</h3>
+    <form id="addStationForm" class="mb-4">
+        <div class="mb-3">
+            <label for="stationName" class="form-label">Name der Haltestelle</label>
+            <input type="text" id="stationName" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Hinzufügen</button>
+    </form>
+
+    <h3>Teilnehmer hinzufügen</h3>
+    <form id="addParticipantForm">
+        <div class="mb-3">
+            <label for="participantName" class="form-label">Name des Teilnehmers</label>
+            <input type="text" id="participantName" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label for="stationSelect" class="form-label">Haltestelle</label>
+            <select id="stationSelect" class="form-select"></select>
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="monday">
+            <label class="form-check-label" for="monday">Montag</label>
+        </div>
+        <!-- Wiederholen für Dienstag bis Freitag -->
+        <button type="submit" class="btn btn-primary mt-3">Hinzufügen</button>
+    </form>
+</div>
+
+<script>
+    async function loadStationsForAdmin() {
+        const response = await axios.get('/api/stations');
+        const stations = response.data;
+        const stationSelect = document.getElementById('stationSelect');
+        stationSelect.innerHTML = '';
+        stations.forEach(station => {
+            const option = document.createElement('option');
+            option.value = station.id;
+            option.textContent = station.name;
+            stationSelect.appendChild(option);
+        });
+    }
+
+    document.getElementById('addStationForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const stationName = document.getElementById('stationName').value;
+        await axios.post('/admin/stations', { name: stationName });
+        alert('Haltestelle hinzugefügt!');
+        loadStationsForAdmin();
+    });
+
+    document.getElementById('addParticipantForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const participantName = document.getElementById('participantName').value;
+        const stationId = document.getElementById('stationSelect').value;
+        const days = {
+            monday: document.getElementById('monday').checked,
+            // ... Für andere Tage
+        };
+        await axios.post('/admin/participants', { name: participantName, station_id: stationId, ...days });
+        alert('Teilnehmer hinzugefügt!');
+    });
+
+    loadStationsForAdmin();
+</script>
+{% endblock %}

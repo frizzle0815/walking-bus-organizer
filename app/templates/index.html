@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="text-center">Walking Bus Organizer</h1>
+<div id="stations"></div>
+
+<script>
+    async function loadStations() {
+        const response = await axios.get('/api/stations');
+        const stations = response.data;
+        const stationsContainer = document.getElementById('stations');
+        stationsContainer.innerHTML = '';
+        
+        stations.forEach(station => {
+            const stationDiv = document.createElement('div');
+            stationDiv.classList.add('mt-4');
+            stationDiv.innerHTML = `<h3>${station.name}</h3>`;
+            
+            const list = document.createElement('ul');
+            list.classList.add('list-group');
+            station.participants.forEach(participant => {
+                const item = document.createElement('li');
+                item.classList.add('list-group-item', 'd-flex', 'justify-content-between', 'align-items-center');
+                item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
+                item.innerHTML = `
+                    ${participant.name}
+                    <button class="btn btn-sm ${participant.status_today ? 'btn-danger' : 'btn-success'}" 
+                            onclick="toggleParticipation(${participant.id}, this)">
+                        ${participant.status_today ? 'Absagen' : 'Teilnehmen'}
+                    </button>
+                `;
+                list.appendChild(item);
+            });
+            stationDiv.appendChild(list);
+            stationsContainer.appendChild(stationDiv);
+        });
+    }
+
+    async function toggleParticipation(participantId, button) {
+        const response = await axios.patch(`/api/participation/${participantId}`);
+        const { status_today } = response.data;
+        button.parentElement.style.backgroundColor = status_today ? '#d4edda' : '#f8d7da';
+        button.classList.toggle('btn-danger', status_today);
+        button.classList.toggle('btn-success', !status_today);
+        button.textContent = status_today ? 'Absagen' : 'Teilnehmen';
+    }
+
+    loadStations();
+</script>
+{% endblock %}
