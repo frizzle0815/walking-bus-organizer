@@ -39,7 +39,22 @@
         new Sortable(tableBody, {
             animation: 150,
             handle: '.drag-handle',
-            onEnd: () => saveStations(),
+            group: 'stations',
+            onEnd: (evt) => {
+                const stations = [];
+                document.querySelectorAll('.station-row').forEach((row, index) => {
+                    stations.push({
+                        id: row.dataset.stationId,
+                        position: index
+                    });
+                });
+                
+                fetch('/api/stations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(stations)
+                });
+            }
         });
           // Station hinzufügen
           document.getElementById('addStationBtn').addEventListener('click', () => {
@@ -67,6 +82,7 @@
             stationRow.dataset.stationId = station.id; // Add station ID to the row
             stationRow.innerHTML = `
                 <td>
+                    <span class="drag-handle">⋮⋮</span>
                     <input type="text" class="form-control station-name" value="${station.name || ''}" placeholder="Stationenname eingeben">
                     <button class="btn btn-secondary btn-sm add-participant">+ Teilnehmer</button>
                 </td>
@@ -218,3 +234,11 @@
     });
 </script>
 {% endblock %}
+
+<style>
+    .drag-handle {
+        cursor: move;
+        padding: 5px;
+        margin-right: 10px;
+    }
+</style>
