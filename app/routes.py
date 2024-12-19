@@ -67,6 +67,44 @@ def save_stations():
     except Exception as e:
         return jsonify({"error": f"Ein Fehler ist aufgetreten: {str(e)}"}), 500
 
+@bp.route("/api/stations/<int:station_id>/participants/<int:participant_id>", methods=["PUT"])
+def update_participant_api(station_id, participant_id):
+    participant = Participant.query.get_or_404(participant_id)
+    data = request.json
+    
+    if 'name' in data:
+        participant.name = data['name']
+    if 'monday' in data:
+        participant.monday = data['monday']
+    if 'tuesday' in data:
+        participant.tuesday = data['tuesday']
+    if 'wednesday' in data:
+        participant.wednesday = data['wednesday']
+    if 'thursday' in data:
+        participant.thursday = data['thursday']
+    if 'friday' in data:
+        participant.friday = data['friday']
+        
+    db.session.commit()
+    return jsonify({
+        "id": participant.id,
+        "name": participant.name,
+        "monday": participant.monday,
+        "tuesday": participant.tuesday,
+        "wednesday": participant.wednesday,
+        "thursday": participant.thursday,
+        "friday": participant.friday
+    })
+
+@bp.route("/api/stations/<int:station_id>", methods=["PUT"])
+def update_station(station_id):
+    station = Station.query.get_or_404(station_id)
+    data = request.json
+    if 'name' in data:
+        station.name = data['name']
+    db.session.commit()
+    return jsonify({"id": station.id, "name": station.name})
+
 @bp.route("/api/participation/<int:participant_id>", methods=["PATCH"])
 def update_participation(participant_id):
     participant = Participant.query.get(participant_id)
