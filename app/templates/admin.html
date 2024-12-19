@@ -61,6 +61,7 @@
           });
         // Station-Zeile hinzufügen
         function addStationRow(station) {
+            station.participants = station.participants || [];
             const stationRow = document.createElement('tr');
             stationRow.classList.add('station-row');
             stationRow.dataset.stationId = station.id; // Add station ID to the row
