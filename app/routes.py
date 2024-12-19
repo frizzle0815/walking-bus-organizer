@@ -27,35 +27,45 @@ def get_stations():
 
 @bp.route("/api/stations", methods=["POST"])
 def save_stations():
-    data = request.json
-    if not data:
-        return jsonify({"error": "Keine Daten erhalten"}), 400
+    try:
+        data = request.get_json()
+        if not isinstance(data, list):
+            return jsonify({"error": "Datenformat ungültig. Erwartet wird eine Liste."}), 400
 
-    # Bestehende Stationen und Teilnehmer löschen
-    Station.query.delete()
-    db.session.commit()
+        # Löschen der bestehenden Stationen und Teilnehmer
+        Station.query.delete()
+        db.session.commit()
 
-    # Neue Stationen und Teilnehmer speichern
-    for station_data in data:
-        station = Station(name=station_data['name'], position=station_data['position'])
-        db.session.add(station)
-        db.session.flush()  # Station-ID abrufen
+        # Neue Stationen und Teilnehmer speichern
+        for station_data in data:
+            if not isinstance(station_data, dict) or 'name' not in station_data or 'position' not in station_data:
+                return jsonify({"error": f"Ungültige Station: {station_data}"}), 400
 
-        for participant_data in station_data['participants']:
-            participant = Participant(
-                name=participant_data['name'],
-                position=participant_data['position'],
-                station_id=station.id,
-                monday=participant_data.get('monday', False),
-                tuesday=participant_data.get('tuesday', False),
-                wednesday=participant_data.get('wednesday', False),
-                thursday=participant_data.get('thursday', False),
-                friday=participant_data.get('friday', False)
-            )
-            db.session.add(participant)
+            station = Station(name=station_data['name'], position=station_data['position'])
+            db.session.add(station)
+            db.session.flush()  # Station-ID abrufen
 
-    db.session.commit()
-    return jsonify({"success": True}), 200
+            for participant_data in station_data.get('participants', []):
+                if not isinstance(participant_data, dict) or 'name' not in participant_data:
+                    return jsonify({"error": f"Ungültiger Teilnehmer: {participant_data}"}), 400
+
+                participant = Participant(
+                    name=participant_data['name'],
+                    position=participant_data.get('position', 0),
+                    station_id=station.id,
+                    monday=participant_data.get('monday', False),
+                    tuesday=participant_data.get('tuesday', False),
+                    wednesday=participant_data.get('wednesday', False),
+                    thursday=participant_data.get('thursday', False),
+                    friday=participant_data.get('friday', False)
+                )
+                db.session.add(participant)
+
+        db.session.commit()
+        return jsonify({"success": True}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Ein Fehler ist aufgetreten: {str(e)}"}), 500
 
 @bp.route("/api/participation/<int:participant_id>", methods=["PATCH"])
 def update_participation(participant_id):
