@@ -152,53 +152,53 @@
                 addParticipantRow(stationRow, participant, station);
             });
         }
+          // Teilnehmer-Zeile hinzufügen
+          function addParticipantRow(stationRow, participant, station) {
+              const participantRow = document.createElement('tr');
+              participantRow.classList.add('participant-row');
+              participantRow.dataset.participantId = participant.id;
+              participantRow.innerHTML = `
+                  <td style="padding-left: 2rem;">
+                      <div class="d-flex align-items-center">
+                          <span class="drag-handle">⋮⋮</span>
+                          <input type="text" class="form-control participant-name" value="${participant.name}" placeholder="Teilnehmer eingeben">
+                      </div>
+                  </td>
+                  <td>
+                      ${['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+                          .map(day => `<input type="checkbox" class="day-checkbox ${day}" ${participant[day] ? 'checked' : ''}>`)
+                          .join('')}
+                      <button class="btn btn-danger btn-sm delete-participant">- Teilnehmer</button>
+                  </td>
+              `;
 
-        // Teilnehmer-Zeile hinzufügen
-        function addParticipantRow(stationRow, participant, station) {
-            const participantRow = document.createElement('tr');
-            participantRow.classList.add('participant-row');
-            participantRow.dataset.participantId = participant.id;
-            participantRow.innerHTML = `
-                <td style="padding-left: 2rem;">
-                    <span class="drag-handle">⋮⋮</span>
-                    <input type="text" class="form-control participant-name" value="${participant.name}" placeholder="Teilnehmer eingeben">
-                </td>
-                <td>
-                    ${['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
-                        .map(day => `<input type="checkbox" class="day-checkbox ${day}" ${participant[day] ? 'checked' : ''}>`)
-                        .join('')}
-                    <button class="btn btn-danger btn-sm delete-participant">- Teilnehmer</button>
-                </td>
-            `;
-            stationRow.after(participantRow);
+              // Add back the name change event listener
+              participantRow.querySelector('.participant-name').addEventListener('change', (e) => {
+                  participant.name = e.target.value;
+                  saveParticipant(participant, station.id);
+              });
 
-            // Teilnehmer speichern bei Namensänderung
-            participantRow.querySelector('.participant-name').addEventListener('change', (e) => {
-                participant.name = e.target.value;
-                saveParticipant(participant, station.id);
-            });
+              // Add back checkbox event listeners
+              participantRow.querySelectorAll('.day-checkbox').forEach(checkbox => {
+                  checkbox.addEventListener('change', () => {
+                      participant[checkbox.classList[1]] = checkbox.checked;
+                      saveParticipant(participant, station.id);
+                  });
+              });
 
-            // Teilnehmer speichern bei Änderung der Checkboxen
-            participantRow.querySelectorAll('.day-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', () => {
-                    participant[checkbox.classList[1]] = checkbox.checked;
-                    saveParticipant(participant, station.id);
-                });
-            });
+              stationRow.after(participantRow);
 
-            // Teilnehmer löschen
-            participantRow.querySelector('.delete-participant').addEventListener('click', () => {
-                if (confirm('Möchten Sie diesen Teilnehmer wirklich löschen?')) {
-                    fetch(`/admin/participants/${participant.id}/delete`, { 
-                        method: 'POST'  // Changed from DELETE to POST
-                    }).then(() => {
-                        participantRow.remove();
-                    });
-                }
-            });
-        }
-
-        // Station speichern
+              // Teilnehmer löschen
+              participantRow.querySelector('.delete-participant').addEventListener('click', () => {
+                  if (confirm('Möchten Sie diesen Teilnehmer wirklich löschen?')) {
+                      fetch(`/admin/participants/${participant.id}/delete`, { 
+                          method: 'POST'  // Changed from DELETE to POST
+                      }).then(() => {
+                          participantRow.remove();
+                      });
+                  }
+              });
+          }        // Station speichern
         function saveStation(station) {
             fetch(`/api/stations/${station.id}`, {
                 method: 'PUT',
@@ -288,21 +288,19 @@
                         body: JSON.stringify(stations)
                     });
                 } else if (evt.item.classList.contains('participant-row')) {
-                    // Handle participant moving between stations
                     const participantId = evt.item.dataset.participantId;
                     const newStationRow = evt.item.previousElementSibling.closest('.station-row');
                     const newStationId = newStationRow.dataset.stationId;
                     
-                    fetch(`/admin/participants/${participantId}/edit`, {
-                        method: 'POST',
+                    fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
+                        method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             station_id: newStationId,
                             position: Array.from(evt.item.parentNode.children).indexOf(evt.item)
                         })
                     });
-                }
-            }
+                }            }
         });
     });
 </script>
