@@ -52,52 +52,43 @@
             addStation();
         });
 
-        function addStation(name = '', stationId = null, participants = []) {
-            const stationRow = document.createElement('tr');
-            stationRow.classList.add('station-row');
-            stationRow.innerHTML = `
-                <td>
-                    <span class="drag-handle">☞</span>
-                    <input type="text" class="form-control station-name" value="${name}" placeholder="Station eingeben">
-                </td>
-                <td>
-                    <button class="btn btn-success add-participant">+ Teilnehmer</button>
-                    <button class="btn btn-danger remove-station">- Station</button>
-                </td>
-                <td colspan="5"></td>
-            `;
-            tableBody.appendChild(stationRow);
-
-            if (!stationId) {
-                fetch('/api/stations', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name }),
-                })
-                    .then(response => response.json())
-                    .then(station => {
-                        stationId = station.id;
-                        console.log('Station gespeichert:', station);
-                    });
+        function addStation() {
+            const stationName = prompt("Name der neuen Station:");
+            if (!stationName) {
+                alert("Bitte einen gültigen Stationsnamen eingeben.");
+                return;
             }
 
-            participants.forEach(participant => {
-                addParticipant(stationRow, participant.name, participant.id, participant.days, stationId);
-            });
+            const newStation = {
+                name: stationName,
+                position: stations.length + 1, // Annahme: 'stations' ist eine globale Liste der Stationen
+                participants: [] // Leere Teilnehmerliste für die neue Station
+            };
 
-            stationRow.querySelector('.add-participant').addEventListener('click', () => {
-                addParticipant(stationRow, '', null, {}, stationId);
-            });
+            // Sende die aktualisierte Stationsliste an das Backend
+            const updatedStations = [...stations, newStation]; // 'stations' enthält die bestehende Stationsliste
 
-            stationRow.querySelector('.remove-station').addEventListener('click', () => {
-                if (confirm('Möchten Sie diese Station wirklich löschen?')) {
-                    if (stationId) {
-                        fetch(`/api/stations/${stationId}`, { method: 'DELETE' });
-                    }
-                    tableBody.removeChild(stationRow);
+            fetch("/api/stations", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(updatedStations)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    console.error("Fehler beim Speichern:", data.error);
+                } else {
+                    console.log("Station gespeichert:", data);
+                    // Aktualisiere die Stationsanzeige, z. B.:
+                    stations.push(newStation);
+                    renderStations();
                 }
-            });
+            })
+            .catch(error => console.error("Fehler:", error));
         }
+
 
         function addParticipant(stationRow, name = '', participantId = null, days = {}, stationId = null) {
             const participantRow = document.createElement('tr');
