@@ -43,9 +43,23 @@
             onEnd: (evt) => {
                 const stations = [];
                 document.querySelectorAll('.station-row').forEach((row, index) => {
+                    const stationId = row.dataset.stationId;
+                    const participants = [];
+                    
+                    // Get all participant rows until next station
+                    let nextRow = row.nextElementSibling;
+                    while (nextRow && nextRow.classList.contains('participant-row')) {
+                        participants.push({
+                            id: nextRow.dataset.participantId,
+                            position: participants.length
+                        });
+                        nextRow = nextRow.nextElementSibling;
+                    }
+                    
                     stations.push({
-                        id: row.dataset.stationId,
-                        position: index
+                        id: stationId,
+                        position: index,
+                        participants: participants
                     });
                 });
                 
@@ -143,8 +157,10 @@
         function addParticipantRow(stationRow, participant, station) {
             const participantRow = document.createElement('tr');
             participantRow.classList.add('participant-row');
+            participantRow.dataset.participantId = participant.id;
             participantRow.innerHTML = `
                 <td style="padding-left: 2rem;">
+                    <span class="drag-handle">⋮⋮</span>
                     <input type="text" class="form-control participant-name" value="${participant.name}" placeholder="Teilnehmer eingeben">
                 </td>
                 <td>
@@ -231,6 +247,63 @@
                 body: JSON.stringify(updatedStations),
             });
         }
+    });
+
+    // Initialize Sortable for both stations and participants
+    document.addEventListener('DOMContentLoaded', () => {
+        const tableBody = document.getElementById('sortableTableBody');
+
+        new Sortable(tableBody, {
+            animation: 150,
+            handle: '.drag-handle',
+            group: 'shared',
+            filter: '.participant-row',  // Prevents direct dragging of participant rows
+            onEnd: (evt) => {
+                if (evt.item.classList.contains('station-row')) {
+                    // Handle station reordering
+                    const stations = [];
+                    document.querySelectorAll('.station-row').forEach((row, index) => {
+                        const stationId = row.dataset.stationId;
+                        const participants = [];
+                        
+                        let nextRow = row.nextElementSibling;
+                        while (nextRow && nextRow.classList.contains('participant-row')) {
+                            participants.push({
+                                id: nextRow.dataset.participantId,
+                                position: participants.length
+                            });
+                            nextRow = nextRow.nextElementSibling;
+                        }
+                        
+                        stations.push({
+                            id: stationId,
+                            position: index,
+                            participants: participants
+                        });
+                    });
+                    
+                    fetch('/api/stations', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(stations)
+                    });
+                } else if (evt.item.classList.contains('participant-row')) {
+                    // Handle participant moving between stations
+                    const participantId = evt.item.dataset.participantId;
+                    const newStationRow = evt.item.previousElementSibling.closest('.station-row');
+                    const newStationId = newStationRow.dataset.stationId;
+                    
+                    fetch(`/admin/participants/${participantId}/edit`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            station_id: newStationId,
+                            position: Array.from(evt.item.parentNode.children).indexOf(evt.item)
+                        })
+                    });
+                }
+            }
+        });
     });
 </script>
 {% endblock %}
