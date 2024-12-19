@@ -41,29 +41,32 @@
             handle: '.drag-handle',
             onEnd: () => saveStations(),
         });
+          // Station hinzufügen
+          document.getElementById('addStationBtn').addEventListener('click', () => {
+              const newStation = { 
+                  name: 'Neue Station', 
+                  position: document.querySelectorAll('.station-row').length,  // Add position
+                  participants: [] 
+              };
 
-        // Station hinzufügen
-        document.getElementById('addStationBtn').addEventListener('click', () => {
-            const newStation = { name: 'Neue Station', participants: [] };
-
-            fetch('/api/stations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newStation),
-            })
-                .then(response => response.json())
-                .then(station => {
-                    addStationRow(station);
-                });
-        });
-
+              fetch('/admin/stations', {  // Changed endpoint
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(newStation),
+              })
+              .then(response => response.json())
+              .then(station => {
+                  addStationRow(station);
+              });
+          });
         // Station-Zeile hinzufügen
         function addStationRow(station) {
             const stationRow = document.createElement('tr');
             stationRow.classList.add('station-row');
+            stationRow.dataset.stationId = station.id; // Add station ID to the row
             stationRow.innerHTML = `
                 <td>
-                    <input type="text" class="form-control station-name" value="${station.name}" placeholder="Stationenname eingeben">
+                    <input type="text" class="form-control station-name" value="${station.name || ''}" placeholder="Stationenname eingeben">
                     <button class="btn btn-secondary btn-sm add-participant">+ Teilnehmer</button>
                 </td>
                 <td>
@@ -81,24 +84,36 @@
             // Station löschen
             stationRow.querySelector('.delete-station').addEventListener('click', () => {
                 if (confirm('Möchten Sie diese Station wirklich löschen?')) {
-                    fetch(`/api/stations/${station.id}`, { method: 'DELETE' });
-                    stationRow.remove();
+                    fetch(`/admin/stations/${station.id}/delete`, { 
+                        method: 'POST'  // Changed from DELETE to POST
+                    }).then(() => {
+                        stationRow.remove();
+                    });
                 }
             });
 
             // Teilnehmer hinzufügen
             stationRow.querySelector('.add-participant').addEventListener('click', () => {
-                const newParticipant = { name: 'Neuer Teilnehmer', days: { monday: false, tuesday: false, wednesday: false, thursday: false, friday: false } };
+                const newParticipant = { 
+                    name: 'Neuer Teilnehmer',
+                    station_id: station.id,
+                    position: station.participants ? station.participants.length : 0,
+                    monday: false,
+                    tuesday: false,
+                    wednesday: false,
+                    thursday: false,
+                    friday: false
+                };
 
-                fetch(`/api/stations/${station.id}/participants`, {
+                fetch('/admin/participants', {  // Changed endpoint
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newParticipant),
                 })
-                    .then(response => response.json())
-                    .then(participant => {
-                        addParticipantRow(stationRow, participant, station);
-                    });
+                .then(response => response.json())
+                .then(participant => {
+                    addParticipantRow(stationRow, participant, station);
+                });
             });
 
             // Teilnehmer für diese Station hinzufügen
@@ -141,8 +156,11 @@
             // Teilnehmer löschen
             participantRow.querySelector('.delete-participant').addEventListener('click', () => {
                 if (confirm('Möchten Sie diesen Teilnehmer wirklich löschen?')) {
-                    fetch(`/api/participants/${participant.id}`, { method: 'DELETE' });
-                    participantRow.remove();
+                    fetch(`/admin/participants/${participant.id}/delete`, { 
+                        method: 'POST'  // Changed from DELETE to POST
+                    }).then(() => {
+                        participantRow.remove();
+                    });
                 }
             });
         }
