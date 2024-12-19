@@ -26,10 +26,26 @@
     document.addEventListener('DOMContentLoaded', () => {
         const tableBody = document.getElementById('sortableTableBody');
 
+        // In saveParticipant function
+        function saveParticipant(participant, stationId) {
+            console.log('Saving participant:', participant);
+            console.log('Station ID:', stationId);
+            fetch(`/api/stations/${stationId}/participants/${participant.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(participant),
+            })
+            .then(response => {
+                console.log('Save participant response:', response);
+                return response;
+            });
+        }
+
         // Stationen laden
         fetch('/api/stations')
             .then(response => response.json())
             .then(stations => {
+                console.log('Loaded stations:', stations);
                 stations.forEach(station => {
                     addStationRow(station);
                 });
@@ -136,14 +152,20 @@
                     friday: false
                 };
 
-                fetch('/admin/participants', {  // Changed endpoint
+                fetch('/admin/participants', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(newParticipant),
                 })
                 .then(response => response.json())
                 .then(participant => {
-                    addParticipantRow(stationRow, participant, station);
+                    const participantRow = addParticipantRow(stationRow, participant, station);
+                    station.participants.push(participant);
+                    
+                    // Explicitly focus the name input after adding
+                    const nameInput = participantRow.querySelector('.participant-name');
+                    nameInput.focus();
+                    nameInput.select();
                 });
             });
 
@@ -161,7 +183,11 @@
                   <td style="padding-left: 2rem;">
                       <div class="d-flex align-items-center">
                           <span class="drag-handle">⋮⋮</span>
-                          <input type="text" class="form-control participant-name" value="${participant.name}" placeholder="Teilnehmer eingeben">
+                          <input type="text" class="form-control participant-name" 
+                       value="${participant.name}" 
+                       placeholder="Teilnehmer eingeben"
+                       data-participant-id="${participant.id}"
+                       style="cursor: text;">
                       </div>
                   </td>
                   <td>
@@ -171,14 +197,19 @@
                       <button class="btn btn-danger btn-sm delete-participant">- Teilnehmer</button>
                   </td>
               `;
-
-              // Add back the name change event listener
-              participantRow.querySelector('.participant-name').addEventListener('change', (e) => {
-                  participant.name = e.target.value;
-                  saveParticipant(participant, station.id);
+              const nameInput = participantRow.querySelector('.participant-name');
+              ['change', 'blur'].forEach(eventType => {
+                  nameInput.addEventListener(eventType, (e) => {
+                      const participantId = parseInt(e.target.dataset.participantId, 10);
+                      const currentParticipant = station.participants.find(p => p.id === participantId);
+                      if (currentParticipant) {
+                          currentParticipant.name = e.target.value;
+                          saveParticipant(currentParticipant, station.id);
+                      } else {
+                          console.error("Participant not found in station's participants array. ID:", participantId);
+                      }
+                  });
               });
-
-              // Add back checkbox event listeners
               participantRow.querySelectorAll('.day-checkbox').forEach(checkbox => {
                   checkbox.addEventListener('change', () => {
                       participant[checkbox.classList[1]] = checkbox.checked;
@@ -186,19 +217,24 @@
                   });
               });
 
-              stationRow.after(participantRow);
-
-              // Teilnehmer löschen
               participantRow.querySelector('.delete-participant').addEventListener('click', () => {
                   if (confirm('Möchten Sie diesen Teilnehmer wirklich löschen?')) {
                       fetch(`/admin/participants/${participant.id}/delete`, { 
-                          method: 'POST'  // Changed from DELETE to POST
+                          method: 'POST'
                       }).then(() => {
                           participantRow.remove();
+                          const index = station.participants.findIndex(p => p.id === participant.id);
+                          if (index > -1) {
+                              station.participants.splice(index, 1);
+                          }
                       });
                   }
               });
-          }        // Station speichern
+
+              stationRow.after(participantRow);
+              return participantRow;
+          }
+
         function saveStation(station) {
             fetch(`/api/stations/${station.id}`, {
                 method: 'PUT',
@@ -207,7 +243,6 @@
             });
         }
 
-        // Teilnehmer speichern
         function saveParticipant(participant, stationId) {
             fetch(`/api/stations/${stationId}/participants/${participant.id}`, {
                 method: 'PUT',
@@ -215,6 +250,32 @@
                 body: JSON.stringify(participant),
             });
         }
+
+        // ... inside the onEnd handler for Sortable ...
+
+        fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                station_id: parseInt(newStationId, 10), // parseInt here as well
+                position: Array.from(evt.item.parentNode.children).indexOf(evt.item)
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log("Participant updated successfully:", data.participant_id);
+                // You might want to refresh the participant list here if needed
+                // For example, you could re-fetch the station data and redraw the table
+            } else {
+                console.error("Error updating participant:", data.error);
+                // Handle the error, perhaps by displaying a message to the user
+            }
+        })
+        .catch(error => {
+            console.error("Network error updating participant:", error);
+            // Handle the network error
+        });
 
         // Stationen speichern bei Sortierung
         function saveStations() {
@@ -256,7 +317,7 @@
         new Sortable(tableBody, {
             animation: 150,
             handle: '.drag-handle',
-            group: 'shared',
+            group: 'shared', // Allow dragging between stations
             filter: '.participant-row',  // Prevents direct dragging of participant rows
             onEnd: (evt) => {
                 if (evt.item.classList.contains('station-row')) {
@@ -289,18 +350,21 @@
                     });
                 } else if (evt.item.classList.contains('participant-row')) {
                     const participantId = evt.item.dataset.participantId;
-                    const newStationRow = evt.item.previousElementSibling.closest('.station-row');
-                    const newStationId = newStationRow.dataset.stationId;
-                    
-                    fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            station_id: newStationId,
-                            position: Array.from(evt.item.parentNode.children).indexOf(evt.item)
-                        })
-                    });
-                }            }
+                    const newStationRow = evt.item.closest('.station-row'); // Find closest station row
+                    const newStationId = newStationRow ? newStationRow.dataset.stationId : null;
+
+                    if (newStationId) { // Check if participant is dropped within a station
+                        fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                station_id: newStationId,
+                                position: Array.from(evt.item.parentNode.children).indexOf(evt.item)
+                            })
+                        });
+                    }
+                }
+            }
         });
     });
 </script>

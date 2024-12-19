@@ -45,34 +45,37 @@ def save_stations():
         return jsonify({"error": f"Ein Fehler ist aufgetreten: {str(e)}"}), 500
 @bp.route("/api/stations/<int:station_id>/participants/<int:participant_id>", methods=["PUT"])
 def update_participant_api(station_id, participant_id):
-    participant = Participant.query.get_or_404(participant_id)
-    data = request.json
-    
-    if 'name' in data:
-        participant.name = data['name']
-    if 'monday' in data:
-        participant.monday = data['monday']
-    if 'tuesday' in data:
-        participant.tuesday = data['tuesday']
-    if 'wednesday' in data:
-        participant.wednesday = data['wednesday']
-    if 'thursday' in data:
-        participant.thursday = data['thursday']
-    if 'friday' in data:
-        participant.friday = data['friday']
-        
-    db.session.commit()
-    return jsonify({
-        "id": participant.id,
-        "name": participant.name,
-        "monday": participant.monday,
-        "tuesday": participant.tuesday,
-        "wednesday": participant.wednesday,
-        "thursday": participant.thursday,
-        "friday": participant.friday
-    })
+    try:
+        participant = Participant.query.get_or_404(participant_id)
+        data = request.get_json()
 
-@bp.route("/api/stations/<int:station_id>", methods=["PUT"])
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        if 'station_id' in data:
+            participant.station_id = int(data['station_id'])  # Ensure it's an integer
+        if 'position' in data:
+            participant.position = int(data['position'])  # Ensure it's an integer
+
+        if 'name' in data:
+            participant.name = data['name']
+        if 'monday' in data:
+            participant.monday = data['monday']
+        if 'tuesday' in data:
+            participant.tuesday = data['tuesday']
+        if 'wednesday' in data:
+            participant.wednesday = data['wednesday']
+        if 'thursday' in data:
+            participant.thursday = data['thursday']
+        if 'friday' in data:
+            participant.friday = data['friday']
+
+        db.session.commit()
+        return jsonify({"success": True, "participant_id": participant.id}), 200
+
+    except Exception as e:
+        db.session.rollback()  # Important: Rollback on error
+        return jsonify({"error": str(e)}), 500@bp.route("/api/stations/<int:station_id>", methods=["PUT"])
 def update_station(station_id):
     station = Station.query.get_or_404(station_id)
     data = request.json
