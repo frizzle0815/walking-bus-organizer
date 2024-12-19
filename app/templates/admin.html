@@ -24,142 +24,125 @@
 
     <!-- Buttons für Aktionen -->
     <button id="addStationBtn" class="btn btn-primary">+ Station</button>
+    <button id="saveStationsBtn" class="btn btn-success">Stationen speichern</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const tableBody = document.getElementById('sortableTableBody');
+    let stations = []; // Globale Variable für Stationsdaten
 
-        // Stationen laden
+    // Lade Stationsdaten vom Server
+    function fetchStations() {
         fetch('/api/stations')
             .then(response => response.json())
-            .then(stations => {
-                stations.forEach(station => {
-                    addStation(station.name, station.id, station.participants);
+            .then(data => {
+                stations = data;
+                renderStations(); // Stationen in der Tabelle anzeigen
+            })
+            .catch(error => console.error("Fehler beim Laden der Stationen:", error));
+    }
+
+    // Neue Station hinzufügen
+    function addStation() {
+        const newStation = {
+            name: "",
+            position: stations.length + 1,
+            participants: []
+        };
+
+        stations.push(newStation);
+        renderStations(); // Aktualisiere die Anzeige der Tabelle
+
+        setTimeout(() => {
+            const lastRow = document.querySelector("table tbody tr:last-child");
+            if (lastRow) {
+                const nameInput = lastRow.querySelector("input[name='station-name']");
+                if (nameInput) nameInput.focus();
+            }
+        }, 0);
+    }
+
+    // Stationen in der Tabelle anzeigen
+    function renderStations() {
+        const tbody = document.querySelector("#sortableTableBody");
+        tbody.innerHTML = ""; // Bestehende Zeilen löschen
+
+        stations.forEach((station, index) => {
+            const row = document.createElement("tr");
+            row.classList.add("station-row");
+
+            // Name der Station
+            const nameCell = document.createElement("td");
+            const nameInput = document.createElement("input");
+            nameInput.type = "text";
+            nameInput.name = "station-name";
+            nameInput.value = station.name;
+            nameInput.addEventListener("input", (e) => {
+                station.name = e.target.value;
+            });
+            nameCell.appendChild(nameInput);
+            row.appendChild(nameCell);
+
+            // Aktionen
+            const actionsCell = document.createElement("td");
+            const deleteButton = document.createElement("button");
+            deleteButton.textContent = "Löschen";
+            deleteButton.classList.add("btn", "btn-danger");
+            deleteButton.addEventListener("click", () => {
+                stations.splice(index, 1);
+                renderStations();
+            });
+            actionsCell.appendChild(deleteButton);
+            row.appendChild(actionsCell);
+
+            // Wochentage
+            ["monday", "tuesday", "wednesday", "thursday", "friday"].forEach(day => {
+                const dayCell = document.createElement("td");
+                const dayCheckbox = document.createElement("input");
+                dayCheckbox.type = "checkbox";
+                dayCheckbox.checked = station[day] || false;
+                dayCheckbox.addEventListener("change", (e) => {
+                    station[day] = e.target.checked;
                 });
+                dayCell.appendChild(dayCheckbox);
+                row.appendChild(dayCell);
             });
 
-        // SortableJS initialisieren
-        new Sortable(tableBody, {
-            animation: 150,
-            handle: '.drag-handle',
-            onEnd: () => updateOrder(),
+            tbody.appendChild(row);
         });
+    }
 
-        // Station hinzufügen
-        document.getElementById('addStationBtn').addEventListener('click', () => {
-            addStation();
-        });
-
-        function addStation() {
-            const stationName = prompt("Name der neuen Station:");
-            if (!stationName) {
-                alert("Bitte einen gültigen Stationsnamen eingeben.");
-                return;
-            }
-
-            const newStation = {
-                name: stationName,
-                position: stations.length + 1, // Annahme: 'stations' ist eine globale Liste der Stationen
-                participants: [] // Leere Teilnehmerliste für die neue Station
-            };
-
-            // Sende die aktualisierte Stationsliste an das Backend
-            const updatedStations = [...stations, newStation]; // 'stations' enthält die bestehende Stationsliste
-
-            fetch("/api/stations", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(updatedStations)
-            })
+    // Stationen speichern
+    function saveStations() {
+        fetch('/api/stations', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(stations)
+        })
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
                     console.error("Fehler beim Speichern:", data.error);
                 } else {
-                    console.log("Station gespeichert:", data);
-                    // Aktualisiere die Stationsanzeige, z. B.:
-                    stations.push(newStation);
-                    renderStations();
+                    console.log("Stationen erfolgreich gespeichert");
+                    fetchStations();
                 }
             })
-            .catch(error => console.error("Fehler:", error));
-        }
+            .catch(error => console.error("Fehler beim Speichern der Stationen:", error));
+    }
 
+    // Initialer Aufruf beim Laden der Seite
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchStations();
 
-        function addParticipant(stationRow, name = '', participantId = null, days = {}, stationId = null) {
-            const participantRow = document.createElement('tr');
-            participantRow.classList.add('participant-row');
-            participantRow.innerHTML = `
-                <td style="padding-left: 2rem;">
-                    <input type="text" class="form-control participant-name" value="${name}" placeholder="Teilnehmer eingeben">
-                </td>
-                <td>
-                    <button class="btn btn-danger remove-participant">- Teilnehmer</button>
-                </td>
-                ${['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
-                    .map(day => `<td><input type="checkbox" class="${day}" ${days[day] ? 'checked' : ''}></td>`)
-                    .join('')}
-            `;
-            stationRow.after(participantRow);
+        document.getElementById('addStationBtn').addEventListener('click', addStation);
+        document.getElementById('saveStationsBtn').addEventListener('click', saveStations);
 
-            if (!participantId && stationId) {
-                fetch(`/api/stations/${stationId}/participants`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, days }),
-                })
-                    .then(response => response.json())
-                    .then(participant => {
-                        participantId = participant.id;
-                        console.log('Teilnehmer gespeichert:', participant);
-                    });
-            }
-
-            participantRow.querySelector('.remove-participant').addEventListener('click', () => {
-                if (confirm('Möchten Sie diesen Teilnehmer wirklich löschen?')) {
-                    if (participantId) {
-                        fetch(`/api/participants/${participantId}`, { method: 'DELETE' });
-                    }
-                    participantRow.remove();
-                }
-            });
-        }
-
-        function updateOrder() {
-            const stations = [];
-            document.querySelectorAll('.station-row').forEach(stationRow => {
-                const station = {
-                    name: stationRow.querySelector('.station-name').value,
-                    participants: [],
-                };
-                let currentRow = stationRow.nextElementSibling;
-                while (currentRow && currentRow.classList.contains('participant-row')) {
-                    station.participants.push({
-                        name: currentRow.querySelector('.participant-name').value,
-                        days: {
-                            monday: currentRow.querySelector('.monday').checked,
-                            tuesday: currentRow.querySelector('.tuesday').checked,
-                            wednesday: currentRow.querySelector('.wednesday').checked,
-                            thursday: currentRow.querySelector('.thursday').checked,
-                            friday: currentRow.querySelector('.friday').checked,
-                        },
-                    });
-                    currentRow = currentRow.nextElementSibling;
-                }
-                stations.push(station);
-            });
-            console.log('Updated order:', stations);
-
-            fetch('/api/stations/update_order', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(stations),
-            });
-        }
+        new Sortable(document.querySelector("#sortableTableBody"), {
+            animation: 150
+        });
     });
 </script>
 {% endblock %}
