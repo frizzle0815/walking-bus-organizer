@@ -14,8 +14,8 @@
     <!-- Stations Container -->
     <div id="stationsContainer">
         <!-- Station Template -->
-        <div class="station-template d-none">
-            <div class="card mb-3 station-card">
+        <div class="station-template d-none station-card">
+            <div class="card mb-3">
                 <div class="card-header d-flex align-items-center bg-light py-2">
                     <div class="drag-handle me-2">⋮⋮</div>
                     <input type="text" class="form-control station-name" placeholder="Stationsname">
@@ -136,8 +136,7 @@
         function createStationCard(station) {
             const newStation = stationTemplate.cloneNode(true);
             newStation.classList.remove('d-none', 'station-template');
-            // Important: Set the station-card's dataset, not just the wrapper
-            newStation.querySelector('.station-card').dataset.stationId = station.id;
+            newStation.dataset.stationId = station.id;
             newStation.querySelector('.station-name').value = station.name;
 
             const participantsContainer = newStation.querySelector('.participants-container');
@@ -306,16 +305,33 @@
         }
 
         function updateStationOrder() {
-            const stations = Array.from(document.querySelectorAll('.station-card')).map((card, index) => ({
-                id: card.dataset.stationId,
-                position: index
-            }));
+            const stations = Array.from(document.querySelectorAll('.station-card')).map((card, index) => {
+                console.log('Station card:', card);
+                console.log('Station ID:', card.dataset.stationId);
+                console.log('Position:', index);
+                return {
+                    id: parseInt(card.dataset.stationId),
+                    position: index
+                };
+            });
+
+            console.log('Sending station order update:', stations);
 
             fetch('/api/stations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(stations)
-            });
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || 'Unknown error occurred');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => console.log('Update successful:', data))
+            .catch(error => console.error('Update failed:', error));
         }
 
         function updateParticipantOrder(evt) {

@@ -37,14 +37,33 @@ def get_stations():
 
 @bp.route("/api/stations", methods=["POST"])
 def update_stations_order():
-    data = request.get_json()
-    for station_data in data:
-        station = Station.query.get(station_data['id'])
-        if station:
-            station.position = station_data['position']
-    db.session.commit()
-    return jsonify({"success": True})
+    try:
+        data = request.get_json()
+        print("Received data for station order update:", data)  # Debug log
+        
+        if not isinstance(data, list):
+            error_msg = "Invalid data format. Expected a list."
+            print("Error:", error_msg)  # Debug log
+            return jsonify({"error": error_msg}), 400
 
+        # Update positions for all stations
+        for station_data in data:
+            print(f"Processing station: {station_data}")  # Debug log
+            station = Station.query.get(station_data['id'])
+            if station:
+                station.position = station_data['position']
+            else:
+                print(f"Station not found: {station_data['id']}")  # Debug log
+        
+        db.session.commit()
+        print("Station order update successful")  # Debug log
+        return jsonify({"success": True}), 200
+
+    except Exception as e:
+        error_msg = f"An error occurred: {str(e)}"
+        print("Error:", error_msg)  # Debug log
+        return jsonify({"error": error_msg}), 500
+        
 @bp.route("/api/stations/<int:station_id>", methods=["PUT"])
 def update_station(station_id):
     station = Station.query.get_or_404(station_id)
