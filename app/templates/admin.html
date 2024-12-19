@@ -31,14 +31,16 @@
     document.addEventListener('DOMContentLoaded', () => {
         const tableBody = document.getElementById('sortableTableBody');
 
-        // Backend-Daten abrufen und initialisieren
+        // Stationen laden
         fetch('/api/stations')
             .then(response => response.json())
-            .then(data => {
-                data.forEach(station => addStation(station.name, station.id, station.participants));
+            .then(stations => {
+                stations.forEach(station => {
+                    addStation(station.name, station.id, station.participants);
+                });
             });
 
-        // SortableJS initialisieren für Drag-and-Drop
+        // SortableJS initialisieren
         new Sortable(tableBody, {
             animation: 150,
             handle: '.drag-handle',
@@ -55,7 +57,7 @@
             stationRow.classList.add('station-row');
             stationRow.innerHTML = `
                 <td>
-                    <span class="drag-handle">☰</span>
+                    <span class="drag-handle">☞</span>
                     <input type="text" class="form-control station-name" value="${name}" placeholder="Station eingeben">
                 </td>
                 <td>
@@ -66,25 +68,38 @@
             `;
             tableBody.appendChild(stationRow);
 
+            if (!stationId) {
+                fetch('/api/stations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                })
+                    .then(response => response.json())
+                    .then(station => {
+                        stationId = station.id;
+                        console.log('Station gespeichert:', station);
+                    });
+            }
+
             participants.forEach(participant => {
-                addParticipant(stationRow, participant.name, participant.id, participant.days);
+                addParticipant(stationRow, participant.name, participant.id, participant.days, stationId);
             });
 
             stationRow.querySelector('.add-participant').addEventListener('click', () => {
-                addParticipant(stationRow);
+                addParticipant(stationRow, '', null, {}, stationId);
             });
 
             stationRow.querySelector('.remove-station').addEventListener('click', () => {
                 if (confirm('Möchten Sie diese Station wirklich löschen?')) {
                     if (stationId) {
-                        fetch(`/admin/stations/${stationId}/delete`, { method: 'POST' });
+                        fetch(`/api/stations/${stationId}`, { method: 'DELETE' });
                     }
                     tableBody.removeChild(stationRow);
                 }
             });
         }
 
-        function addParticipant(stationRow, name = '', participantId = null, days = {}) {
+        function addParticipant(stationRow, name = '', participantId = null, days = {}, stationId = null) {
             const participantRow = document.createElement('tr');
             participantRow.classList.add('participant-row');
             participantRow.innerHTML = `
@@ -100,10 +115,23 @@
             `;
             stationRow.after(participantRow);
 
+            if (!participantId && stationId) {
+                fetch(`/api/stations/${stationId}/participants`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, days }),
+                })
+                    .then(response => response.json())
+                    .then(participant => {
+                        participantId = participant.id;
+                        console.log('Teilnehmer gespeichert:', participant);
+                    });
+            }
+
             participantRow.querySelector('.remove-participant').addEventListener('click', () => {
                 if (confirm('Möchten Sie diesen Teilnehmer wirklich löschen?')) {
                     if (participantId) {
-                        fetch(`/admin/participants/${participantId}/delete`, { method: 'POST' });
+                        fetch(`/api/participants/${participantId}`, { method: 'DELETE' });
                     }
                     participantRow.remove();
                 }
@@ -133,8 +161,9 @@
                 }
                 stations.push(station);
             });
+            console.log('Updated order:', stations);
 
-            fetch('/admin/stations/update_order', {
+            fetch('/api/stations/update_order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(stations),

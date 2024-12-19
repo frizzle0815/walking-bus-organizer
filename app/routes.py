@@ -31,7 +31,7 @@ def save_stations():
     if not data:
         return jsonify({"error": "Keine Daten erhalten"}), 400
 
-    # Löschen der bestehenden Stationen und Teilnehmer
+    # Bestehende Stationen und Teilnehmer löschen
     Station.query.delete()
     db.session.commit()
 
@@ -39,18 +39,18 @@ def save_stations():
     for station_data in data:
         station = Station(name=station_data['name'], position=station_data['position'])
         db.session.add(station)
-        db.session.flush()  # ID der Station erhalten
+        db.session.flush()  # Station-ID abrufen
 
         for participant_data in station_data['participants']:
             participant = Participant(
                 name=participant_data['name'],
                 position=participant_data['position'],
                 station_id=station.id,
-                monday=participant_data['monday'],
-                tuesday=participant_data['tuesday'],
-                wednesday=participant_data['wednesday'],
-                thursday=participant_data['thursday'],
-                friday=participant_data['friday']
+                monday=participant_data.get('monday', False),
+                tuesday=participant_data.get('tuesday', False),
+                wednesday=participant_data.get('wednesday', False),
+                thursday=participant_data.get('thursday', False),
+                friday=participant_data.get('friday', False)
             )
             db.session.add(participant)
 
@@ -68,8 +68,7 @@ def update_participation(participant_id):
 
 @bp.route("/admin")
 def admin():
-    stations = Station.query.order_by(Station.position).all()
-    return render_template("admin.html", stations=stations)
+    return render_template("admin.html")
 
 @bp.route("/admin/stations", methods=["POST"])
 def create_station():
