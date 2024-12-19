@@ -133,7 +133,7 @@
                 </td>
                 <td>
                     ${['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
-                        .map(day => `<input type="checkbox" class="day-checkbox ${day}" ${participant.days[day] ? 'checked' : ''}>`)
+                        .map(day => `<input type="checkbox" class="day-checkbox ${day}" ${participant[day] ? 'checked' : ''}>`)
                         .join('')}
                     <button class="btn btn-danger btn-sm delete-participant">- Teilnehmer</button>
                 </td>
@@ -149,7 +149,7 @@
             // Teilnehmer speichern bei Änderung der Checkboxen
             participantRow.querySelectorAll('.day-checkbox').forEach(checkbox => {
                 checkbox.addEventListener('change', () => {
-                    participant.days[checkbox.classList[1]] = checkbox.checked;
+                    participant[checkbox.classList[1]] = checkbox.checked;
                     saveParticipant(participant, station.id);
                 });
             });
