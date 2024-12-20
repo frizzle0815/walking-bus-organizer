@@ -17,3 +17,4 @@ class Participant(db.Model):
     thursday = db.Column(db.Boolean, default=False)
     friday = db.Column(db.Boolean, default=False)
     status_today = db.Column(db.Boolean, default=True)  # True = Grün (nimmt teil)
+    status_initialized_date = db.Column(db.DateTime)

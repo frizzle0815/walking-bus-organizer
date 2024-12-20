@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, jsonify, request
+from datetime import datetime
 from .models import Station, Participant, db
 
 bp = Blueprint("main", __name__)
@@ -25,6 +26,7 @@ def get_stations():
             "wednesday": p.wednesday,
             "thursday": p.thursday,
             "friday": p.friday,
+            "status_today": p.status_today,
             "position": p.position
         } for p in station.participants]
         result.append({
@@ -34,7 +36,6 @@ def get_stations():
             "participants": participants
         })
     return jsonify(result)
-
 @bp.route("/api/stations", methods=["POST"])
 def update_stations_order():
     try:
@@ -138,3 +139,49 @@ def delete_participant(participant_id):
     db.session.delete(participant)
     db.session.commit()
     return jsonify({"success": True})
+
+@bp.route("/api/initialize-daily-status", methods=["POST"])
+def initialize_daily_status():
+    weekday = datetime.now().weekday()
+    
+    day_mapping = {
+        0: 'monday',
+        1: 'tuesday',
+        2: 'wednesday',
+        3: 'thursday',
+        4: 'friday'
+    }
+    
+    if weekday in day_mapping:
+        current_day = day_mapping[weekday]
+        participants = Participant.query.all()
+        
+        for participant in participants:
+            # Get the scheduled participation for current day
+            should_participate = getattr(participant, current_day)
+            
+            # Only update if not already initialized today
+            if (participant.status_initialized_date is None or 
+                participant.status_initialized_date.date() != datetime.now().date()):
+                participant.status_today = should_participate
+                participant.status_initialized_date = datetime.now()
+        
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "day": current_day
+        })
+    
+    return jsonify({"success": False, "message": "Not a school day"})
+
+
+@bp.route("/api/participation/<int:participant_id>", methods=["PATCH"])
+def toggle_participation(participant_id):
+    participant = Participant.query.get_or_404(participant_id)
+    participant.status_today = not participant.status_today
+    db.session.commit()
+    
+    return jsonify({
+        "status_today": participant.status_today,
+        "participant_id": participant.id
+    })
