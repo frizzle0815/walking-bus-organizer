@@ -308,37 +308,61 @@
     async function openCalendar(participantId) {
         currentParticipantId = participantId;
         const modal = document.getElementById('calendarModal');
+    
+        // Get participant name from the button's parent structure
+        const calendarButton = event.target;
+        const participantItem = calendarButton.closest('.participant-item');
+        const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
+    
+        // Update modal header with participant name and restore close button functionality
+        const modalContent = modal.querySelector('.modal-content');
+        modalContent.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+                <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
+                <h4 class="mb-0 ms-3">${participantName}</h4>
+            </div>
+            <div id="calendar"></div>
+        `;
+    
         modal.style.display = 'block';
         await renderCalendar();
-    }
+    }    async function toggleDayStatus(participantId, date, dayDiv) {
+        // Get server's current date through the initialize-daily-status endpoint
+        // This endpoint already contains the server's date logic
+        const serverResponse = await axios.post('/api/initialize-daily-status');
+        
+        // Use the date from the calendar rendering which comes from server
+        const clickedDate = date.toISOString().split('T')[0];
+        
+        console.log('Server-based date comparison:', {
+            serverDate: serverResponse.data.currentDate,
+            clicked: clickedDate,
+            isToday: serverResponse.data.currentDate === clickedDate
+        });
 
-    async function toggleDayStatus(participantId, date, dayDiv) {
+        if (serverResponse.data.currentDate === clickedDate) {
+            const participantItem = document.querySelector(`.participant-item:has(button[onclick*="${participantId}"])`);
+            if (participantItem) {
+                const statusButton = participantItem.querySelector('button');
+                await toggleParticipation(participantId, statusButton);
+            }
+            return;
+        }
+        
+        // Future dates logic
         const currentStatus = dayDiv.classList.contains('day-green');
         const newStatus = !currentStatus;
-
-        console.log('Toggling day status:', {
-            participantId,
-            date: date.toISOString().split('T')[0],
-            currentStatus,
-            newStatus
+        
+        await axios.post('/api/calendar-status', {
+            participant_id: participantId,
+            date: clickedDate,
+            status: newStatus
         });
-          try {
-              await axios.post('/api/calendar-status', {
-                  participant_id: participantId,
-                  date: date.toISOString().split('T')[0],
-                  status: newStatus
-              });
         
-              console.log('Status updated successfully');
-              dayDiv.classList.toggle('day-green');
-              dayDiv.classList.toggle('day-red');
-        
-          } catch (error) {
-              console.error('Error saving calendar status:', error);
-          }
-      }
-
-      function getNextTwoWeeks(startDate) {
+        dayDiv.classList.toggle('day-green');
+        dayDiv.classList.toggle('day-red');
+    }
+       function getNextTwoWeeks(startDate) {
           const weeks = [];
           const firstDay = new Date(startDate);
           // Set time to noon to avoid timezone issues
@@ -356,62 +380,63 @@
           }
           return weeks;
       }
-
-      async function renderCalendar() {
-          console.log('Rendering calendar for participant:', currentParticipantId);
-          const calendar = document.getElementById('calendar');
-          calendar.innerHTML = '';
+        async function renderCalendar() {
+            console.log('Rendering calendar for participant:', currentParticipantId);
+            const calendar = document.getElementById('calendar');
+            calendar.innerHTML = '';
         
-          const today = new Date();
-          // Set time to noon to avoid timezone issues
-          today.setHours(12, 0, 0, 0);
+            const today = new Date();
+            // Set time to noon to avoid timezone issues
+            today.setHours(12, 0, 0, 0);
     
-          // Weekday headers with correct mapping
-          const weekdayHeader = document.createElement('div');
-          weekdayHeader.className = 'week';
-          const weekdays = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-          weekdays.forEach(day => {
-              const dayHeader = document.createElement('div');
-              dayHeader.className = 'calendar-day-header';
-              dayHeader.textContent = day;
-              weekdayHeader.appendChild(dayHeader);
-          });
-          calendar.appendChild(weekdayHeader);
+            // Weekday headers with correct mapping
+            const weekdayHeader = document.createElement('div');
+            weekdayHeader.className = 'week';
+            const weekdays = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+            weekdays.forEach(day => {
+                const dayHeader = document.createElement('div');
+                dayHeader.className = 'calendar-day-header';
+                dayHeader.textContent = day;
+                weekdayHeader.appendChild(dayHeader);
+            });
+            calendar.appendChild(weekdayHeader);
     
-          const weeks = getNextTwoWeeks(today);
+            const weeks = getNextTwoWeeks(today);
     
-          for (const week of weeks) {
-              const weekDiv = document.createElement('div');
-              weekDiv.className = 'week';
+            for (const week of weeks) {
+                const weekDiv = document.createElement('div');
+                weekDiv.className = 'week';
         
-              for (let i = 0; i < 7; i++) {
-                  const day = week[i];
-                  console.log('Processing day:', {
-                      date: day.toISOString(),
-                      weekdayIndex: i,
-                      isPast: day < today,
-                      isWeekend: i > 4
-                  });
-                  const dayDiv = document.createElement('div');
-                  dayDiv.className = 'calendar-day';
-                  dayDiv.textContent = day.getDate();
+                for (let i = 0; i < 7; i++) {
+                    const day = week[i];
+                    const dayDiv = document.createElement('div');
+                    dayDiv.className = 'calendar-day';
+                    dayDiv.textContent = day.getDate();
             
-                  const isPast = day < today;
-                  const isWeekend = i > 4;  // Index 5 and 6 are weekend days
+                    const isPast = day < today;
+                    const isWeekend = i > 4;
             
-                  if (isPast || isWeekend) {
-                      dayDiv.classList.add('day-gray');
-                  } else {
-                      const status = await getStatusForDay(currentParticipantId, day);
-                      dayDiv.classList.add(status ? 'day-green' : 'day-red');
-                      dayDiv.onclick = () => toggleDayStatus(currentParticipantId, day, dayDiv);
-                  }
+                    if (isPast || isWeekend) {
+                        dayDiv.classList.add('day-gray');
+                    } else {
+                        const status = await getStatusForDay(currentParticipantId, day);
+                        dayDiv.classList.add(status ? 'day-green' : 'day-red');
+                      
+                        // Store the date directly on the element
+                        dayDiv.dataset.date = day.toISOString();
+                        dayDiv.onclick = async (e) => {
+                            console.log('Day clicked:', day.toISOString());
+                            console.log('Today:', new Date().toISOString());
+                            await toggleDayStatus(currentParticipantId, day, e.target);
+                        };
+                    }
             
-                  weekDiv.appendChild(dayDiv);
-              }
-              calendar.appendChild(weekDiv);
-          }
-      }
+                    weekDiv.appendChild(dayDiv);
+                }
+                calendar.appendChild(weekDiv);
+            }
+        }
+        
     // Initialize everything when DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
         loadStations();

@@ -143,50 +143,12 @@ def delete_participant(participant_id):
 
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 def initialize_daily_status():
-    weekday = datetime.now().weekday()
     today = datetime.now().date()
-  
-    day_mapping = {
-        0: 'monday',
-        1: 'tuesday',
-        2: 'wednesday',
-        3: 'thursday',
-        4: 'friday'
-    }
-  
-    if weekday in day_mapping:
-        current_day = day_mapping[weekday]
-        participants = Participant.query.all()
-      
-        for participant in participants:
-            # Check if there's already a manual calendar entry
-            calendar_entry = CalendarStatus.query.filter_by(
-                participant_id=participant.id,
-                date=today
-            ).first()
-          
-            if not calendar_entry:
-                # No manual entry exists, use default from admin settings
-                should_participate = getattr(participant, current_day)
-                participant.status_today = should_participate
-                participant.status_initialized_date = datetime.now()
-              
-                # Create calendar entry
-                calendar_entry = CalendarStatus(
-                    participant_id=participant.id,
-                    date=today,
-                    status=should_participate,
-                    is_manual_override=False
-                )
-                db.session.add(calendar_entry)
-            else:
-                # Use existing calendar entry status
-                participant.status_today = calendar_entry.status
-      
-        db.session.commit()
-        return jsonify({"success": True})
-  
-    return jsonify({"success": False, "message": "Not a school day"})
+    # Add current date to response
+    return jsonify({
+        "success": True,
+        "currentDate": today.isoformat()
+    })
 
 
 @bp.route("/api/participation/<int:participant_id>", methods=["PATCH"])
