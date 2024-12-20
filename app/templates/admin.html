@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
 <div class="container-fluid px-2">
     <h1 class="h3 text-center my-3">Walking Bus Administration</h1>
 
@@ -33,40 +35,40 @@
                 </div>
             </div>
         </div>
-
-        <!-- Participant Template -->
-        <div class="participant-template d-none">
-            <div class="participant-card mb-2 border rounded p-2">
-                <div class="d-flex align-items-center mb-2">
-                    <div class="drag-handle me-2">⋮⋮</div>
-                    <input type="text" class="form-control participant-name" placeholder="Name">
-                    <button class="btn btn-danger btn-sm ms-2 delete-participant">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-                <div class="days-container d-flex justify-content-between">
-                    <div class="form-check">
-                        <input type="checkbox" class="form-check-input monday" id="mon-{id}">
-                        <label class="form-check-label" for="mon-{id}">Mo</label>
-                    </div>
-                    <div class="form-check">
-                        <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
-                        <label class="form-check-label" for="tue-{id}">Di</label>
-                    </div>
-                    <div class="form-check">
-                        <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
-                        <label class="form-check-label" for="wed-{id}">Mi</label>
-                    </div>
-                    <div class="form-check">
-                        <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
-                        <label class="form-check-label" for="thu-{id}">Do</label>
-                    </div>
-                    <div class="form-check">
-                        <input type="checkbox" class="form-check-input friday" id="fri-{id}">
-                        <label class="form-check-label" for="fri-{id}">Fr</label>
-                    </div>
-                </div>
-            </div>
+          <!-- Participant Template -->
+          <div class="participant-template d-none">
+              <div class="participant-card mb-2 border rounded p-2">
+                  <div class="d-flex align-items-center">
+                      <div class="drag-handle me-2">⋮⋮</div>
+                      <input type="text" class="form-control participant-name" placeholder="Name">
+                      <div class="days-container d-flex ms-2">
+                          <div class="form-check me-2">
+                              <input type="checkbox" class="form-check-input monday" id="mon-{id}">
+                              <label class="form-check-label" for="mon-{id}">Mo</label>
+                          </div>
+                          <div class="form-check me-2">
+                              <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
+                              <label class="form-check-label" for="tue-{id}">Di</label>
+                          </div>
+                          <div class="form-check me-2">
+                              <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
+                              <label class="form-check-label" for="wed-{id}">Mi</label>
+                          </div>
+                          <div class="form-check me-2">
+                              <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
+                              <label class="form-check-label" for="thu-{id}">Do</label>
+                          </div>
+                          <div class="form-check me-2">
+                              <input type="checkbox" class="form-check-input friday" id="fri-{id}">
+                              <label class="form-check-label" for="fri-{id}">Fr</label>
+                          </div>
+                      </div>
+                      <button class="btn btn-danger btn-sm ms-2 delete-participant">
+                          <i class="fas fa-trash"></i>
+                      </button>
+                  </div>
+              </div>
+          </div>
         </div>
     </div>
 </div>
@@ -84,13 +86,47 @@
     background-color: #fff;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+  /* Update the card header background */
+  .card-header {
+      background-color: #414141 !important; /* Dark gray */
+      color: #fff; /* White text */
+  }
 
-.participant-card {
-    background-color: #f8f9fa;
-}
+  /* Update input field in dark header */
+  .card-header .station-name {
+      background-color: #6f6f70;
+      color: #fff;
+      border: 1px solid #6c757d;
+  }
 
-.form-check-label {
-    font-size: 0.9rem;
+  .card-header .station-name::placeholder {
+      color: #adb5bd;
+  }
+
+  /* Style the participants container */
+  .card-body.participants-container {
+      background-color: #414141;
+  }
+
+  /* Keep participant cards light */
+  .participant-card {
+      background-color: #f8f9fa;
+  }
+
+  /* Style the footer to match the dark background */
+  .card-footer {
+      background-color: #414141 !important;
+  }
+
+  /* Style the add participant button to match the blue station button */
+  .add-participant {
+      background-color: #0d6efd !important;
+      border-color: #0d6efd !important;
+      color: white !important;
+  }
+}    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    .form-check-label {
+        font-size: 0.9rem;
     margin-left: 4px;
 }
 
@@ -111,7 +147,6 @@
 
 <!-- Include necessary scripts -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-<script src="https://kit.fontawesome.com/your-fontawesome-kit.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const stationsContainer = document.getElementById('stationsContainer');
