@@ -246,12 +246,34 @@
 
             // Day checkboxes
             participantElement.querySelectorAll('.form-check-input').forEach(checkbox => {
-                checkbox.addEventListener('change', (e) => {
+                checkbox.addEventListener('change', async (e) => {
                     const day = e.target.classList[1];
-                    updateParticipant(participant.id, { [day]: e.target.checked });
+                    console.log('Admin checkbox change:', {
+                        day: day,
+                        checked: e.target.checked,
+                        weekdayClass: e.target.classList
+                    });
+                    const participantId = participantElement.dataset.participantId;
+                    
+                    await updateParticipant(participantId, { [day]: e.target.checked });
+                    
+                    console.log('Updating future entries for:', {
+                        participantId: participantId,
+                        day: day,
+                        status: e.target.checked
+                    });
+                    
+                    await fetch('/api/update-future-entries', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            participant_id: participantId,
+                            day: day,
+                            status: e.target.checked
+                        })
+                    });
                 });
             });
-
             // Delete participant
             participantElement.querySelector('.delete-participant').addEventListener('click', () => {
                 const participantName = participantElement.querySelector('.participant-name').value;

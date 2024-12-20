@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request
-from datetime import datetime
 from .models import Station, Participant, CalendarStatus, db
+
+# Create Blueprint on a new line
 bp = Blueprint("main", __name__)
 
 @bp.route('/')
@@ -142,7 +144,8 @@ def delete_participant(participant_id):
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 def initialize_daily_status():
     weekday = datetime.now().weekday()
-    
+    today = datetime.now().date()
+  
     day_mapping = {
         0: 'monday',
         1: 'tuesday',
@@ -150,27 +153,39 @@ def initialize_daily_status():
         3: 'thursday',
         4: 'friday'
     }
-    
+  
     if weekday in day_mapping:
         current_day = day_mapping[weekday]
         participants = Participant.query.all()
-        
+      
         for participant in participants:
-            # Get the scheduled participation for current day
-            should_participate = getattr(participant, current_day)
-            
-            # Only update if not already initialized today
-            if (participant.status_initialized_date is None or 
-                participant.status_initialized_date.date() != datetime.now().date()):
+            # Check if there's already a manual calendar entry
+            calendar_entry = CalendarStatus.query.filter_by(
+                participant_id=participant.id,
+                date=today
+            ).first()
+          
+            if not calendar_entry:
+                # No manual entry exists, use default from admin settings
+                should_participate = getattr(participant, current_day)
                 participant.status_today = should_participate
                 participant.status_initialized_date = datetime.now()
-        
+              
+                # Create calendar entry
+                calendar_entry = CalendarStatus(
+                    participant_id=participant.id,
+                    date=today,
+                    status=should_participate,
+                    is_manual_override=False
+                )
+                db.session.add(calendar_entry)
+            else:
+                # Use existing calendar entry status
+                participant.status_today = calendar_entry.status
+      
         db.session.commit()
-        return jsonify({
-            "success": True,
-            "day": current_day
-        })
-    
+        return jsonify({"success": True})
+  
     return jsonify({"success": False, "message": "Not a school day"})
 
 
@@ -178,26 +193,63 @@ def initialize_daily_status():
 def toggle_participation(participant_id):
     participant = Participant.query.get_or_404(participant_id)
     participant.status_today = not participant.status_today
+    
+    # Add today's date to CalendarStatus
+    today = datetime.now().date()
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=today
+    ).first()
+    
+    if calendar_entry:
+        calendar_entry.status = participant.status_today
+        calendar_entry.is_manual_override = True
+    else:
+        calendar_entry = CalendarStatus(
+            participant_id=participant_id,
+            date=today,
+            status=participant.status_today,
+            is_manual_override=True
+        )
+        db.session.add(calendar_entry)
+    
     db.session.commit()
     
     return jsonify({
         "status_today": participant.status_today,
         "participant_id": participant.id
     })
-
 @bp.route("/api/calendar-status", methods=["POST"])
 def update_calendar_status():
     data = request.get_json()
     participant_id = data['participant_id']
-    date = data['date']
+    date = datetime.strptime(data['date'], '%Y-%m-%d').date()
     status = data['status']
-    
-    # Update or create calendar entry in database
+  
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
         date=date
     ).first()
-    
+  
+    if calendar_entry:
+        calendar_entry.status = status
+        calendar_entry.is_manual_override = True
+    else:
+        calendar_entry = CalendarStatus(
+            participant_id=participant_id,
+            date=date,
+            status=status,
+            is_manual_override=True
+        )
+        db.session.add(calendar_entry)
+  
+    # Update status_today if this is for today
+    if date == datetime.now().date():
+        participant = Participant.query.get(participant_id)
+        participant.status_today = status
+  
+    db.session.commit()
+    return jsonify({"success": True})
     if calendar_entry:
         calendar_entry.status = status
     else:
@@ -218,3 +270,73 @@ def get_calendar_status(participant_id):
         'date': entry.date.isoformat(),
         'status': entry.status
     } for entry in entries])
+
+@bp.route("/api/update-future-entries", methods=["POST"])
+def update_future_entries():
+    data = request.get_json()
+    participant_id = data['participant_id']
+    day = data['day']
+    status = data['status']
+    
+    # Get today's date
+    today = datetime.now().date()
+    
+    # Map day names to weekday numbers (0 = Monday, 6 = Sunday)
+    day_mapping = {
+        'monday': 1,
+        'tuesday': 2,
+        'wednesday': 3,
+        'thursday': 4,
+        'friday': 5
+    }
+    
+    target_weekday = day_mapping[day]
+    
+    # Get all future dates for this weekday for the next 3 months
+    future_dates = []
+    current_date = today
+    for _ in range(90):  # Check next 90 days
+        if current_date.weekday() == (target_weekday - 1):  # Subtract 1 to align with Python's Monday = 0 system
+            future_dates.append(current_date)
+        current_date += timedelta(days=1)
+    
+    # Update or create calendar entries for these dates
+    for date in future_dates:
+        # Only update if there's no manual override
+        calendar_entry = CalendarStatus.query.filter_by(
+            participant_id=participant_id,
+            date=date
+        ).first()
+        
+        if not calendar_entry or not calendar_entry.is_manual_override:
+            if calendar_entry:
+                calendar_entry.status = status
+            else:
+                new_entry = CalendarStatus(
+                    participant_id=participant_id,
+                    date=date,
+                    status=status,
+                    is_manual_override=False
+                )
+                db.session.add(new_entry)
+    
+    db.session.commit()
+    return jsonify({"success": True})
+
+@bp.route("/api/stations/<int:station_id>/stats")
+def get_station_stats(station_id):
+    station = Station.query.get_or_404(station_id)
+    total = len(station.participants)
+    active = sum(1 for p in station.participants if p.status_today)
+    return jsonify({
+        "total": total,
+        "active": active
+    })
+
+@bp.route("/api/participant/<int:participant_id>/weekday-status/<string:weekday>")
+def get_participant_weekday_status(participant_id, weekday):
+    print(f"Checking weekday status: participant={participant_id}, weekday={weekday}")
+    participant = Participant.query.get_or_404(participant_id)
+    status = getattr(participant, weekday, True)
+    print(f"Status for {weekday}: {status}")
+    return jsonify({"status": status})
