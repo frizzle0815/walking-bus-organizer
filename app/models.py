@@ -18,3 +18,11 @@ class Participant(db.Model):
     friday = db.Column(db.Boolean, default=False)
     status_today = db.Column(db.Boolean, default=True)  # True = Grün (nimmt teil)
     status_initialized_date = db.Column(db.DateTime)
+
+class CalendarStatus(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    participant_id = db.Column(db.Integer, db.ForeignKey('participant.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.Boolean, nullable=False)
+    
+    participant = db.relationship('Participant', backref='calendar_entries')

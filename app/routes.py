@@ -1,7 +1,6 @@
 from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime
-from .models import Station, Participant, db
-
+from .models import Station, Participant, CalendarStatus, db
 bp = Blueprint("main", __name__)
 
 @bp.route('/')
@@ -185,3 +184,37 @@ def toggle_participation(participant_id):
         "status_today": participant.status_today,
         "participant_id": participant.id
     })
+
+@bp.route("/api/calendar-status", methods=["POST"])
+def update_calendar_status():
+    data = request.get_json()
+    participant_id = data['participant_id']
+    date = data['date']
+    status = data['status']
+    
+    # Update or create calendar entry in database
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=date
+    ).first()
+    
+    if calendar_entry:
+        calendar_entry.status = status
+    else:
+        calendar_entry = CalendarStatus(
+            participant_id=participant_id,
+            date=date,
+            status=status
+        )
+        db.session.add(calendar_entry)
+    
+    db.session.commit()
+    return jsonify({"success": True})
+
+@bp.route("/api/calendar-status/<int:participant_id>", methods=["GET"])
+def get_calendar_status(participant_id):
+    entries = CalendarStatus.query.filter_by(participant_id=participant_id).all()
+    return jsonify([{
+        'date': entry.date.isoformat(),
+        'status': entry.status
+    } for entry in entries])
