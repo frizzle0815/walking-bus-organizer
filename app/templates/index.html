@@ -1,50 +1,141 @@
 {% extends "base.html" %}
+  {% block content %}
+  <div class="container-fluid px-2 py-2" style="max-width: 600px;">
+      <div id="stations"></div>
+  </div>
 
-{% block content %}
-<h1 class="text-center">Walking Bus Organizer</h1>
-<div id="stations"></div>
+  <style>
+      .station-card {
+          background-color: #414141;
+          border-radius: 8px;
+          margin-bottom: 12px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
 
-<script>
-    async function loadStations() {
-        const response = await axios.get('/api/stations');
-        const stations = response.data;
-        const stationsContainer = document.getElementById('stations');
-        stationsContainer.innerHTML = '';
+      .station-header {
+          padding: 8px 12px;
+          border-bottom: 1px solid #555;
+          background-color: #414141;
+          border-radius: 8px 8px 0 0;
+          color: white;
+      }
+
+      .participants-list {
+          background-color: #fff;
+          border-radius: 0 0 8px 8px;
+          padding: 4px;
+      }
+
+      .participant-item {
+          border: none !important;
+          margin: 2px 0;
+          border-radius: 4px !important;
+      }
+  </style>
+
+  <script>
+      async function initializeDailyStatus() {
+          try {
+              await axios.post('/api/initialize-daily-status');
+          } catch (error) {
+              console.error('Error initializing daily status:', error);
+          }
+      }
+      async function loadStations() {
+          await initializeDailyStatus();
+          const response = await axios.get('/api/stations');
+          const stations = response.data;
+          const stationsContainer = document.getElementById('stations');
+          stationsContainer.innerHTML = '';
         
-        stations.forEach(station => {
-            const stationDiv = document.createElement('div');
-            stationDiv.classList.add('mt-4');
-            stationDiv.innerHTML = `<h3>${station.name}</h3>`;
+          stations.forEach(station => {
+              const stationDiv = document.createElement('div');
+              stationDiv.classList.add('station-card');
+              stationDiv.innerHTML = `
+                  <div class="station-header">
+                      <h5 class="d-flex justify-content-between align-items-center mb-0">
+                          <span>
+                              <i class="fas fa-bus-simple me-2"></i>
+                              ${station.name}
+                          </span>
+                          <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                              ${getStationStats(station)}
+                          </span>
+                      </h5>
+                  </div>`;
             
-            const list = document.createElement('ul');
-            list.classList.add('list-group');
-            station.participants.forEach(participant => {
-                const item = document.createElement('li');
-                item.classList.add('list-group-item', 'd-flex', 'justify-content-between', 'align-items-center');
-                item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
-                item.innerHTML = `
-                    ${participant.name}
-                    <button class="btn btn-sm ${participant.status_today ? 'btn-danger' : 'btn-success'}" 
-                            onclick="toggleParticipation(${participant.id}, this)">
-                        ${participant.status_today ? 'Absagen' : 'Teilnehmen'}
-                    </button>
-                `;
-                list.appendChild(item);
-            });
-            stationDiv.appendChild(list);
-            stationsContainer.appendChild(stationDiv);
-        });
-    }
+              const list = document.createElement('ul');
+              list.classList.add('list-group', 'list-group-flush', 'participants-list');
+              list.dataset.stationId = station.id;
+            
+              station.participants.forEach(participant => {
+                  const item = document.createElement('li');
+                  item.classList.add('list-group-item', 'py-1', 'd-flex', 'justify-content-between', 'align-items-center', 'participant-item');
+                  item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
+                
+                  const nameSpan = document.createElement('span');
+                  nameSpan.classList.add('text-truncate', 'me-2');
+                  nameSpan.style.fontSize = '0.9rem';
+                  nameSpan.textContent = participant.name;
+                
+                  const button = document.createElement('button');
+                  button.classList.add(
+                      'btn', 
+                      'btn-sm', 
+                      participant.status_today ? 'btn-outline-danger' : 'btn-outline-success',
+                      'rounded-pill'
+                  );
+                  button.style.fontSize = '0.8rem';
+                  button.style.padding = '0.2rem 0.8rem';
+                  button.onclick = () => toggleParticipation(participant.id, button);
+                  button.innerHTML = participant.status_today ? 
+                      '<i class="fas fa-times"></i>' : 
+                      '<i class="fas fa-check"></i>';
+                
+                  item.appendChild(nameSpan);
+                  item.appendChild(button);
+                  list.appendChild(item);
+              });
+            
+              stationDiv.appendChild(list);
+              stationsContainer.appendChild(stationDiv);
+          });
+      }
+      function getStationStats(station) {
+          const totalParticipants = station.participants.length;
+          const confirmedParticipants = station.participants.filter(p => p.status_today).length;
+          return `${confirmedParticipants} / ${totalParticipants}`;
+      }
 
-    async function toggleParticipation(participantId, button) {
-        const response = await axios.patch(`/api/participation/${participantId}`);
-        const { status_today } = response.data;
-        button.parentElement.style.backgroundColor = status_today ? '#d4edda' : '#f8d7da';
-        button.classList.toggle('btn-danger', status_today);
-        button.classList.toggle('btn-success', !status_today);
-        button.textContent = status_today ? 'Absagen' : 'Teilnehmen';
-    }
+      async function toggleParticipation(participantId, button) {
+          try {
+              const response = await axios.patch(`/api/participation/${participantId}`);
+              const { status_today } = response.data;
+            
+              // Update UI
+              const listItem = button.parentElement;
+              listItem.style.backgroundColor = status_today ? '#d4edda' : '#f8d7da';
+              button.classList.toggle('btn-outline-danger', status_today);
+              button.classList.toggle('btn-outline-success', !status_today);
+              button.innerHTML = status_today ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
 
-    loadStations();
-</script>
-{% endblock %}
+              // Update station statistics
+              const stationElement = listItem.closest('.mt-2');
+              const stationId = stationElement.querySelector('ul').dataset.stationId;
+              const statsSpan = document.getElementById(`stats-station-${stationId}`);
+            
+              // Get fresh station data
+              const stationResponse = await axios.get('/api/stations');
+              const station = stationResponse.data.find(s => s.id === parseInt(stationId));
+              statsSpan.textContent = getStationStats(station);
+            
+          } catch (error) {
+              console.error('Error toggling participation:', error);
+          }
+      }
+
+      loadStations();
+  </script>
+  <!-- Add Font Awesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  {% endblock %}

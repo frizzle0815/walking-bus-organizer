@@ -1,70 +1,410 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1 class="text-center">Administration</h1>
-<div class="mt-5">
-    <h3>Haltestelle hinzufügen</h3>
-    <form id="addStationForm" class="mb-4">
-        <div class="mb-3">
-            <label for="stationName" class="form-label">Name der Haltestelle</label>
-            <input type="text" id="stationName" class="form-control" required>
-        </div>
-        <button type="submit" class="btn btn-primary">Hinzufügen</button>
-    </form>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
-    <h3>Teilnehmer hinzufügen</h3>
-    <form id="addParticipantForm">
-        <div class="mb-3">
-            <label for="participantName" class="form-label">Name des Teilnehmers</label>
-            <input type="text" id="participantName" class="form-control" required>
+<div class="container-fluid px-2">
+    <h1 class="h3 text-center my-3">Walking Bus Administration</h1>
+
+    <!-- Add Station Button -->
+    <div class="d-grid mb-3">
+        <button id="addStationBtn" class="btn btn-primary btn-lg">
+            <i class="fas fa-plus"></i> Neue Station
+        </button>
+    </div>
+
+    <!-- Stations Container -->
+    <div id="stationsContainer">
+        <!-- Station Template -->
+        <div class="station-template d-none station-card">
+            <div class="card mb-3">
+                <div class="card-header d-flex align-items-center bg-light py-2">
+                    <div class="drag-handle me-2">⋮⋮</div>
+                    <input type="text" class="form-control station-name" placeholder="Stationsname">
+                    <button class="btn btn-danger btn-sm ms-2 delete-station">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                <div class="card-body p-2 participants-container">
+                    <!-- Participants will be inserted here -->
+                </div>
+                <div class="card-footer p-2">
+                    <button class="btn btn-secondary btn-sm w-100 add-participant">
+                        <i class="fas fa-plus"></i> Teilnehmer
+                    </button>
+                </div>
+            </div>
         </div>
-        <div class="mb-3">
-            <label for="stationSelect" class="form-label">Haltestelle</label>
-            <select id="stationSelect" class="form-select"></select>
-        </div>
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="monday">
-            <label class="form-check-label" for="monday">Montag</label>
-        </div>
-        <!-- Wiederholen für Dienstag bis Freitag -->
-        <button type="submit" class="btn btn-primary mt-3">Hinzufügen</button>
-    </form>
+          <!-- Participant Template -->
+          <div class="participant-template d-none">
+              <div class="participant-card mb-2 border rounded p-2">
+                  <div class="d-flex align-items-center mb-2">
+                      <div class="drag-handle me-2">⋮⋮</div>
+                      <div class="flex-grow-1">
+                          <input type="text" class="form-control participant-name" placeholder="Name">
+                          <div class="days-container d-flex justify-content-between mt-2">
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input monday" id="mon-{id}">
+                                  <label class="form-check-label" for="mon-{id}">Mo</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
+                                  <label class="form-check-label" for="tue-{id}">Di</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
+                                  <label class="form-check-label" for="wed-{id}">Mi</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
+                                  <label class="form-check-label" for="thu-{id}">Do</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input friday" id="fri-{id}">
+                                  <label class="form-check-label" for="fri-{id}">Fr</label>
+                              </div>
+                          </div>
+                      </div>
+                      <button class="btn btn-danger btn-sm ms-2 delete-participant">
+                          <i class="fas fa-trash"></i>
+                      </button>
+                  </div>
+              </div>
+          </div>
+          </div>        </div>
+    </div>
 </div>
+  <style>
+  .drag-handle {
+      cursor: move;
+      font-size: 1.2rem;
+      color: #666;
+      user-select: none;
+      touch-action: none;
+  }
 
-<script>
-    async function loadStationsForAdmin() {
-        const response = await axios.get('/api/stations');
-        const stations = response.data;
-        const stationSelect = document.getElementById('stationSelect');
-        stationSelect.innerHTML = '';
-        stations.forEach(station => {
-            const option = document.createElement('option');
-            option.value = station.id;
-            option.textContent = station.name;
-            stationSelect.appendChild(option);
-        });
+  .station-card {
+      background-color: #fff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+    /* Update the card header background */
+    .card-header {
+        background-color: #414141 !important; /* Dark gray */
+        color: #fff; /* White text */
+        padding: 0.5rem !important;
     }
 
-    document.getElementById('addStationForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const stationName = document.getElementById('stationName').value;
-        await axios.post('/admin/stations', { name: stationName });
-        alert('Haltestelle hinzugefügt!');
-        loadStationsForAdmin();
-    });
+    /* Update input field in dark header */
+    .card-header .station-name {
+        background-color: #6f6f70;
+        color: #fff;
+        border: 1px solid #6c757d;
+    }
 
-    document.getElementById('addParticipantForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const participantName = document.getElementById('participantName').value;
-        const stationId = document.getElementById('stationSelect').value;
-        const days = {
-            monday: document.getElementById('monday').checked,
-            // ... Für andere Tage
-        };
-        await axios.post('/admin/participants', { name: participantName, station_id: stationId, ...days });
-        alert('Teilnehmer hinzugefügt!');
-    });
+    .card-header .station-name::placeholder {
+        color: #adb5bd;
+    }
 
-    loadStationsForAdmin();
+    /* Style the participants container */
+    .card-body.participants-container {
+        background-color: #414141;
+        padding: 0.5rem !important;
+    }
+      /* Keep participant cards light but darker than before */
+      .participant-card {
+          background-color: #969696;  /* Darker shade of light gray */
+          padding: 0.5rem !important;
+          margin-bottom: 0.5rem !important;
+    }
+
+    /* Style the footer to match the dark background */
+    .card-footer {
+        background-color: #414141 !important;
+        padding: 0.5rem !important;
+    }
+
+    /* Style the add participant button to match the blue station button */
+    .add-participant {
+        background-color: #0d6efd !important;
+        border-color: #0d6efd !important;
+        color: white !important;
+    }
+
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+      .form-check-label {
+          font-size: 0.8rem;
+          margin-left: 4px;
+      }
+
+      .form-check-input {
+          width: 1rem;
+          height: 1rem;
+      }
+
+      /* Larger touch targets for mobile */
+      .btn {
+          padding: 0.25rem 0.5rem;
+          min-height: 32px;
+      }
+
+      .form-control {
+          padding: 0.25rem 0.5rem;
+          min-height: 32px;
+      }
+
+      /* Adjust checkbox and label sizes */
+      .form-check {
+          margin-bottom: 0;
+      }
+  </style>
+<!-- Include necessary scripts -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const stationsContainer = document.getElementById('stationsContainer');
+        const stationTemplate = document.querySelector('.station-template');
+        const participantTemplate = document.querySelector('.participant-template');
+
+        // Load initial stations
+        loadStations();
+
+        // Add new station button handler
+        document.getElementById('addStationBtn').addEventListener('click', createNewStation);
+
+        function loadStations() {
+            fetch('/api/stations')
+                .then(response => response.json())
+                .then(stations => {
+                    stations.forEach(station => createStationCard(station));
+                    initializeSortable();
+                });
+        }
+
+        function createStationCard(station) {
+            const newStation = stationTemplate.cloneNode(true);
+            newStation.classList.remove('d-none', 'station-template');
+            newStation.dataset.stationId = station.id;
+            newStation.querySelector('.station-name').value = station.name;
+
+            const participantsContainer = newStation.querySelector('.participants-container');
+            station.participants?.forEach(participant => {
+                const participantCard = createParticipantCard(participant);
+                participantsContainer.appendChild(participantCard);
+            });
+
+            setupStationEventListeners(newStation, station);
+            stationsContainer.appendChild(newStation);
+            return newStation;
+        }
+
+        function createParticipantCard(participant) {
+            console.log('Participant data:', participant);
+            const newParticipant = participantTemplate.cloneNode(true);
+            newParticipant.classList.remove('d-none', 'participant-template');
+            newParticipant.dataset.participantId = participant.id;
+            newParticipant.querySelector('.participant-name').value = participant.name;
+
+            // Set checkboxes with explicit boolean values
+            ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].forEach(day => {
+                const checkbox = newParticipant.querySelector(`.${day}`);
+                checkbox.checked = Boolean(participant[day]);
+                console.log(`${day} checkbox:`, checkbox.checked);
+            });
+
+            setupParticipantEventListeners(newParticipant, participant);
+            return newParticipant;
+        }
+
+        function setupStationEventListeners(stationElement, station) {
+            // Station name change
+            stationElement.querySelector('.station-name').addEventListener('change', (e) => {
+                updateStation(station.id, { name: e.target.value });
+            });
+              // Delete station
+              stationElement.querySelector('.delete-station').addEventListener('click', () => {
+                  const stationName = stationElement.querySelector('.station-name').value;
+                  if (confirm(`Station "${stationName}" wirklich löschen?`)) {
+                      deleteStation(station.id, stationElement);
+                  }
+              });
+
+              // Add participant
+              stationElement.querySelector('.add-participant').addEventListener('click', () => {
+                  createNewParticipant(station.id, stationElement);
+              });
+          }
+
+        function setupParticipantEventListeners(participantElement, participant) {
+            // Name change
+            participantElement.querySelector('.participant-name').addEventListener('change', (e) => {
+                const stationId = participantElement.closest('.station-card').dataset.stationId;
+                updateParticipant(participant.id, { 
+                    name: e.target.value,
+                    station_id: stationId
+                });
+            });
+
+            // Day checkboxes
+            participantElement.querySelectorAll('.form-check-input').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const day = e.target.classList[1];
+                    updateParticipant(participant.id, { [day]: e.target.checked });
+                });
+            });
+
+            // Delete participant
+            participantElement.querySelector('.delete-participant').addEventListener('click', () => {
+                const participantName = participantElement.querySelector('.participant-name').value;
+                if (confirm(`Teilnehmer "${participantName}" wirklich löschen?`)) {
+                    deleteParticipant(participant.id, participantElement);
+                }
+            });
+        }
+        function initializeSortable() {
+            // Initialize sortable for stations
+            new Sortable(stationsContainer, {
+                animation: 150,
+                handle: '.drag-handle',
+                draggable: '.station-card',
+                delayOnTouchOnly: true,
+                delay: 250,
+                touchStartThreshold: 5,
+                onEnd: updateStationOrder
+            });
+
+            // Initialize sortable for participants within each station
+            document.querySelectorAll('.participants-container').forEach(container => {
+                new Sortable(container, {
+                    animation: 150,
+                    handle: '.drag-handle',
+                    group: 'participants',
+                    delayOnTouchOnly: true,
+                    delay: 250,
+                    touchStartThreshold: 5,
+                    onEnd: updateParticipantOrder
+                });
+            });
+        }
+
+        // API Functions
+        function createNewStation() {
+            const newStation = {
+                name: 'Neue Station',
+                position: document.querySelectorAll('.station-card').length
+            };
+
+            fetch('/admin/stations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newStation)
+            })
+            .then(response => response.json())
+            .then(station => createStationCard(station));
+        }
+
+        function updateStation(stationId, data) {
+            fetch(`/api/stations/${stationId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        }
+
+        function deleteStation(stationId, element) {
+            fetch(`/admin/stations/${stationId}/delete`, {
+                method: 'POST'
+            }).then(() => element.remove());
+        }
+        function createNewParticipant(stationId, stationElement) {
+            const newParticipant = {
+                name: 'Neuer Teilnehmer',
+                station_id: stationId,
+                position: stationElement.querySelectorAll('.participant-card').length,
+                monday: true,
+                tuesday: true,
+                wednesday: true,
+                thursday: true,
+                friday: true
+            };
+
+            fetch('/admin/participants', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newParticipant)
+            })
+            .then(response => response.json())
+            .then(participant => {
+                const participantCard = createParticipantCard(participant);
+                stationElement.querySelector('.participants-container').appendChild(participantCard);
+            });
+        }
+
+        function updateParticipant(participantId, data) {
+            const stationId = data.station_id || document.querySelector(`[data-participant-id="${participantId}"]`)
+                .closest('.station-card').dataset.stationId;
+            
+            console.log('Updating participant:', {participantId, stationId, data});
+            
+            fetch(`/api/stations/${stationId}/participants/${participantId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .catch(error => console.error('Update failed:', error));
+        }
+
+        function deleteParticipant(participantId, element) {
+            fetch(`/admin/participants/${participantId}/delete`, {
+                method: 'POST'
+            }).then(() => element.remove());
+        }
+
+        function updateStationOrder() {
+            const stations = Array.from(document.querySelectorAll('.station-card')).map((card, index) => {
+                console.log('Station card:', card);
+                console.log('Station ID:', card.dataset.stationId);
+                console.log('Position:', index);
+                return {
+                    id: parseInt(card.dataset.stationId),
+                    position: index
+                };
+            });
+
+            console.log('Sending station order update:', stations);
+
+            fetch('/api/stations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(stations)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || 'Unknown error occurred');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => console.log('Update successful:', data))
+            .catch(error => console.error('Update failed:', error));
+        }
+
+        function updateParticipantOrder(evt) {
+            const participantId = evt.item.dataset.participantId;
+            const newStationId = evt.to.closest('.station-card').dataset.stationId;
+            const newPosition = Array.from(evt.to.children).indexOf(evt.item);
+
+            updateParticipant(participantId, {
+                station_id: newStationId,
+                position: newPosition
+            });
+        }
+    });
 </script>
 {% endblock %}
