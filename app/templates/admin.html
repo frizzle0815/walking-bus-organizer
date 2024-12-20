@@ -72,77 +72,89 @@
         </div>
     </div>
 </div>
-
-<style>
-.drag-handle {
-    cursor: move;
-    font-size: 1.2rem;
-    color: #666;
-    user-select: none;
-    touch-action: none;
-}
-
-.station-card {
-    background-color: #fff;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-  /* Update the card header background */
-  .card-header {
-      background-color: #414141 !important; /* Dark gray */
-      color: #fff; /* White text */
+  <style>
+  .drag-handle {
+      cursor: move;
+      font-size: 1rem;
+      color: #666;
+      user-select: none;
+      touch-action: none;
   }
 
-  /* Update input field in dark header */
-  .card-header .station-name {
-      background-color: #6f6f70;
-      color: #fff;
-      border: 1px solid #6c757d;
+  .station-card {
+      background-color: #fff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   }
+    /* Update the card header background */
+    .card-header {
+        background-color: #414141 !important; /* Dark gray */
+        color: #fff; /* White text */
+        padding: 0.5rem !important;
+    }
 
-  .card-header .station-name::placeholder {
-      color: #adb5bd;
-  }
+    /* Update input field in dark header */
+    .card-header .station-name {
+        background-color: #6f6f70;
+        color: #fff;
+        border: 1px solid #6c757d;
+    }
 
-  /* Style the participants container */
-  .card-body.participants-container {
-      background-color: #414141;
-  }
+    .card-header .station-name::placeholder {
+        color: #adb5bd;
+    }
 
-  /* Keep participant cards light */
-  .participant-card {
-      background-color: #f8f9fa;
-  }
+    /* Style the participants container */
+    .card-body.participants-container {
+        background-color: #414141;
+        padding: 0.5rem !important;
+    }
+      /* Keep participant cards light but darker than before */
+      .participant-card {
+          background-color: #969696;  /* Darker shade of light gray */
+          padding: 0.5rem !important;
+          margin-bottom: 0.5rem !important;
+    }
 
-  /* Style the footer to match the dark background */
-  .card-footer {
-      background-color: #414141 !important;
-  }
+    /* Style the footer to match the dark background */
+    .card-footer {
+        background-color: #414141 !important;
+        padding: 0.5rem !important;
+    }
 
-  /* Style the add participant button to match the blue station button */
-  .add-participant {
-      background-color: #0d6efd !important;
-      border-color: #0d6efd !important;
-      color: white !important;
-  }
-}    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    .form-check-label {
-        font-size: 0.9rem;
-    margin-left: 4px;
-}
+    /* Style the add participant button to match the blue station button */
+    .add-participant {
+        background-color: #0d6efd !important;
+        border-color: #0d6efd !important;
+        color: white !important;
+    }
 
-.form-check-input {
-    width: 1.2rem;
-    height: 1.2rem;
-}
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+      .form-check-label {
+          font-size: 0.8rem;
+          margin-left: 4px;
+      }
 
-/* Larger touch targets for mobile */
-.btn {
-    min-height: 44px;
-}
+      .form-check-input {
+          width: 1rem;
+          height: 1rem;
+      }
 
-.form-control {
-    min-height: 44px;
-}
+      /* Larger touch targets for mobile */
+      .btn {
+          padding: 0.25rem 0.5rem;
+          min-height: 32px;
+      }
+
+      .form-control {
+          padding: 0.25rem 0.5rem;
+          min-height: 32px;
+      }
+
+      /* Adjust checkbox and label sizes */
+      .form-check {
+          margin-bottom: 0;
+      }
+  </style>
 </style>
 
 <!-- Include necessary scripts -->
@@ -205,19 +217,19 @@
             stationElement.querySelector('.station-name').addEventListener('change', (e) => {
                 updateStation(station.id, { name: e.target.value });
             });
+              // Delete station
+              stationElement.querySelector('.delete-station').addEventListener('click', () => {
+                  const stationName = stationElement.querySelector('.station-name').value;
+                  if (confirm(`Station "${stationName}" wirklich löschen?`)) {
+                      deleteStation(station.id, stationElement);
+                  }
+              });
 
-            // Delete station
-            stationElement.querySelector('.delete-station').addEventListener('click', () => {
-                if (confirm('Station wirklich löschen?')) {
-                    deleteStation(station.id, stationElement);
-                }
-            });
-
-            // Add participant
-            stationElement.querySelector('.add-participant').addEventListener('click', () => {
-                createNewParticipant(station.id, stationElement);
-            });
-        }
+              // Add participant
+              stationElement.querySelector('.add-participant').addEventListener('click', () => {
+                  createNewParticipant(station.id, stationElement);
+              });
+          }
 
         function setupParticipantEventListeners(participantElement, participant) {
             // Name change
@@ -239,7 +251,8 @@
 
             // Delete participant
             participantElement.querySelector('.delete-participant').addEventListener('click', () => {
-                if (confirm('Teilnehmer wirklich löschen?')) {
+                const participantName = participantElement.querySelector('.participant-name').value;
+                if (confirm(`Teilnehmer "${participantName}" wirklich löschen?`)) {
                     deleteParticipant(participant.id, participantElement);
                 }
             });
