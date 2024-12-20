@@ -100,7 +100,12 @@ def create_participant():
     new_participant = Participant(
         name=data['name'],
         station_id=data['station_id'],
-        position=data['position']
+        position=data['position'],
+        monday=data.get('monday', True),
+        tuesday=data.get('tuesday', True),
+        wednesday=data.get('wednesday', True),
+        thursday=data.get('thursday', True),
+        friday=data.get('friday', True)
     )
     db.session.add(new_participant)
     db.session.commit()
@@ -108,11 +113,11 @@ def create_participant():
         "id": new_participant.id,
         "name": new_participant.name,
         "position": new_participant.position,
-        "monday": False,
-        "tuesday": False,
-        "wednesday": False,
-        "thursday": False,
-        "friday": False
+        "monday": new_participant.monday,
+        "tuesday": new_participant.tuesday,
+        "wednesday": new_participant.wednesday,
+        "thursday": new_participant.thursday,
+        "friday": new_participant.friday
     })
 
 @bp.route("/api/stations/<int:station_id>/participants/<int:participant_id>", methods=["PUT"])

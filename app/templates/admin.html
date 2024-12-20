@@ -38,29 +38,31 @@
           <!-- Participant Template -->
           <div class="participant-template d-none">
               <div class="participant-card mb-2 border rounded p-2">
-                  <div class="d-flex align-items-center">
+                  <div class="d-flex align-items-center mb-2">
                       <div class="drag-handle me-2">⋮⋮</div>
-                      <input type="text" class="form-control participant-name" placeholder="Name">
-                      <div class="days-container d-flex ms-2">
-                          <div class="form-check me-2">
-                              <input type="checkbox" class="form-check-input monday" id="mon-{id}">
-                              <label class="form-check-label" for="mon-{id}">Mo</label>
-                          </div>
-                          <div class="form-check me-2">
-                              <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
-                              <label class="form-check-label" for="tue-{id}">Di</label>
-                          </div>
-                          <div class="form-check me-2">
-                              <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
-                              <label class="form-check-label" for="wed-{id}">Mi</label>
-                          </div>
-                          <div class="form-check me-2">
-                              <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
-                              <label class="form-check-label" for="thu-{id}">Do</label>
-                          </div>
-                          <div class="form-check me-2">
-                              <input type="checkbox" class="form-check-input friday" id="fri-{id}">
-                              <label class="form-check-label" for="fri-{id}">Fr</label>
+                      <div class="flex-grow-1">
+                          <input type="text" class="form-control participant-name" placeholder="Name">
+                          <div class="days-container d-flex justify-content-between mt-2">
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input monday" id="mon-{id}">
+                                  <label class="form-check-label" for="mon-{id}">Mo</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
+                                  <label class="form-check-label" for="tue-{id}">Di</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
+                                  <label class="form-check-label" for="wed-{id}">Mi</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
+                                  <label class="form-check-label" for="thu-{id}">Do</label>
+                              </div>
+                              <div class="form-check">
+                                  <input type="checkbox" class="form-check-input friday" id="fri-{id}">
+                                  <label class="form-check-label" for="fri-{id}">Fr</label>
+                              </div>
                           </div>
                       </div>
                       <button class="btn btn-danger btn-sm ms-2 delete-participant">
@@ -69,7 +71,7 @@
                   </div>
               </div>
           </div>
-        </div>
+          </div>        </div>
     </div>
 </div>
   <style>
@@ -155,8 +157,6 @@
           margin-bottom: 0;
       }
   </style>
-</style>
-
 <!-- Include necessary scripts -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
@@ -198,14 +198,17 @@
         }
 
         function createParticipantCard(participant) {
+            console.log('Participant data:', participant);
             const newParticipant = participantTemplate.cloneNode(true);
             newParticipant.classList.remove('d-none', 'participant-template');
             newParticipant.dataset.participantId = participant.id;
             newParticipant.querySelector('.participant-name').value = participant.name;
 
-            // Set checkboxes
+            // Set checkboxes with explicit boolean values
             ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].forEach(day => {
-                newParticipant.querySelector(`.${day}`).checked = participant[day];
+                const checkbox = newParticipant.querySelector(`.${day}`);
+                checkbox.checked = Boolean(participant[day]);
+                console.log(`${day} checkbox:`, checkbox.checked);
             });
 
             setupParticipantEventListeners(newParticipant, participant);
@@ -263,6 +266,8 @@
                 animation: 150,
                 handle: '.drag-handle',
                 draggable: '.station-card',
+                delayOnTouchOnly: true,
+                delay: 250,
                 onEnd: updateStationOrder
             });
 
@@ -272,6 +277,8 @@
                     animation: 150,
                     handle: '.drag-handle',
                     group: 'participants',
+                    delayOnTouchOnly: true,
+                    delay: 250,
                     onEnd: updateParticipantOrder
                 });
             });
@@ -306,12 +313,16 @@
                 method: 'POST'
             }).then(() => element.remove());
         }
-
         function createNewParticipant(stationId, stationElement) {
             const newParticipant = {
                 name: 'Neuer Teilnehmer',
                 station_id: stationId,
-                position: stationElement.querySelectorAll('.participant-card').length
+                position: stationElement.querySelectorAll('.participant-card').length,
+                monday: true,
+                tuesday: true,
+                wednesday: true,
+                thursday: true,
+                friday: true
             };
 
             fetch('/admin/participants', {
