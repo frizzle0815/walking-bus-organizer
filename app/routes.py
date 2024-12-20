@@ -143,11 +143,10 @@ def delete_participant(participant_id):
 
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 def initialize_daily_status():
-    today = datetime.now().date()
-    # Add current date to response
+    today = datetime.now().date()  # Extract only the date part
     return jsonify({
         "success": True,
-        "currentDate": today.isoformat()
+        "currentDate": today.isoformat()  # Return date in 'YYYY-MM-DD' format
     })
 
 
@@ -185,14 +184,14 @@ def toggle_participation(participant_id):
 def update_calendar_status():
     data = request.get_json()
     participant_id = data['participant_id']
-    date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    date = datetime.strptime(data['date'], '%Y-%m-%d').date()  # Ensure date is parsed correctly
     status = data['status']
-  
+
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
         date=date
     ).first()
-  
+
     if calendar_entry:
         calendar_entry.status = status
         calendar_entry.is_manual_override = True
@@ -204,24 +203,12 @@ def update_calendar_status():
             is_manual_override=True
         )
         db.session.add(calendar_entry)
-  
+
     # Update status_today if this is for today
     if date == datetime.now().date():
         participant = Participant.query.get(participant_id)
         participant.status_today = status
-  
-    db.session.commit()
-    return jsonify({"success": True})
-    if calendar_entry:
-        calendar_entry.status = status
-    else:
-        calendar_entry = CalendarStatus(
-            participant_id=participant_id,
-            date=date,
-            status=status
-        )
-        db.session.add(calendar_entry)
-    
+
     db.session.commit()
     return jsonify({"success": True})
 

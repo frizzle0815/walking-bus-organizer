@@ -268,17 +268,18 @@
 
       async function toggleParticipation(participantId, button) {
           try {
+              console.log('Sending PATCH request for participant:', participantId);
               const response = await axios.patch(`/api/participation/${participantId}`);
               const { status_today } = response.data;
-            
+              
               // Update UI
               updateParticipantUI(button, status_today);
-            
+              
               // Update calendar if open
               if (document.getElementById('calendarModal').style.display === 'block') {
                   await renderCalendar();
               }
-            
+              
           } catch (error) {
               console.error('Error toggling participation:', error);
           }
@@ -326,43 +327,56 @@
     
         modal.style.display = 'block';
         await renderCalendar();
-    }    async function toggleDayStatus(participantId, date, dayDiv) {
-        // Get server's current date through the initialize-daily-status endpoint
-        // This endpoint already contains the server's date logic
-        const serverResponse = await axios.post('/api/initialize-daily-status');
-        
-        // Use the date from the calendar rendering which comes from server
-        const clickedDate = date.toISOString().split('T')[0];
-        
-        console.log('Server-based date comparison:', {
-            serverDate: serverResponse.data.currentDate,
-            clicked: clickedDate,
-            isToday: serverResponse.data.currentDate === clickedDate
-        });
-
-        if (serverResponse.data.currentDate === clickedDate) {
-            const participantItem = document.querySelector(`.participant-item:has(button[onclick*="${participantId}"])`);
-            if (participantItem) {
-                const statusButton = participantItem.querySelector('button');
-                await toggleParticipation(participantId, statusButton);
-            }
-            return;
-        }
-        
-        // Future dates logic
-        const currentStatus = dayDiv.classList.contains('day-green');
-        const newStatus = !currentStatus;
-        
-        await axios.post('/api/calendar-status', {
-            participant_id: participantId,
-            date: clickedDate,
-            status: newStatus
-        });
-        
-        dayDiv.classList.toggle('day-green');
-        dayDiv.classList.toggle('day-red');
     }
-       function getNextTwoWeeks(startDate) {
+
+async function initializeDailyStatus() {
+    try {
+        const response = await axios.post('/api/initialize-daily-status');
+        return response.data.currentDate;  // Use this date for further operations
+    } catch (error) {
+        console.error('Error initializing daily status:', error);
+    }
+}
+
+async function toggleDayStatus(participantId, date, dayDiv) {
+    const serverDate = await initializeDailyStatus();  // Get server's current date
+    const clickedDate = date.toISOString().split('T')[0];  // Extract 'YYYY-MM-DD'
+
+    console.log('Server Date:', serverDate);
+    console.log('Clicked Date:', clickedDate);
+
+    if (serverDate === clickedDate) {
+        // Handle today's status toggle
+        const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+        if (participantItem) {
+            const statusButton = participantItem.querySelector('button');
+            if (statusButton) {
+                console.log('Toggling participation for today');
+                await toggleParticipation(participantId, statusButton);
+            } else {
+                console.error('Status button not found');
+            }
+        } else {
+            console.error('Participant item not found');
+        }
+        return;
+    }
+
+    // Handle future dates
+    const currentStatus = dayDiv.classList.contains('day-green');
+    const newStatus = !currentStatus;
+
+    await axios.post('/api/calendar-status', {
+        participant_id: participantId,
+        date: clickedDate,
+        status: newStatus
+    });
+
+    dayDiv.classList.toggle('day-green');
+    dayDiv.classList.toggle('day-red');
+}
+
+function getNextTwoWeeks(startDate) {
           const weeks = [];
           const firstDay = new Date(startDate);
           // Set time to noon to avoid timezone issues
@@ -384,11 +398,10 @@
             console.log('Rendering calendar for participant:', currentParticipantId);
             const calendar = document.getElementById('calendar');
             calendar.innerHTML = '';
-        
-            const today = new Date();
-            // Set time to noon to avoid timezone issues
-            today.setHours(12, 0, 0, 0);
-    
+
+            const today = new Date(await initializeDailyStatus());  // Use server's date
+            today.setHours(12, 0, 0, 0);  // Set time to avoid timezone issues
+
             // Weekday headers with correct mapping
             const weekdayHeader = document.createElement('div');
             weekdayHeader.className = 'week';
@@ -400,37 +413,36 @@
                 weekdayHeader.appendChild(dayHeader);
             });
             calendar.appendChild(weekdayHeader);
-    
+
             const weeks = getNextTwoWeeks(today);
-    
+
             for (const week of weeks) {
                 const weekDiv = document.createElement('div');
                 weekDiv.className = 'week';
-        
+
                 for (let i = 0; i < 7; i++) {
                     const day = week[i];
                     const dayDiv = document.createElement('div');
                     dayDiv.className = 'calendar-day';
                     dayDiv.textContent = day.getDate();
-            
+
                     const isPast = day < today;
                     const isWeekend = i > 4;
-            
+
                     if (isPast || isWeekend) {
                         dayDiv.classList.add('day-gray');
                     } else {
                         const status = await getStatusForDay(currentParticipantId, day);
                         dayDiv.classList.add(status ? 'day-green' : 'day-red');
-                      
-                        // Store the date directly on the element
+
                         dayDiv.dataset.date = day.toISOString();
                         dayDiv.onclick = async (e) => {
                             console.log('Day clicked:', day.toISOString());
-                            console.log('Today:', new Date().toISOString());
+                            console.log('Today:', today.toISOString());
                             await toggleDayStatus(currentParticipantId, day, e.target);
                         };
                     }
-            
+
                     weekDiv.appendChild(dayDiv);
                 }
                 calendar.appendChild(weekDiv);
@@ -458,23 +470,51 @@
         return weeks;
     }
 
+    async function initializeDailyStatus() {
+        try {
+            const response = await axios.post('/api/initialize-daily-status');
+            return response.data.currentDate;  // Use this date for further operations
+        } catch (error) {
+            console.error('Error initializing daily status:', error);
+        }
+    }
+
     async function toggleDayStatus(participantId, date, dayDiv) {
+        const serverDate = await initializeDailyStatus();  // Get server's current date
+        const clickedDate = date.toISOString().split('T')[0];  // Extract 'YYYY-MM-DD'
+
+        console.log('Server Date:', serverDate);
+        console.log('Clicked Date:', clickedDate);
+
+        if (serverDate === clickedDate) {
+            // Handle today's status toggle
+            const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+            if (participantItem) {
+                const statusButton = participantItem.querySelector('button');
+                if (statusButton) {
+                    console.log('Toggling participation for today');
+                    await toggleParticipation(participantId, statusButton);
+                } else {
+                    console.error('Status button not found');
+                }
+            } else {
+                console.error('Participant item not found');
+            }
+            return;
+        }
+
+        // Handle future dates
         const currentStatus = dayDiv.classList.contains('day-green');
         const newStatus = !currentStatus;
-    
-        try {
-            await axios.post('/api/calendar-status', {
-                participant_id: participantId,
-                date: date.toISOString().split('T')[0],
-                status: newStatus
-            });
-        
-            dayDiv.classList.toggle('day-green');
-            dayDiv.classList.toggle('day-red');
-        
-        } catch (error) {
-            console.error('Error saving calendar status:', error);
-        }
+
+        await axios.post('/api/calendar-status', {
+            participant_id: participantId,
+            date: clickedDate,
+            status: newStatus
+        });
+
+        dayDiv.classList.toggle('day-green');
+        dayDiv.classList.toggle('day-red');
     }
     async function getStatusForDay(participantId, date) {
         try {
