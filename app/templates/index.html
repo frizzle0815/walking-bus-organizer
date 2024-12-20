@@ -170,8 +170,13 @@
                       const nameSpan = document.createElement('span');
                       nameSpan.classList.add('text-truncate', 'me-2');
                       nameSpan.style.fontSize = '0.9rem';
-                      nameSpan.textContent = participant.name;
-                
+                      // Add traffic light icon before the name
+                      const trafficLightIcon = document.createElement('i');
+                      // Use different icons based on status
+                      trafficLightIcon.classList.add('fas', participant.status_today ? 'fa-walking' : 'fa-person', 'me-2');
+                      trafficLightIcon.style.color = participant.status_today ? '#28a745' : '#dc3545';
+                      nameSpan.appendChild(trafficLightIcon);
+                      nameSpan.appendChild(document.createTextNode(participant.name));
                       const buttonContainer = document.createElement('div');
                       buttonContainer.classList.add('d-flex', 'align-items-center');
                 
@@ -284,6 +289,16 @@
           button.classList.toggle('btn-outline-danger', status);
           button.classList.toggle('btn-outline-success', !status);
           button.innerHTML = status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+          
+          // Update traffic light icon - find icon by first child of nameSpan
+          const trafficLightIcon = listItem.querySelector('.text-truncate > i');
+          if (trafficLightIcon) {
+              // Remove both possible classes
+              trafficLightIcon.classList.remove('fa-walking', 'fa-person');
+              // Add the correct class based on status
+              trafficLightIcon.classList.add(status ? 'fa-walking' : 'fa-person');
+              trafficLightIcon.style.color = status ? '#28a745' : '#dc3545';
+          }
           
           // Update station statistics
           const stationList = button.closest('.participants-list');
@@ -478,5 +493,5 @@
     loadStations();
 </script>
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 {% endblock %}
