@@ -141,12 +141,20 @@ def delete_participant(participant_id):
     db.session.commit()
     return jsonify({"success": True})
 
+from datetime import datetime
+
+def is_walking_bus_day(date):
+    # Check if the given date is a weekday (Monday to Friday)
+    return date.weekday() < 5  # 0 = Monday, 4 = Friday
+
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 def initialize_daily_status():
-    today = datetime.now().date()  # Extract only the date part
+    today = datetime.now().date()
+    walking_bus_day = is_walking_bus_day(today)
     return jsonify({
         "success": True,
-        "currentDate": today.isoformat()  # Return date in 'YYYY-MM-DD' format
+        "currentDate": today.isoformat(),
+        "isWalkingBusDay": walking_bus_day
     })
 
 

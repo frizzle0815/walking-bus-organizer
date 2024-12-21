@@ -115,6 +115,15 @@
         font-size: 0.9rem;
         color: #666;
     }
+    .btn-outline-secondary {
+        background-color: #e9ecef;
+        border-color: #e9ecef;
+        color: #6c757d;
+    }
+
+    .btn-outline-secondary:disabled {
+        cursor: not-allowed;
+    }
 </style>
   <script>
       let currentParticipantId = null;
@@ -134,86 +143,98 @@
                   console.error('Error initializing daily status:', error);
               }
           }
+            async function loadStations() {
+                const response = await axios.post('/api/initialize-daily-status');
+                const { currentDate, isWalkingBusDay } = response.data;
 
-          async function loadStations() {
-              await initializeDailyStatus();
-              const response = await axios.get('/api/stations');
-              const stations = response.data;
-              const stationsContainer = document.getElementById('stations');
-              stationsContainer.innerHTML = '';
-        
-              stations.forEach(station => {
-                  const stationDiv = document.createElement('div');
-                  stationDiv.classList.add('station-card');
-                  stationDiv.innerHTML = `
-                      <div class="station-header">
-                          <h5 class="d-flex justify-content-between align-items-center mb-0">
-                              <span>
-                                  <i class="fas fa-bus-simple me-2"></i>
-                                  ${station.name}
-                              </span>
-                              <span class="badge bg-light text-dark" id="stats-station-${station.id}">
-                                  ${getStationStats(station)}
-                              </span>
-                          </h5>
-                      </div>`;
-            
-                  const list = document.createElement('ul');
-                  list.classList.add('list-group', 'list-group-flush', 'participants-list');
-                  list.dataset.stationId = station.id;
-            
-                  station.participants.forEach(participant => {
-                      const item = document.createElement('li');
-                      item.classList.add('list-group-item', 'py-1', 'd-flex', 'justify-content-between', 'align-items-center', 'participant-item');
-                      item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
-                
-                      const nameSpan = document.createElement('span');
-                      nameSpan.classList.add('text-truncate', 'me-2');
-                      nameSpan.style.fontSize = '0.9rem';
-                      // Add traffic light icon before the name
-                      const trafficLightIcon = document.createElement('i');
-                      // Use different icons based on status
-                      trafficLightIcon.classList.add('fas', participant.status_today ? 'fa-walking' : 'fa-person', 'me-2');
-                      trafficLightIcon.style.color = participant.status_today ? '#28a745' : '#dc3545';
-                      nameSpan.appendChild(trafficLightIcon);
-                      nameSpan.appendChild(document.createTextNode(participant.name));
-                      const buttonContainer = document.createElement('div');
-                      buttonContainer.classList.add('d-flex', 'align-items-center');
-                
-                      const statusButton = document.createElement('button');
-                      statusButton.classList.add(
-                          'btn', 
-                          'btn-sm', 
-                          participant.status_today ? 'btn-outline-danger' : 'btn-outline-success',
-                          'rounded-pill'
-                      );
-                      statusButton.style.fontSize = '0.8rem';
-                      statusButton.style.padding = '0.2rem 0.8rem';
-                      statusButton.onclick = () => toggleParticipation(participant.id, statusButton);
-                      statusButton.innerHTML = participant.status_today ? 
-                          '<i class="fas fa-times"></i>' : 
-                          '<i class="fas fa-check"></i>';
-                
-                      const calendarButton = document.createElement('button');
-                      calendarButton.classList.add('calendar-btn');
-                      calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
-                      calendarButton.onclick = (e) => {
-                          e.stopPropagation();
-                          openCalendar(participant.id);
-                      };
-                
-                      buttonContainer.appendChild(statusButton);
-                      buttonContainer.appendChild(calendarButton);
-                      item.appendChild(nameSpan);
-                      item.appendChild(buttonContainer);
-                      list.appendChild(item);
-                  });
-            
-                  stationDiv.appendChild(list);
-                  stationsContainer.appendChild(stationDiv);
-              });
-          }
+                const stationsResponse = await axios.get('/api/stations');
+                const stations = stationsResponse.data;
+                const stationsContainer = document.getElementById('stations');
+                stationsContainer.innerHTML = '';
 
+                stations.forEach(station => {
+                    const stationDiv = document.createElement('div');
+                    stationDiv.classList.add('station-card');
+                    stationDiv.innerHTML = `
+                        <div class="station-header">
+                            <h5 class="d-flex justify-content-between align-items-center mb-0">
+                                <span>
+                                    <i class="fas fa-bus-simple me-2"></i>
+                                    ${station.name}
+                                </span>
+                                <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                                    ${getStationStats(station)}
+                                </span>
+                            </h5>
+                        </div>`;
+
+                    const list = document.createElement('ul');
+                    list.classList.add('list-group', 'list-group-flush', 'participants-list');
+                    list.dataset.stationId = station.id;
+
+                    station.participants.forEach(participant => {
+                        const item = document.createElement('li');
+                        item.classList.add('list-group-item', 'py-1', 'd-flex', 'justify-content-between', 'align-items-center', 'participant-item');
+
+                        // Set color based on the status and whether it's a walking bus day
+                        if (!isWalkingBusDay) {
+                            item.style.backgroundColor = '#e9ecef'; // Gray for non-walking bus days
+                        } else {
+                            item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
+                        }
+
+                        item.dataset.participantId = participant.id;
+
+                        const nameSpan = document.createElement('span');
+                        nameSpan.classList.add('text-truncate', 'me-2');
+                        nameSpan.style.fontSize = '0.9rem';
+                        const trafficLightIcon = document.createElement('i');
+                        trafficLightIcon.classList.add('fas', 'me-2');
+                        if (!isWalkingBusDay || !participant.status_today) {
+                            trafficLightIcon.classList.add('fa-person');
+                            trafficLightIcon.style.color = '#6c757d'; // Gray color for non-walking bus days or absences
+                        } else {
+                            trafficLightIcon.classList.add('fa-walking');
+                            trafficLightIcon.style.color = '#28a745'; // Green color for presence
+                        }
+                        nameSpan.appendChild(trafficLightIcon);
+                        nameSpan.appendChild(document.createTextNode(participant.name));
+                        const buttonContainer = document.createElement('div');
+                        buttonContainer.classList.add('d-flex', 'align-items-center');
+
+                        const statusButton = document.createElement('button');
+                        statusButton.classList.add('btn', 'btn-sm', 'rounded-pill');
+                        statusButton.style.fontSize = '0.8rem';
+                        statusButton.style.padding = '0.2rem 0.8rem';
+                        if (!isWalkingBusDay) {
+                            statusButton.classList.add('btn-outline-secondary'); // Gray button for non-walking bus days
+                            statusButton.style.cursor = 'not-allowed'; // Forbidden cursor
+                            statusButton.innerHTML = '<i class="fas fa-times"></i>'; // X for non-walking bus days
+                        } else {
+                            statusButton.classList.add(participant.status_today ? 'btn-outline-danger' : 'btn-outline-success');
+                            statusButton.innerHTML = participant.status_today ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+                            statusButton.onclick = () => toggleParticipation(participant.id, statusButton);
+                        }
+
+                        const calendarButton = document.createElement('button');
+                        calendarButton.classList.add('calendar-btn');
+                        calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
+                        calendarButton.onclick = (e) => {
+                            e.stopPropagation();
+                            openCalendar(participant.id);
+                        };
+
+                        buttonContainer.appendChild(statusButton);
+                        buttonContainer.appendChild(calendarButton);
+                        item.appendChild(nameSpan);
+                        item.appendChild(buttonContainer);
+                        list.appendChild(item);
+                    });
+
+                    stationDiv.appendChild(list);
+                    stationsContainer.appendChild(stationDiv);
+                });
+            }
           function getStationStats(station) {
               const totalParticipants = station.participants.length;
               const confirmedParticipants = station.participants.filter(p => p.status_today).length;
