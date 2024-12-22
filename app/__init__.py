@@ -11,6 +11,17 @@ migrate = Migrate()
 # Define the application's timezone
 TIMEZONE = pytz.timezone('Europe/Berlin')
 
+# Add this to centralize weekday mapping
+WEEKDAY_MAPPING = {
+    0: 'monday',
+    1: 'tuesday',
+    2: 'wednesday',
+    3: 'thursday',
+    4: 'friday',
+    5: 'saturday',
+    6: 'sunday'
+}
+
 def get_current_time():
     """Get current time in application timezone"""
     return datetime.now(TIMEZONE)

@@ -146,101 +146,104 @@
                   console.error('Error initializing daily status:', error);
               }
           }
-            async function loadStations() {
-                const response = await axios.post('/api/initialize-daily-status');
-                const { currentDate, isWalkingBusDay } = response.data;
+          async function loadStations() {
+               const response = await axios.post('/api/initialize-daily-status');
+               const { currentDate, isWalkingBusDay } = response.data;
 
-                const stationsResponse = await axios.get('/api/stations');
-                const stations = stationsResponse.data;
-                const stationsContainer = document.getElementById('stations');
-                stationsContainer.innerHTML = '';
+               const stationsResponse = await axios.get('/api/stations');
+               console.log('Station data:', stationsResponse.data);  // Debug log
+               const stations = stationsResponse.data;
+               const stationsContainer = document.getElementById('stations');
+               stationsContainer.innerHTML = '';
 
-                stations.forEach(station => {
-                    const stationDiv = document.createElement('div');
-                    stationDiv.classList.add('station-card');
-                    stationDiv.innerHTML = `
-                        <div class="station-header">
-                            <h5 class="d-flex justify-content-between align-items-center mb-0">
-                                <span>
-                                    <i class="fas fa-bus-simple me-2"></i>
-                                    ${station.name}
-                                </span>
-                                <span class="badge bg-light text-dark" id="stats-station-${station.id}">
-                                    ${getStationStats(station)}
-                                </span>
-                            </h5>
-                        </div>`;
+               for (const station of stations) {
+                   const stationDiv = document.createElement('div');
+                   stationDiv.classList.add('station-card');
+                   stationDiv.innerHTML = `
+                       <div class="station-header">
+                           <h5 class="d-flex justify-content-between align-items-center mb-0">
+                               <span>
+                                   <i class="fas fa-bus-simple me-2"></i>
+                                   ${station.name}
+                               </span>
+                               <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                                   ${getStationStats(station)}
+                               </span>
+                           </h5>
+                       </div>`;
 
-                    const list = document.createElement('ul');
-                    list.classList.add('list-group', 'list-group-flush', 'participants-list');
-                    list.dataset.stationId = station.id;
+                   const list = document.createElement('ul');
+                   list.classList.add('list-group', 'list-group-flush', 'participants-list');
+                   list.dataset.stationId = station.id;
 
-                    station.participants.forEach(participant => {
-                        const item = document.createElement('li');
-                        item.classList.add('list-group-item', 'py-1', 'd-flex', 'justify-content-between', 'align-items-center', 'participant-item');
+                   for (const participant of station.participants) {
+                       const item = document.createElement('li');
+                       item.classList.add('list-group-item', 'py-1', 'd-flex', 'justify-content-between', 'align-items-center', 'participant-item');
 
-                        // Set color based on the status and whether it's a walking bus day
-                        if (!isWalkingBusDay) {
-                            item.style.backgroundColor = '#e9ecef'; // Gray for non-walking bus days
-                        } else {
-                            item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
-                        }
+                       if (!isWalkingBusDay) {
+                           item.style.backgroundColor = '#e9ecef';
+                       } else {
+                           item.style.backgroundColor = participant.today_status ? '#d4edda' : '#f8d7da';
+                       }
 
-                        item.dataset.participantId = participant.id;
+                       item.dataset.participantId = participant.id;
 
-                        const nameSpan = document.createElement('span');
-                        nameSpan.classList.add('text-truncate', 'me-2');
-                        nameSpan.style.fontSize = '0.9rem';
-                        const trafficLightIcon = document.createElement('i');
-                        trafficLightIcon.classList.add('fas', 'me-2');
-                        if (!isWalkingBusDay || !participant.status_today) {
-                            trafficLightIcon.classList.add('fa-person');
-                            trafficLightIcon.style.color = '#6c757d'; // Gray color for non-walking bus days or absences
-                        } else {
-                            trafficLightIcon.classList.add('fa-walking');
-                            trafficLightIcon.style.color = '#28a745'; // Green color for presence
-                        }
-                        nameSpan.appendChild(trafficLightIcon);
-                        nameSpan.appendChild(document.createTextNode(participant.name));
-                        const buttonContainer = document.createElement('div');
-                        buttonContainer.classList.add('d-flex', 'align-items-center');
+                       const nameSpan = document.createElement('span');
+                       nameSpan.classList.add('text-truncate', 'me-2');
+                       nameSpan.style.fontSize = '0.9rem';
+                       const trafficLightIcon = document.createElement('i');
+                       trafficLightIcon.classList.add('fas', 'me-2');
+                       if (!isWalkingBusDay || !participant.today_status) {
+                           trafficLightIcon.classList.add('fa-person');
+                           trafficLightIcon.style.color = '#6c757d';
+                       } else {
+                           trafficLightIcon.classList.add('fa-walking');
+                           trafficLightIcon.style.color = '#28a745';
+                       }
+                       nameSpan.appendChild(trafficLightIcon);
+                       nameSpan.appendChild(document.createTextNode(participant.name));
 
-                        const statusButton = document.createElement('button');
-                        statusButton.classList.add('btn', 'btn-sm', 'rounded-pill');
-                        statusButton.style.fontSize = '0.8rem';
-                        statusButton.style.padding = '0.2rem 0.8rem';
-                        if (!isWalkingBusDay) {
-                            statusButton.classList.add('btn-outline-secondary'); // Gray button for non-walking bus days
-                            statusButton.style.cursor = 'not-allowed'; // Forbidden cursor
-                            statusButton.innerHTML = '<i class="fas fa-times"></i>'; // X for non-walking bus days
-                        } else {
-                            statusButton.classList.add(participant.status_today ? 'btn-outline-danger' : 'btn-outline-success');
-                            statusButton.innerHTML = participant.status_today ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-                            statusButton.onclick = () => toggleParticipation(participant.id, statusButton);
-                        }
+                       const buttonContainer = document.createElement('div');
+                       buttonContainer.classList.add('d-flex', 'align-items-center');
 
-                        const calendarButton = document.createElement('button');
-                        calendarButton.classList.add('calendar-btn');
-                        calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
-                        calendarButton.onclick = (e) => {
-                            e.stopPropagation();
-                            openCalendar(participant.id);
-                        };
+                       const statusButton = document.createElement('button');
+                       statusButton.classList.add('btn', 'btn-sm', 'rounded-pill');
+                       statusButton.style.fontSize = '0.8rem';
+                       statusButton.style.padding = '0.2rem 0.8rem';
+                       if (!isWalkingBusDay) {
+                           statusButton.classList.add('btn-outline-secondary');
+                           statusButton.style.cursor = 'not-allowed';
+                           statusButton.innerHTML = '<i class="fas fa-times"></i>';
+                       } else {
+                           statusButton.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
+                           statusButton.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+                           statusButton.onclick = () => toggleParticipation(participant.id, statusButton);
+                       }
 
-                        buttonContainer.appendChild(statusButton);
-                        buttonContainer.appendChild(calendarButton);
-                        item.appendChild(nameSpan);
-                        item.appendChild(buttonContainer);
-                        list.appendChild(item);
-                    });
+                       const calendarButton = document.createElement('button');
+                       calendarButton.classList.add('calendar-btn');
+                       calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
+                       calendarButton.onclick = (e) => {
+                           e.stopPropagation();
+                           openCalendar(participant.id);
+                       };
 
-                    stationDiv.appendChild(list);
-                    stationsContainer.appendChild(stationDiv);
-                });
-            }
+                       buttonContainer.appendChild(statusButton);
+                       buttonContainer.appendChild(calendarButton);
+                       item.appendChild(nameSpan);
+                       item.appendChild(buttonContainer);
+                       list.appendChild(item);
+                   }
+
+                   stationDiv.appendChild(list);
+                   stationsContainer.appendChild(stationDiv);
+               }
+           }
+
+
           function getStationStats(station) {
               const totalParticipants = station.participants.length;
-              const confirmedParticipants = station.participants.filter(p => p.status_today).length;
+              const confirmedParticipants = station.participants.filter(p => p.today_status).length;
               return `${confirmedParticipants} / ${totalParticipants}`;
           }
 
@@ -294,10 +297,10 @@
           try {
               console.log('Sending PATCH request for participant:', participantId);
               const response = await axios.patch(`/api/participation/${participantId}`);
-              const { status_today } = response.data;
+              const { today_status } = response.data;
               
               // Update UI
-              updateParticipantUI(button, status_today);
+              updateParticipantUI(button, today_status);
               
               // Update calendar if open
               if (document.getElementById('calendarModal').style.display === 'block') {
@@ -436,69 +439,48 @@ async function isWalkingBusDay(date) {
 
 // Update renderCalendar to handle the async isWalkingBusDay
 async function renderCalendar() {
+    const calendar = document.getElementById('calendar');
+    calendar.innerHTML = '';
+    
     try {
-        const calendar = document.getElementById('calendar');
-        calendar.innerHTML = '';
-        
-        // Get server's current date for consistent comparison
-        const serverResponse = await axios.post('/api/initialize-daily-status');
-        const serverDate = new Date(serverResponse.data.currentDate);
-        serverDate.setHours(0, 0, 0, 0);
-        
         const calendarData = await fetch(`/api/calendar-data/${currentParticipantId}`).then(r => r.json());
-        
-        // Generate weeks data
-        const weeks = getNextTwoWeeks(serverDate);
-        
-        // Weekday mapping starting with Monday as 0
-        const WEEKDAY_MAPPING = {
-            0: 'monday',
-            1: 'tuesday',
-            2: 'wednesday',
-            3: 'thursday',
-            4: 'friday',
-            5: 'saturday',
-            6: 'sunday'
-        };
         
         // Render weekday headers
         const weekdayHeader = document.createElement('div');
         weekdayHeader.className = 'week';
-        ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].forEach(day => {
+        ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
             const dayHeader = document.createElement('div');
             dayHeader.className = 'calendar-day-header';
             dayHeader.textContent = day;
             weekdayHeader.appendChild(dayHeader);
         });
         calendar.appendChild(weekdayHeader);
-
-        // Render calendar days
-        for (const week of weeks) {
+        
+        // Group dates into weeks
+        for (let weekIndex = 0; weekIndex < 2; weekIndex++) {
             const weekDiv = document.createElement('div');
             weekDiv.className = 'week';
             
-            for (const date of week) {
+            const weekData = calendarData.slice(weekIndex * 7, (weekIndex + 1) * 7);
+            weekData.forEach(dayData => {
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'calendar-day';
-                dayDiv.textContent = date.getDate();
+                dayDiv.textContent = new Date(dayData.date).getDate();
                 
-                const compareDate = new Date(date);
-                compareDate.setHours(0, 0, 0, 0);
-                
-                const dayIndex = (date.getDay() + 6) % 7;
-                const dayName = WEEKDAY_MAPPING[dayIndex];
-                
-                if (compareDate < serverDate) {
-                    dayDiv.classList.add('day-gray');
-                } else if (!calendarData.schedule[dayName]) {
+                if (!dayData.is_schedule_day || dayData.is_past) {
                     dayDiv.classList.add('day-gray');
                 } else {
-                    const status = await getStatusForDay(currentParticipantId, date);
-                    dayDiv.classList.add(status ? 'day-green' : 'day-red');
+                    dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
+                    dayDiv.onclick = () => toggleDayStatus(currentParticipantId, dayData.date, dayDiv);
+                }
+                
+                if (dayData.is_today) {
+                    dayDiv.classList.add('day-today');
                 }
                 
                 weekDiv.appendChild(dayDiv);
-            }
+            });
+            
             calendar.appendChild(weekDiv);
         }
     } catch (error) {
@@ -536,43 +518,36 @@ async function renderCalendar() {
         }
     }
 
-    async function toggleDayStatus(participantId, date, dayDiv) {
-        const serverDate = await initializeDailyStatus();  // Get server's current date
-        const clickedDate = date.toISOString().split('T')[0];  // Extract 'YYYY-MM-DD'
+    async function toggleDayStatus(participantId, dateString, dayDiv) {
+        const serverDate = await initializeDailyStatus();
+        const clickedDate = dateString;
 
-        console.log('Server Date:', serverDate);
-        console.log('Clicked Date:', clickedDate);
+        // Toggle the calendar day appearance first
+        dayDiv.classList.toggle('day-green');
+        dayDiv.classList.toggle('day-red');
+        
+        // Get the new status from the calendar (green = true, red = false)
+        const newStatus = dayDiv.classList.contains('day-green');
 
-        if (serverDate === clickedDate) {
-            // Handle today's status toggle
-            const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-            if (participantItem) {
-                const statusButton = participantItem.querySelector('button');
-                if (statusButton) {
-                    console.log('Toggling participation for today');
-                    await toggleParticipation(participantId, statusButton);
-                } else {
-                    console.error('Status button not found');
-                }
-            } else {
-                console.error('Participant item not found');
-            }
-            return;
-        }
-
-        // Handle future dates
-        const currentStatus = dayDiv.classList.contains('day-green');
-        const newStatus = !currentStatus;
-
+        // Update database
         await axios.post('/api/calendar-status', {
             participant_id: participantId,
             date: clickedDate,
             status: newStatus
         });
 
-        dayDiv.classList.toggle('day-green');
-        dayDiv.classList.toggle('day-red');
+        // If it's today, update the main view to match the calendar
+        if (serverDate === clickedDate) {
+            const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+            if (participantItem) {
+                const statusButton = participantItem.querySelector('button');
+                if (statusButton) {
+                    updateParticipantUI(statusButton, newStatus);
+                }
+            }
+        }
     }
+
     async function getStatusForDay(participantId, date) {
         try {
             const response = await axios.get(`/api/calendar-status/${participantId}`);
