@@ -1,18 +1,20 @@
 import os
-from app import create_app
-from flask_migrate import upgrade, init, migrate
+from app import create_app, db
+from flask_migrate import upgrade, init, migrate, stamp
+from alembic.util.exc import CommandError
 
 app = create_app()
 app.app_context().push()
 
-# Always create migrations directory if it doesn't exist
 if not os.path.exists('migrations'):
     print("Creating migrations directory...")
     init()
+    
+    # Stamp the database with the current state without creating new migrations
+    print("Stamping database with current state...")
+    stamp('head')
+    
     print("Creating initial migration...")
-    migrate()
-else:
-    print("Migrations directory exists, checking for new changes...")
     migrate()
 
 print("Applying migrations...")
