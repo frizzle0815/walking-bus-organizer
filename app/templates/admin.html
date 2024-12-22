@@ -15,31 +15,31 @@
             <div class="d-flex justify-content-between">
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-monday" data-day="monday">
-                    <label class="form-check-label" for="schedule-monday">Monday</label>
+                    <label class="form-check-label" for="schedule-monday">Mo</label>
                 </div>
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-tuesday" data-day="tuesday">
-                    <label class="form-check-label" for="schedule-tuesday">Tuesday</label>
+                    <label class="form-check-label" for="schedule-tuesday">Di</label>
                 </div>
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-wednesday" data-day="wednesday">
-                    <label class="form-check-label" for="schedule-wednesday">Wednesday</label>
+                    <label class="form-check-label" for="schedule-wednesday">Mi</label>
                 </div>
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-thursday" data-day="thursday">
-                    <label class="form-check-label" for="schedule-thursday">Thursday</label>
+                    <label class="form-check-label" for="schedule-thursday">Do</label>
                 </div>
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-friday" data-day="friday">
-                    <label class="form-check-label" for="schedule-friday">Friday</label>
+                    <label class="form-check-label" for="schedule-friday">Fr</label>
                 </div>
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-saturday" data-day="saturday">
-                    <label class="form-check-label" for="schedule-saturday">Saturday</label>
+                    <label class="form-check-label" for="schedule-saturday">Sa</label>
                 </div>
                 <div class="form-check">
                     <input type="checkbox" class="form-check-input schedule-day" id="schedule-sunday" data-day="sunday">
-                    <label class="form-check-label" for="schedule-sunday">Sunday</label>
+                    <label class="form-check-label" for="schedule-sunday">So</label>
                 </div>
             </div>
         </div>
@@ -113,268 +113,253 @@
           </div>        </div>
     </div>
 </div>
-  <style>
-  .drag-handle {
-      cursor: move;
-      font-size: 1.2rem;
-      color: #666;
-      user-select: none;
-      touch-action: none;
-  }
+<style>
+ /* General Styles */
+ .drag-handle {
+     cursor: move;
+     font-size: 1.2rem;
+     color: #666;
+     user-select: none;
+     touch-action: none;
+ }
 
-  .station-card {
-      background-color: #fff;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  }
-    /* Update the card header background */
-    .card-header {
-        background-color: #414141 !important; /* Dark gray */
-        color: #fff; /* White text */
-        padding: 0.5rem !important;
-    }
+ .station-card {
+     background-color: #fff;
+     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+ }
 
-    /* Update input field in dark header */
-    .card-header .station-name {
-        background-color: #6f6f70;
-        color: #fff;
-        border: 1px solid #6c757d;
-    }
+ .form-check-label {
+     font-size: 0.8rem;
+     margin-left: 4px;
+ }
 
-    .card-header .station-name::placeholder {
-        color: #adb5bd;
-    }
+ .form-check-input {
+     width: 1rem;
+     height: 1rem;
+ }
 
-    /* Style the participants container */
-    .card-body.participants-container {
-        background-color: #414141;
-        padding: 0.5rem !important;
-    }
-      /* Keep participant cards light but darker than before */
-      .participant-card {
-          background-color: #969696;  /* Darker shade of light gray */
-          padding: 0.5rem !important;
-          margin-bottom: 0.5rem !important;
-    }
+ .form-check {
+     margin-bottom: 0;
+ }
 
-    /* Style the footer to match the dark background */
-    .card-footer {
-        background-color: #414141 !important;
-        padding: 0.5rem !important;
-    }
+ .form-check-input:disabled {
+     background-color: #e9ecef;
+     border-color: #ced4da;
+ }
 
-    /* Style the add participant button to match the blue station button */
-    .add-participant {
-        background-color: #0d6efd !important;
-        border-color: #0d6efd !important;
-        color: white !important;
-    }
+ .form-check-input:disabled + .form-check-label {
+     color: #6c757d;
+ }
 
-      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-      .form-check-label {
-          font-size: 0.8rem;
-          margin-left: 4px;
-      }
+ .btn {
+     padding: 0.25rem 0.5rem;
+     min-height: 32px;
+ }
 
-      .form-check-input {
-          width: 1rem;
-          height: 1rem;
-      }
+ .form-control {
+     padding: 0.25rem 0.5rem;
+     min-height: 32px;
+ }
 
-      /* Larger touch targets for mobile */
-      .btn {
-          padding: 0.25rem 0.5rem;
-          min-height: 32px;
-      }
+ /* Card Styles */
+ .card-header {
+     background-color: #414141 !important; /* Dark gray */
+     color: #fff; /* White text */
+     padding: 0.5rem !important;
+ }
 
-      .form-control {
-          padding: 0.25rem 0.5rem;
-          min-height: 32px;
-      }
+ .card-header .station-name {
+     background-color: #6f6f70;
+     color: #fff;
+     border: 1px solid #6c757d;
+ }
 
-      /* Adjust checkbox and label sizes */
-      .form-check {
-          margin-bottom: 0;
-      }
+ .card-header .station-name::placeholder {
+     color: #adb5bd;
+ }
 
-      .form-check-input:disabled {
-         background-color: #e9ecef;
-         border-color: #ced4da;
-     }
+ .card-body.participants-container {
+     background-color: #414141;
+     padding: 0.5rem !important;
+ }
 
-     .form-check-input:disabled + .form-check-label {
-         color: #6c757d;
-     }
+ .participant-card {
+     background-color: #969696;  /* Darker shade of light gray */
+     padding: 0.5rem !important;
+     margin-bottom: 0.5rem !important;
+ }
 
-  </style>
+ .card-footer {
+     background-color: #414141 !important;
+     padding: 0.5rem !important;
+ }
+
+ /* Button Styles */
+ .add-participant {
+     background-color: #0d6efd !important;
+     border-color: #0d6efd !important;
+     color: white !important;
+ }
+</style>
 <!-- Include necessary scripts -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', async () => {
-        const stationsContainer = document.getElementById('stationsContainer');
-        const stationTemplate = document.querySelector('.station-template');
-        const participantTemplate = document.querySelector('.participant-template');
+ document.addEventListener('DOMContentLoaded', async () => {
+     const stationsContainer = document.getElementById('stationsContainer');
+     const stationTemplate = document.querySelector('.station-template');
+     const participantTemplate = document.querySelector('.participant-template');
 
-        // Load initial stations
-        loadStations();
+     // Load initial stations
+     loadStations();
 
-        // Add new station button handler
-        document.getElementById('addStationBtn').addEventListener('click', createNewStation);
+     // Add new station button handler
+     document.getElementById('addStationBtn').addEventListener('click', createNewStation);
 
-        // Load schedule
-        const response = await fetch('/api/walking-bus-schedule');
-        const schedule = await response.json();
-        
-        // Set initial checkbox states
-        Object.entries(schedule).forEach(([day, enabled]) => {
-            document.getElementById(`schedule-${day}`).checked = enabled;
-        });
-        
-        // Add event listeners to schedule checkboxes
-        document.querySelectorAll('.schedule-day').forEach(checkbox => {
-            checkbox.addEventListener('change', async () => {
-                const newSchedule = {};
-                document.querySelectorAll('.schedule-day').forEach(cb => {
-                    newSchedule[cb.dataset.day] = cb.checked;
-                });
-                
-                try {
-                    await fetch('/api/walking-bus-schedule', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(newSchedule)
-                    });
-                    
-                    // Only update the disabled state of checkboxes, not their checked state
-                    document.querySelectorAll('.participant-card').forEach(participantCard => {
-                        Object.entries(newSchedule).forEach(([day, enabled]) => {
-                            const dayCheckbox = participantCard.querySelector(`.${day}`);
-                            if (dayCheckbox) {
-                                dayCheckbox.disabled = !enabled;
-                                const label = dayCheckbox.nextElementSibling;
-                                if (label) {
-                                    label.classList.toggle('text-muted', !enabled);
-                                }
-                            }
-                        });
-                    });
-                } catch (error) {
-                    console.error('Failed to update schedule:', error);
-                    checkbox.checked = !checkbox.checked;
-                    alert('Failed to update schedule. Please try again.');
-                }
-            });
-        });
+     // Load schedule
+     const response = await fetch('/api/walking-bus-schedule');
+     const schedule = await response.json();
 
+     // Set initial checkbox states
+     Object.entries(schedule).forEach(([day, enabled]) => {
+         document.getElementById(`schedule-${day}`).checked = enabled;
+     });
 
-        function loadStations() {
-            fetch('/api/stations')
-                .then(response => response.json())
-                .then(stations => {
-                    stations.forEach(station => createStationCard(station));
-                    initializeSortable();
-                });
-        }
+     // Add event listeners to schedule checkboxes
+     document.querySelectorAll('.schedule-day').forEach(checkbox => {
+         checkbox.addEventListener('change', async () => {
+             const newSchedule = {};
+             document.querySelectorAll('.schedule-day').forEach(cb => {
+                 newSchedule[cb.dataset.day] = cb.checked;
+             });
 
-        async function createStationCard(station) {
-            const newStation = stationTemplate.cloneNode(true);
-            newStation.classList.remove('d-none', 'station-template');
-            newStation.dataset.stationId = station.id;
-            newStation.querySelector('.station-name').value = station.name;
+             try {
+                 await fetch('/api/walking-bus-schedule', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify(newSchedule)
+                 });
 
-            const participantsContainer = newStation.querySelector('.participants-container');
-            
-            // Handle participants sequentially
-            if (station.participants) {
-                for (const participant of station.participants) {
-                    const participantCard = await createParticipantCard(participant);
-                    participantsContainer.appendChild(participantCard);
-                }
-            }
+                 // Only update the disabled state of checkboxes, not their checked state
+                 document.querySelectorAll('.participant-card').forEach(participantCard => {
+                     Object.entries(newSchedule).forEach(([day, enabled]) => {
+                         const dayCheckbox = participantCard.querySelector(`.${day}`);
+                         if (dayCheckbox) {
+                             dayCheckbox.disabled = !enabled;
+                             const label = dayCheckbox.nextElementSibling;
+                             if (label) {
+                                 label.classList.toggle('text-muted', !enabled);
+                             }
+                         }
+                     });
+                 });
+             } catch (error) {
+                 console.error('Failed to update schedule:', error);
+                 checkbox.checked = !checkbox.checked;
+                 alert('Failed to update schedule. Please try again.');
+             }
+         });
+     });
 
-            setupStationEventListeners(newStation, station);
-            stationsContainer.appendChild(newStation);
-            return newStation;
-        }
+     async function createStationCard(station) {
+         const newStation = stationTemplate.cloneNode(true);
+         newStation.classList.remove('d-none', 'station-template');
+         newStation.dataset.stationId = station.id;
+         newStation.querySelector('.station-name').value = station.name;
 
-        function loadStations() {
-            fetch('/api/stations')
-                .then(response => response.json())
-                .then(async stations => {
-                    for (const station of stations) {
-                        await createStationCard(station);
-                    }
-                    initializeSortable();
-                });
-        }
-          async function createParticipantCard(participant) {
-              console.log('Participant data:', participant);
-              const schedule = await fetch('/api/walking-bus-schedule').then(r => r.json());
+         const participantsContainer = newStation.querySelector('.participants-container');
 
-              const newParticipant = participantTemplate.cloneNode(true);
-              newParticipant.classList.remove('d-none', 'participant-template');
-              newParticipant.dataset.participantId = participant.id;
-              newParticipant.querySelector('.participant-name').value = participant.name;
+         // Handle participants sequentially
+         if (station.participants) {
+             for (const participant of station.participants) {
+                 const participantCard = await createParticipantCard(participant);
+                 participantsContainer.appendChild(participantCard);
+             }
+         }
 
-              const daysContainer = newParticipant.querySelector('.days-container');
-              daysContainer.innerHTML = '';
+         setupStationEventListeners(newStation, station);
+         stationsContainer.appendChild(newStation);
+         return newStation;
+     }
 
-              const days = [
-                  {key: 'monday', label: 'Mo'},
-                  {key: 'tuesday', label: 'Di'},
-                  {key: 'wednesday', label: 'Mi'},
-                  {key: 'thursday', label: 'Do'},
-                  {key: 'friday', label: 'Fr'},
-                  {key: 'saturday', label: 'Sa'},
-                  {key: 'sunday', label: 'So'}
-              ];
-              
-              days.forEach(({key, label}) => {
-                  const dayCheck = document.createElement('div');
-                  dayCheck.className = 'form-check';
-                  const isEnabled = schedule[key];
-                  
-                  dayCheck.innerHTML = `
-                      <input type="checkbox" class="form-check-input ${key}" 
-                             id="${key}-${participant.id}" 
-                             ${isEnabled ? '' : 'disabled'}
-                             ${participant[key] ? 'checked' : ''}>
-                      <label class="form-check-label ${isEnabled ? '' : 'text-muted'}" 
-                             for="${key}-${participant.id}">${label}</label>
-                  `;
-                  daysContainer.appendChild(dayCheck);
-              });
+     function loadStations() {
+         fetch('/api/stations')
+             .then(response => response.json())
+             .then(async stations => {
+                 for (const station of stations) {
+                     await createStationCard(station);
+                 }
+                 initializeSortable();
+             });
+     }
 
-              // Setup other event listeners
-              setupParticipantEventListeners(newParticipant, participant);
-              
-              return newParticipant;
-          }
+     async function createParticipantCard(participant) {
+         console.log('Participant data:', participant);
+         const schedule = await fetch('/api/walking-bus-schedule').then(r => r.json());
 
-          
-        function setupStationEventListeners(stationElement, station) {
+         const newParticipant = participantTemplate.cloneNode(true);
+         newParticipant.classList.remove('d-none', 'participant-template');
+         newParticipant.dataset.participantId = participant.id;
+         newParticipant.querySelector('.participant-name').value = participant.name;
+
+         const daysContainer = newParticipant.querySelector('.days-container');
+         daysContainer.innerHTML = '';
+
+         const days = [
+             { key: 'monday', label: 'Mo' },
+             { key: 'tuesday', label: 'Di' },
+             { key: 'wednesday', label: 'Mi' },
+             { key: 'thursday', label: 'Do' },
+             { key: 'friday', label: 'Fr' },
+             { key: 'saturday', label: 'Sa' },
+             { key: 'sunday', label: 'So' }
+         ];
+
+         days.forEach(({ key, label }) => {
+             const dayCheck = document.createElement('div');
+             dayCheck.className = 'form-check';
+             const isEnabled = schedule[key];
+
+             dayCheck.innerHTML = `
+                 <input type="checkbox" class="form-check-input ${key}" 
+                        id="${key}-${participant.id}" 
+                        ${isEnabled ? '' : 'disabled'}
+                        ${participant[key] ? 'checked' : ''}>
+                 <label class="form-check-label ${isEnabled ? '' : 'text-muted'}" 
+                        for="${key}-${participant.id}">${label}</label>
+             `;
+             daysContainer.appendChild(dayCheck);
+         });
+
+         // Setup other event listeners
+         setupParticipantEventListeners(newParticipant, participant);
+
+         return newParticipant;
+     }
+     function setupStationEventListeners(stationElement, station) {
             // Station name change
             stationElement.querySelector('.station-name').addEventListener('change', (e) => {
                 updateStation(station.id, { name: e.target.value });
             });
-              // Delete station
-              stationElement.querySelector('.delete-station').addEventListener('click', () => {
-                  const stationName = stationElement.querySelector('.station-name').value;
-                  if (confirm(`Station "${stationName}" wirklich löschen?`)) {
-                      deleteStation(station.id, stationElement);
-                  }
-              });
 
-              // Add participant
-              stationElement.querySelector('.add-participant').addEventListener('click', () => {
-                  createNewParticipant(station.id, stationElement);
-              });
-          }
+            // Delete station
+            stationElement.querySelector('.delete-station').addEventListener('click', () => {
+                const stationName = stationElement.querySelector('.station-name').value;
+                if (confirm(`Station "${stationName}" wirklich löschen?`)) {
+                    deleteStation(station.id, stationElement);
+                }
+            });
+
+            // Add participant
+            stationElement.querySelector('.add-participant').addEventListener('click', () => {
+                createNewParticipant(station.id, stationElement);
+            });
+        }
 
         function setupParticipantEventListeners(participantElement, participant) {
             // Name change
             participantElement.querySelector('.participant-name').addEventListener('change', (e) => {
                 const stationId = participantElement.closest('.station-card').dataset.stationId;
-                updateParticipant(participant.id, { 
+                updateParticipant(participant.id, {
                     name: e.target.value,
                     station_id: stationId
                 });
@@ -390,15 +375,15 @@
                         weekdayClass: e.target.classList
                     });
                     const participantId = participantElement.dataset.participantId;
-                    
+
                     await updateParticipant(participantId, { [day]: e.target.checked });
-                    
+
                     console.log('Updating future entries for:', {
                         participantId: participantId,
                         day: day,
                         status: e.target.checked
                     });
-                    
+
                     await fetch('/api/update-future-entries', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -420,6 +405,7 @@
                 }
             });
         }
+
         function initializeSortable() {
             // Initialize sortable for stations
             new Sortable(stationsContainer, {
@@ -475,6 +461,7 @@
                 method: 'POST'
             }).then(() => element.remove());
         }
+
         function createNewParticipant(stationId, stationElement) {
             // First get the current schedule
             fetch('/api/walking-bus-schedule')
@@ -509,7 +496,7 @@
         function updateParticipant(participantId, data) {
             // First try to get stationId from data
             let stationId = data.station_id;
-            
+
             // If not in data, try to get from DOM
             if (!stationId) {
                 const participantElement = document.querySelector(`[data-participant-id="${participantId}"]`);
@@ -520,10 +507,10 @@
                     }
                 }
             }
-            
+
             // If we still don't have a stationId, get it from the server
             if (!stationId) {
-                console.log('Updating participant without station context:', {participantId, data});
+                console.log('Updating participant without station context:', { participantId, data });
                 fetch(`/api/stations/${stationId}/participants/${participantId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -537,7 +524,7 @@
                 })
                 .catch(error => console.error('Update failed:', error));
             } else {
-                console.log('Updating participant:', {participantId, stationId, data});
+                console.log('Updating participant:', { participantId, stationId, data });
                 fetch(`/api/stations/${stationId}/participants/${participantId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -555,7 +542,7 @@
 
         function deleteParticipant(participantId, element) {
             console.log('Attempting to delete participant:', participantId);
-            
+
             fetch(`/admin/participants/${participantId}/delete`, {
                 method: 'POST',
                 headers: {
@@ -570,7 +557,7 @@
                 const participantCard = element;
                 if (participantCard) {
                     participantCard.remove();
-                    
+
                     // Get station container and update stats
                     const stationContainer = participantCard.closest('.participants-container');
                     if (stationContainer) {
@@ -622,10 +609,21 @@
             const newStationId = evt.to.closest('.station-card').dataset.stationId;
             const newPosition = Array.from(evt.to.children).indexOf(evt.item);
 
-            updateParticipant(participantId, {
-                station_id: newStationId,
-                position: newPosition
-            });
+            fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    position: newPosition
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => console.log('Participant order updated:', data))
+            .catch(error => console.error('Update failed:', error));
         }
     });
 </script>
