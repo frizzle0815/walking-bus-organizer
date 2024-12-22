@@ -6,6 +6,45 @@
 <div class="container-fluid px-2">
     <h1 class="h3 text-center my-3">Walking Bus Administration</h1>
 
+    <!-- Walking Bus Schedule -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">Walking Bus Schedule</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex justify-content-between">
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-monday" data-day="monday">
+                    <label class="form-check-label" for="schedule-monday">Monday</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-tuesday" data-day="tuesday">
+                    <label class="form-check-label" for="schedule-tuesday">Tuesday</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-wednesday" data-day="wednesday">
+                    <label class="form-check-label" for="schedule-wednesday">Wednesday</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-thursday" data-day="thursday">
+                    <label class="form-check-label" for="schedule-thursday">Thursday</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-friday" data-day="friday">
+                    <label class="form-check-label" for="schedule-friday">Friday</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-saturday" data-day="saturday">
+                    <label class="form-check-label" for="schedule-saturday">Saturday</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-sunday" data-day="sunday">
+                    <label class="form-check-label" for="schedule-sunday">Sunday</label>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- Add Station Button -->
     <div class="d-grid mb-3">
         <button id="addStationBtn" class="btn btn-primary btn-lg">
@@ -156,11 +195,21 @@
       .form-check {
           margin-bottom: 0;
       }
+
+      .form-check-input:disabled {
+         background-color: #e9ecef;
+         border-color: #ced4da;
+     }
+
+     .form-check-input:disabled + .form-check-label {
+         color: #6c757d;
+     }
+
   </style>
 <!-- Include necessary scripts -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
         const stationsContainer = document.getElementById('stationsContainer');
         const stationTemplate = document.querySelector('.station-template');
         const participantTemplate = document.querySelector('.participant-template');
@@ -171,6 +220,52 @@
         // Add new station button handler
         document.getElementById('addStationBtn').addEventListener('click', createNewStation);
 
+        // Load schedule
+        const response = await fetch('/api/walking-bus-schedule');
+        const schedule = await response.json();
+        
+        // Set initial checkbox states
+        Object.entries(schedule).forEach(([day, enabled]) => {
+            document.getElementById(`schedule-${day}`).checked = enabled;
+        });
+        
+        // Add event listeners to schedule checkboxes
+        document.querySelectorAll('.schedule-day').forEach(checkbox => {
+            checkbox.addEventListener('change', async () => {
+                const newSchedule = {};
+                document.querySelectorAll('.schedule-day').forEach(cb => {
+                    newSchedule[cb.dataset.day] = cb.checked;
+                });
+                
+                try {
+                    await fetch('/api/walking-bus-schedule', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newSchedule)
+                    });
+                    
+                    // Only update the disabled state of checkboxes, not their checked state
+                    document.querySelectorAll('.participant-card').forEach(participantCard => {
+                        Object.entries(newSchedule).forEach(([day, enabled]) => {
+                            const dayCheckbox = participantCard.querySelector(`.${day}`);
+                            if (dayCheckbox) {
+                                dayCheckbox.disabled = !enabled;
+                                const label = dayCheckbox.nextElementSibling;
+                                if (label) {
+                                    label.classList.toggle('text-muted', !enabled);
+                                }
+                            }
+                        });
+                    });
+                } catch (error) {
+                    console.error('Failed to update schedule:', error);
+                    checkbox.checked = !checkbox.checked;
+                    alert('Failed to update schedule. Please try again.');
+                }
+            });
+        });
+
+
         function loadStations() {
             fetch('/api/stations')
                 .then(response => response.json())
@@ -180,41 +275,82 @@
                 });
         }
 
-        function createStationCard(station) {
+        async function createStationCard(station) {
             const newStation = stationTemplate.cloneNode(true);
             newStation.classList.remove('d-none', 'station-template');
             newStation.dataset.stationId = station.id;
             newStation.querySelector('.station-name').value = station.name;
 
             const participantsContainer = newStation.querySelector('.participants-container');
-            station.participants?.forEach(participant => {
-                const participantCard = createParticipantCard(participant);
-                participantsContainer.appendChild(participantCard);
-            });
+            
+            // Handle participants sequentially
+            if (station.participants) {
+                for (const participant of station.participants) {
+                    const participantCard = await createParticipantCard(participant);
+                    participantsContainer.appendChild(participantCard);
+                }
+            }
 
             setupStationEventListeners(newStation, station);
             stationsContainer.appendChild(newStation);
             return newStation;
         }
 
-        function createParticipantCard(participant) {
-            console.log('Participant data:', participant);
-            const newParticipant = participantTemplate.cloneNode(true);
-            newParticipant.classList.remove('d-none', 'participant-template');
-            newParticipant.dataset.participantId = participant.id;
-            newParticipant.querySelector('.participant-name').value = participant.name;
-
-            // Set checkboxes with explicit boolean values
-            ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].forEach(day => {
-                const checkbox = newParticipant.querySelector(`.${day}`);
-                checkbox.checked = Boolean(participant[day]);
-                console.log(`${day} checkbox:`, checkbox.checked);
-            });
-
-            setupParticipantEventListeners(newParticipant, participant);
-            return newParticipant;
+        function loadStations() {
+            fetch('/api/stations')
+                .then(response => response.json())
+                .then(async stations => {
+                    for (const station of stations) {
+                        await createStationCard(station);
+                    }
+                    initializeSortable();
+                });
         }
+          async function createParticipantCard(participant) {
+              console.log('Participant data:', participant);
+              const schedule = await fetch('/api/walking-bus-schedule').then(r => r.json());
 
+              const newParticipant = participantTemplate.cloneNode(true);
+              newParticipant.classList.remove('d-none', 'participant-template');
+              newParticipant.dataset.participantId = participant.id;
+              newParticipant.querySelector('.participant-name').value = participant.name;
+
+              const daysContainer = newParticipant.querySelector('.days-container');
+              daysContainer.innerHTML = '';
+
+              const days = [
+                  {key: 'monday', label: 'Mo'},
+                  {key: 'tuesday', label: 'Di'},
+                  {key: 'wednesday', label: 'Mi'},
+                  {key: 'thursday', label: 'Do'},
+                  {key: 'friday', label: 'Fr'},
+                  {key: 'saturday', label: 'Sa'},
+                  {key: 'sunday', label: 'So'}
+              ];
+              
+              days.forEach(({key, label}) => {
+                  const dayCheck = document.createElement('div');
+                  dayCheck.className = 'form-check';
+                  const isEnabled = schedule[key];
+                  
+                  dayCheck.innerHTML = `
+                      <input type="checkbox" class="form-check-input ${key}" 
+                             id="${key}-${participant.id}" 
+                             ${isEnabled ? '' : 'disabled'}
+                             ${participant[key] ? 'checked' : ''}>
+                      <label class="form-check-label ${isEnabled ? '' : 'text-muted'}" 
+                             for="${key}-${participant.id}">${label}</label>
+                  `;
+                  daysContainer.appendChild(dayCheck);
+              });
+
+              // Setup other event listeners
+              setupParticipantEventListeners(newParticipant, participant);
+              
+              return newParticipant;
+          }
+
+          
         function setupStationEventListeners(stationElement, station) {
             // Station name change
             stationElement.querySelector('.station-name').addEventListener('change', (e) => {
@@ -274,8 +410,10 @@
                     });
                 });
             });
-            // Delete participant
-            participantElement.querySelector('.delete-participant').addEventListener('click', () => {
+
+            // Delete participant button
+            const deleteButton = participantElement.querySelector('.delete-participant');
+            deleteButton.addEventListener('click', () => {
                 const participantName = participantElement.querySelector('.participant-name').value;
                 if (confirm(`Teilnehmer "${participantName}" wirklich löschen?`)) {
                     deleteParticipant(participant.id, participantElement);
@@ -338,53 +476,115 @@
             }).then(() => element.remove());
         }
         function createNewParticipant(stationId, stationElement) {
-            const newParticipant = {
-                name: 'Neuer Teilnehmer',
-                station_id: stationId,
-                position: stationElement.querySelectorAll('.participant-card').length,
-                monday: true,
-                tuesday: true,
-                wednesday: true,
-                thursday: true,
-                friday: true
-            };
+            // First get the current schedule
+            fetch('/api/walking-bus-schedule')
+                .then(r => r.json())
+                .then(schedule => {
+                    const newParticipant = {
+                        name: 'Neuer Teilnehmer',
+                        station_id: stationId,
+                        position: stationElement.querySelectorAll('.participant-card').length,
+                        monday: schedule.monday,
+                        tuesday: schedule.tuesday,
+                        wednesday: schedule.wednesday,
+                        thursday: schedule.thursday,
+                        friday: schedule.friday,
+                        saturday: schedule.saturday,
+                        sunday: schedule.sunday
+                    };
 
-            fetch('/admin/participants', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newParticipant)
-            })
-            .then(response => response.json())
-            .then(participant => {
-                const participantCard = createParticipantCard(participant);
-                stationElement.querySelector('.participants-container').appendChild(participantCard);
-            });
+                    fetch('/admin/participants', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newParticipant)
+                    })
+                    .then(response => response.json())
+                    .then(async participant => {
+                        const participantCard = await createParticipantCard(participant);
+                        stationElement.querySelector('.participants-container').appendChild(participantCard);
+                    });
+                });
         }
 
         function updateParticipant(participantId, data) {
-            const stationId = data.station_id || document.querySelector(`[data-participant-id="${participantId}"]`)
-                .closest('.station-card').dataset.stationId;
+            // First try to get stationId from data
+            let stationId = data.station_id;
             
-            console.log('Updating participant:', {participantId, stationId, data});
+            // If not in data, try to get from DOM
+            if (!stationId) {
+                const participantElement = document.querySelector(`[data-participant-id="${participantId}"]`);
+                if (participantElement) {
+                    const stationCard = participantElement.closest('.station-card');
+                    if (stationCard) {
+                        stationId = stationCard.dataset.stationId;
+                    }
+                }
+            }
             
-            fetch(`/api/stations/${stationId}/participants/${participantId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+            // If we still don't have a stationId, get it from the server
+            if (!stationId) {
+                console.log('Updating participant without station context:', {participantId, data});
+                fetch(`/api/stations/${stationId}/participants/${participantId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .catch(error => console.error('Update failed:', error));
+            } else {
+                console.log('Updating participant:', {participantId, stationId, data});
+                fetch(`/api/stations/${stationId}/participants/${participantId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .catch(error => console.error('Update failed:', error));
+            }
+        }
+
+        function deleteParticipant(participantId, element) {
+            console.log('Attempting to delete participant:', participantId);
+            
+            fetch(`/admin/participants/${participantId}/delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
             })
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                return response.json();
+                // Find and remove the entire participant card
+                const participantCard = element;
+                if (participantCard) {
+                    participantCard.remove();
+                    
+                    // Get station container and update stats
+                    const stationContainer = participantCard.closest('.participants-container');
+                    if (stationContainer) {
+                        const stationCard = stationContainer.closest('.station-card');
+                        const stationId = stationCard.dataset.stationId;
+                        updateStationStats(stationId);
+                    }
+                }
+                console.log('Participant successfully deleted and removed from UI');
             })
-            .catch(error => console.error('Update failed:', error));
-        }
-
-        function deleteParticipant(participantId, element) {
-            fetch(`/admin/participants/${participantId}/delete`, {
-                method: 'POST'
-            }).then(() => element.remove());
+            .catch(error => {
+                console.error('Delete failed:', error);
+                alert(`Could not delete participant: ${error.message}`);
+            });
         }
 
         function updateStationOrder() {

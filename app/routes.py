@@ -1,8 +1,9 @@
+from sqlalchemy import extract
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request
-from .models import Station, Participant, CalendarStatus, db
+from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
 
-# Create Blueprint on a new line
+# Create Blueprint
 bp = Blueprint("main", __name__)
 
 @bp.route('/')
@@ -102,12 +103,7 @@ def create_participant():
     new_participant = Participant(
         name=data['name'],
         station_id=data['station_id'],
-        position=data['position'],
-        monday=data.get('monday', True),
-        tuesday=data.get('tuesday', True),
-        wednesday=data.get('wednesday', True),
-        thursday=data.get('thursday', True),
-        friday=data.get('friday', True)
+        position=data['position']
     )
     db.session.add(new_participant)
     db.session.commit()
@@ -119,7 +115,9 @@ def create_participant():
         "tuesday": new_participant.tuesday,
         "wednesday": new_participant.wednesday,
         "thursday": new_participant.thursday,
-        "friday": new_participant.friday
+        "friday": new_participant.friday,
+        "saturday": new_participant.saturday,
+        "sunday": new_participant.sunday
     })
 
 @bp.route("/api/stations/<int:station_id>/participants/<int:participant_id>", methods=["PUT"])
@@ -136,16 +134,38 @@ def update_participant(station_id, participant_id):
 
 @bp.route("/admin/participants/<int:participant_id>/delete", methods=["POST"])
 def delete_participant(participant_id):
-    participant = Participant.query.get_or_404(participant_id)
-    db.session.delete(participant)
-    db.session.commit()
-    return jsonify({"success": True})
-
-from datetime import datetime
+    try:
+        # First delete all calendar entries for this participant
+        CalendarStatus.query.filter_by(participant_id=participant_id).delete()
+        
+        # Then delete the participant
+        participant = Participant.query.get_or_404(participant_id)
+        db.session.delete(participant)
+        db.session.commit()
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        db.session.rollback()  # Rollback on error
+        print(f"Error deleting participant {participant_id}: {str(e)}")  # Log the error
+        return jsonify({"error": str(e)}), 500
 
 def is_walking_bus_day(date):
-    # Check if the given date is a weekday (Monday to Friday)
-    return date.weekday() < 5  # 0 = Monday, 4 = Friday
+    schedule = WalkingBusSchedule.query.first()
+    if not schedule:
+        return False
+  
+    weekday = date.weekday()
+    day_mapping = {
+        0: 'monday',
+        1: 'tuesday',
+        2: 'wednesday',
+        3: 'thursday',
+        4: 'friday',
+        5: 'saturday',
+        6: 'sunday'
+    }
+    return getattr(schedule, day_mapping[weekday], False)
 
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 def initialize_daily_status():
@@ -157,6 +177,38 @@ def initialize_daily_status():
         "isWalkingBusDay": walking_bus_day
     })
 
+@bp.route("/api/walking-bus-schedule", methods=["GET"])
+def get_schedule():
+    schedule = WalkingBusSchedule.query.first()
+    if not schedule:
+        schedule = WalkingBusSchedule()
+        db.session.add(schedule)
+        db.session.commit()
+    return jsonify({
+        "monday": schedule.monday,
+        "tuesday": schedule.tuesday,
+        "wednesday": schedule.wednesday,
+        "thursday": schedule.thursday,
+        "friday": schedule.friday,
+        "saturday": schedule.saturday,
+        "sunday": schedule.sunday
+    })
+
+@bp.route("/api/walking-bus-schedule", methods=["POST"])
+def update_schedule():
+    data = request.get_json()
+    schedule = WalkingBusSchedule.query.first()
+    if not schedule:
+        schedule = WalkingBusSchedule()
+        db.session.add(schedule)
+    
+    # Update schedule days
+    for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
+        new_status = data.get(day, False)
+        setattr(schedule, day, new_status)
+    
+    db.session.commit()
+    return jsonify({"success": True})
 
 @bp.route("/api/participation/<int:participant_id>", methods=["PATCH"])
 def toggle_participation(participant_id):
@@ -240,11 +292,13 @@ def update_future_entries():
     
     # Map day names to weekday numbers (0 = Monday, 6 = Sunday)
     day_mapping = {
-        'monday': 1,
-        'tuesday': 2,
-        'wednesday': 3,
-        'thursday': 4,
-        'friday': 5
+        'monday': 0,
+        'tuesday': 1,
+        'wednesday': 2,
+        'thursday': 3,
+        'friday': 4,
+        'saturday': 5,
+        'sunday': 6
     }
     
     target_weekday = day_mapping[day]
@@ -253,7 +307,7 @@ def update_future_entries():
     future_dates = []
     current_date = today
     for _ in range(90):  # Check next 90 days
-        if current_date.weekday() == (target_weekday - 1):  # Subtract 1 to align with Python's Monday = 0 system
+        if current_date.weekday() == target_weekday:  # Direct comparison since we're using 0-6 system
             future_dates.append(current_date)
         current_date += timedelta(days=1)
     
@@ -297,3 +351,58 @@ def get_participant_weekday_status(participant_id, weekday):
     status = getattr(participant, weekday, True)
     print(f"Status for {weekday}: {status}")
     return jsonify({"status": status})
+
+@bp.route("/api/calendar-data/<int:participant_id>", methods=["GET"])
+def get_calendar_data(participant_id):
+    try:
+        # Get participant's data
+        participant = Participant.query.get_or_404(participant_id)
+        
+        # Get walking bus schedule
+        schedule = WalkingBusSchedule.query.first()
+        if not schedule:
+            schedule = WalkingBusSchedule()
+            db.session.add(schedule)
+            db.session.commit()
+        
+        # Get calendar overrides for next 14 days
+        today = datetime.now().date()
+        end_date = today + timedelta(days=14)
+        overrides = CalendarStatus.query.filter(
+            CalendarStatus.participant_id == participant_id,
+            CalendarStatus.date >= today,
+            CalendarStatus.date <= end_date
+        ).all()
+        
+        # Prepare response data
+        response_data = {
+            'schedule': {
+                'monday': schedule.monday,
+                'tuesday': schedule.tuesday,
+                'wednesday': schedule.wednesday,
+                'thursday': schedule.thursday,
+                'friday': schedule.friday,
+                'saturday': schedule.saturday,
+                'sunday': schedule.sunday
+            },
+            'participant_days': {
+                'monday': participant.monday,
+                'tuesday': participant.tuesday,
+                'wednesday': participant.wednesday,
+                'thursday': participant.thursday,
+                'friday': participant.friday,
+                'saturday': False,  # Default to False for weekend days
+                'sunday': False
+            },
+            'overrides': [{
+                'date': override.date.isoformat(),
+                'status': override.status
+            } for override in overrides]
+        }
+        
+        print(f"Sending calendar data for participant {participant_id}: {response_data}")  # Debug log
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"Error in get_calendar_data for participant {participant_id}: {str(e)}")  # Debug log
+        return jsonify({'error': str(e)}), 500

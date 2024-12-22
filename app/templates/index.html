@@ -128,16 +128,19 @@
   <script>
       let currentParticipantId = null;
       const statusOverrides = {};
-            // Add this new constant here
+            // Update the constant
             const WEEKDAY_MAPPING = {
-                1: 'monday',    // getDay() returns 1 for Monday
-                2: 'tuesday',   // 2 for Tuesday
-                3: 'wednesday', // 3 for Wednesday
-                4: 'thursday',  // 4 for Thursday
-                5: 'friday'     // 5 for Friday
+                0: 'monday',
+                1: 'tuesday',
+                2: 'wednesday',
+                3: 'thursday',
+                4: 'friday',
+                5: 'saturday',
+                6: 'sunday'
             };
-          async function initializeDailyStatus() {
-              try {
+
+            async function initializeDailyStatus() {
+                try {
                   await axios.post('/api/initialize-daily-status');
               } catch (error) {
                   console.error('Error initializing daily status:', error);
@@ -415,61 +418,94 @@ function getNextTwoWeeks(startDate) {
           }
           return weeks;
       }
-        async function renderCalendar() {
-            console.log('Rendering calendar for participant:', currentParticipantId);
-            const calendar = document.getElementById('calendar');
-            calendar.innerHTML = '';
 
-            const today = new Date(await initializeDailyStatus());  // Use server's date
-            today.setHours(12, 0, 0, 0);  // Set time to avoid timezone issues
+// Single declaration at the top level
+async function isWalkingBusDay(date) {
+    const schedule = await fetch('/api/walking-bus-schedule').then(r => r.json());
+    const dayMap = {
+        0: 'monday',
+        1: 'tuesday',
+        2: 'wednesday',
+        3: 'thursday',
+        4: 'friday',
+        5: 'saturday',
+        6: 'sunday'
+    };
+    return schedule[dayMap[date.getDay()]];
+}
 
-            // Weekday headers with correct mapping
-            const weekdayHeader = document.createElement('div');
-            weekdayHeader.className = 'week';
-            const weekdays = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-            weekdays.forEach(day => {
-                const dayHeader = document.createElement('div');
-                dayHeader.className = 'calendar-day-header';
-                dayHeader.textContent = day;
-                weekdayHeader.appendChild(dayHeader);
-            });
-            calendar.appendChild(weekdayHeader);
-
-            const weeks = getNextTwoWeeks(today);
-
-            for (const week of weeks) {
-                const weekDiv = document.createElement('div');
-                weekDiv.className = 'week';
-
-                for (let i = 0; i < 7; i++) {
-                    const day = week[i];
-                    const dayDiv = document.createElement('div');
-                    dayDiv.className = 'calendar-day';
-                    dayDiv.textContent = day.getDate();
-
-                    const isPast = day < today;
-                    const isWeekend = i > 4;
-
-                    if (isPast || isWeekend) {
-                        dayDiv.classList.add('day-gray');
-                    } else {
-                        const status = await getStatusForDay(currentParticipantId, day);
-                        dayDiv.classList.add(status ? 'day-green' : 'day-red');
-
-                        dayDiv.dataset.date = day.toISOString();
-                        dayDiv.onclick = async (e) => {
-                            console.log('Day clicked:', day.toISOString());
-                            console.log('Today:', today.toISOString());
-                            await toggleDayStatus(currentParticipantId, day, e.target);
-                        };
-                    }
-
-                    weekDiv.appendChild(dayDiv);
-                }
-                calendar.appendChild(weekDiv);
-            }
-        }
+// Update renderCalendar to handle the async isWalkingBusDay
+async function renderCalendar() {
+    try {
+        const calendar = document.getElementById('calendar');
+        calendar.innerHTML = '';
         
+        // Get server's current date for consistent comparison
+        const serverResponse = await axios.post('/api/initialize-daily-status');
+        const serverDate = new Date(serverResponse.data.currentDate);
+        serverDate.setHours(0, 0, 0, 0);
+        
+        const calendarData = await fetch(`/api/calendar-data/${currentParticipantId}`).then(r => r.json());
+        
+        // Generate weeks data
+        const weeks = getNextTwoWeeks(serverDate);
+        
+        // Weekday mapping starting with Monday as 0
+        const WEEKDAY_MAPPING = {
+            0: 'monday',
+            1: 'tuesday',
+            2: 'wednesday',
+            3: 'thursday',
+            4: 'friday',
+            5: 'saturday',
+            6: 'sunday'
+        };
+        
+        // Render weekday headers
+        const weekdayHeader = document.createElement('div');
+        weekdayHeader.className = 'week';
+        ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].forEach(day => {
+            const dayHeader = document.createElement('div');
+            dayHeader.className = 'calendar-day-header';
+            dayHeader.textContent = day;
+            weekdayHeader.appendChild(dayHeader);
+        });
+        calendar.appendChild(weekdayHeader);
+
+        // Render calendar days
+        for (const week of weeks) {
+            const weekDiv = document.createElement('div');
+            weekDiv.className = 'week';
+            
+            for (const date of week) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'calendar-day';
+                dayDiv.textContent = date.getDate();
+                
+                const compareDate = new Date(date);
+                compareDate.setHours(0, 0, 0, 0);
+                
+                const dayIndex = (date.getDay() + 6) % 7;
+                const dayName = WEEKDAY_MAPPING[dayIndex];
+                
+                if (compareDate < serverDate) {
+                    dayDiv.classList.add('day-gray');
+                } else if (!calendarData.schedule[dayName]) {
+                    dayDiv.classList.add('day-gray');
+                } else {
+                    const status = await getStatusForDay(currentParticipantId, date);
+                    dayDiv.classList.add(status ? 'day-green' : 'day-red');
+                }
+                
+                weekDiv.appendChild(dayDiv);
+            }
+            calendar.appendChild(weekDiv);
+        }
+    } catch (error) {
+        console.error('Calendar rendering error:', error);
+    }
+}
+
     // Initialize everything when DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
         loadStations();
