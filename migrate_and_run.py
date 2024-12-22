@@ -1,23 +1,26 @@
 import os
 from app import create_app, db
 from flask_migrate import upgrade, init, migrate
+from alembic.util.exc import CommandError
 
 app = create_app()
 app.app_context().push()
 
-# Prüfe, ob das migrations-Verzeichnis existiert
-if not os.path.exists('migrations'):
-    print("Initialisiere Migrationen...")
-    init()  # Führt flask db init aus
+try:
+    # Try to upgrade directly first
+    print("Attempting to upgrade database...")
+    upgrade()
+except CommandError:
+    # If that fails, initialize and create new migration
+    if not os.path.exists('migrations'):
+        print("Initializing migrations...")
+        init()
+    
+    print("Creating migration scripts...")
+    migrate()
+    
+    print("Applying migrations...")
+    upgrade()
 
-# Führe eine Migration durch (falls Änderungen vorliegen)
-print("Erstelle Migrationsskripte...")
-migrate()
-
-# Wende die Migrationen an
-print("Wende Migrationen an...")
-upgrade()
-
-# Starte die App
-print("Starte Flask-App...")
+print("Starting Flask app...")
 app.run(host="0.0.0.0", port=8000)
