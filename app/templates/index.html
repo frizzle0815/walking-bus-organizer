@@ -403,24 +403,6 @@ async function toggleDayStatus(participantId, date, dayDiv) {
     dayDiv.classList.toggle('day-red');
 }
 
-function getNextTwoWeeks(startDate) {
-          const weeks = [];
-          const firstDay = new Date(startDate);
-          // Set time to noon to avoid timezone issues
-          firstDay.setHours(12, 0, 0, 0);
-          firstDay.setDate(firstDay.getDate() - firstDay.getDay() + 1);
-        
-          for (let w = 0; w < 2; w++) {
-              const week = [];
-              for (let i = 0; i < 7; i++) {
-                  const day = new Date(firstDay);
-                  day.setDate(day.getDate() + (w * 7) + i);
-                  week.push(day);
-              }
-              weeks.push(week);
-          }
-          return weeks;
-      }
 
 // Single declaration at the top level
 async function isWalkingBusDay(date) {
@@ -457,7 +439,8 @@ async function renderCalendar() {
         calendar.appendChild(weekdayHeader);
         
         // Group dates into weeks
-        for (let weekIndex = 0; weekIndex < 2; weekIndex++) {
+        // Edit number of weeks to display here
+        for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
             const weekDiv = document.createElement('div');
             weekDiv.className = 'week';
             
@@ -492,22 +475,6 @@ async function renderCalendar() {
     document.addEventListener('DOMContentLoaded', () => {
         loadStations();
     });
-        function getNextTwoWeeks(startDate) {
-        const weeks = [];
-        const firstDay = new Date(startDate);
-        firstDay.setDate(firstDay.getDate() - firstDay.getDay() + 1);
-        
-        for (let w = 0; w < 2; w++) {
-            const week = [];
-            for (let i = 0; i < 7; i++) {
-                const day = new Date(firstDay);
-                day.setDate(day.getDate() + (w * 7) + i);
-                week.push(day);
-            }
-            weeks.push(week);
-        }
-        return weeks;
-    }
 
     async function initializeDailyStatus() {
         try {

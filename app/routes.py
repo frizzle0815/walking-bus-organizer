@@ -400,7 +400,7 @@ def get_calendar_data(participant_id):
         # Calculate start of current week (Monday)
         week_start = today - timedelta(days=today.weekday())
         # Get dates for current and next week
-        dates_to_check = [week_start + timedelta(days=x) for x in range(14)]
+        dates_to_check = [week_start + timedelta(days=x) for x in range(28)]
         
         # Get existing calendar entries
         calendar_entries = CalendarStatus.query.filter(
