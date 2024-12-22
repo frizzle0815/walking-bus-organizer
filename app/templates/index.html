@@ -1,141 +1,511 @@
 {% extends "base.html" %}
-  {% block content %}
-  <div class="container-fluid px-2 py-2" style="max-width: 600px;">
-      <div id="stations"></div>
-  </div>
 
-  <style>
-      .station-card {
-          background-color: #414141;
-          border-radius: 8px;
-          margin-bottom: 12px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      }
+{% block content %}
+<div class="container-fluid px-2 py-2 content-container">
+    <div id="stations"></div>
+</div>
 
-      .station-header {
-          padding: 8px 12px;
-          border-bottom: 1px solid #555;
-          background-color: #414141;
-          border-radius: 8px 8px 0 0;
-          color: white;
-      }
+<!-- Calendar Modal -->
+<div id="calendarModal" class="modal">
+    <div class="modal-content">
+        <span class="close">×</span>
+        <div id="calendar"></div>
+    </div>
+</div>
 
-      .participants-list {
-          background-color: #fff;
-          border-radius: 0 0 8px 8px;
-          padding: 4px;
-      }
+<style>
+    /* General Styles */
+    .content-container {
+        max-width: 600px;
+    }
 
-      .participant-item {
-          border: none !important;
-          margin: 2px 0;
-          border-radius: 4px !important;
-      }
-  </style>
+    .station-card {
+        background-color: #414141;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
 
-  <script>
-      async function initializeDailyStatus() {
-          try {
-              await axios.post('/api/initialize-daily-status');
-          } catch (error) {
-              console.error('Error initializing daily status:', error);
-          }
-      }
-      async function loadStations() {
-          await initializeDailyStatus();
-          const response = await axios.get('/api/stations');
-          const stations = response.data;
-          const stationsContainer = document.getElementById('stations');
-          stationsContainer.innerHTML = '';
-        
-          stations.forEach(station => {
-              const stationDiv = document.createElement('div');
-              stationDiv.classList.add('station-card');
-              stationDiv.innerHTML = `
-                  <div class="station-header">
-                      <h5 class="d-flex justify-content-between align-items-center mb-0">
-                          <span>
-                              <i class="fas fa-bus-simple me-2"></i>
-                              ${station.name}
-                          </span>
-                          <span class="badge bg-light text-dark" id="stats-station-${station.id}">
-                              ${getStationStats(station)}
-                          </span>
-                      </h5>
-                  </div>`;
-            
-              const list = document.createElement('ul');
-              list.classList.add('list-group', 'list-group-flush', 'participants-list');
-              list.dataset.stationId = station.id;
-            
-              station.participants.forEach(participant => {
-                  const item = document.createElement('li');
-                  item.classList.add('list-group-item', 'py-1', 'd-flex', 'justify-content-between', 'align-items-center', 'participant-item');
-                  item.style.backgroundColor = participant.status_today ? '#d4edda' : '#f8d7da';
-                
-                  const nameSpan = document.createElement('span');
-                  nameSpan.classList.add('text-truncate', 'me-2');
-                  nameSpan.style.fontSize = '0.9rem';
-                  nameSpan.textContent = participant.name;
-                
-                  const button = document.createElement('button');
-                  button.classList.add(
-                      'btn', 
-                      'btn-sm', 
-                      participant.status_today ? 'btn-outline-danger' : 'btn-outline-success',
-                      'rounded-pill'
-                  );
-                  button.style.fontSize = '0.8rem';
-                  button.style.padding = '0.2rem 0.8rem';
-                  button.onclick = () => toggleParticipation(participant.id, button);
-                  button.innerHTML = participant.status_today ? 
-                      '<i class="fas fa-times"></i>' : 
-                      '<i class="fas fa-check"></i>';
-                
-                  item.appendChild(nameSpan);
-                  item.appendChild(button);
-                  list.appendChild(item);
-              });
-            
-              stationDiv.appendChild(list);
-              stationsContainer.appendChild(stationDiv);
-          });
-      }
-      function getStationStats(station) {
-          const totalParticipants = station.participants.length;
-          const confirmedParticipants = station.participants.filter(p => p.status_today).length;
-          return `${confirmedParticipants} / ${totalParticipants}`;
-      }
+    .station-header {
+        padding: 8px 12px;
+        border-bottom: 1px solid #555;
+        background-color: #414141;
+        border-radius: 8px 8px 0 0;
+        color: white;
+    }
 
-      async function toggleParticipation(participantId, button) {
-          try {
-              const response = await axios.patch(`/api/participation/${participantId}`);
-              const { status_today } = response.data;
-            
-              // Update UI
-              const listItem = button.parentElement;
-              listItem.style.backgroundColor = status_today ? '#d4edda' : '#f8d7da';
-              button.classList.toggle('btn-outline-danger', status_today);
-              button.classList.toggle('btn-outline-success', !status_today);
-              button.innerHTML = status_today ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+    .participants-list {
+        background-color: #fff;
+        border-radius: 0 0 8px 8px;
+        padding: 4px;
+    }
 
-              // Update station statistics
-              const stationElement = listItem.closest('.mt-2');
-              const stationId = stationElement.querySelector('ul').dataset.stationId;
-              const statsSpan = document.getElementById(`stats-station-${stationId}`);
-            
-              // Get fresh station data
-              const stationResponse = await axios.get('/api/stations');
-              const station = stationResponse.data.find(s => s.id === parseInt(stationId));
-              statsSpan.textContent = getStationStats(station);
-            
-          } catch (error) {
-              console.error('Error toggling participation:', error);
-          }
-      }
+    .participant-item {
+        border: none !important;
+        margin: 2px 0;
+        border-radius: 4px !important;
+        font-size: 0.9rem;
+    }
 
-      loadStations();
-  </script>
-  <!-- Add Font Awesome for icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  {% endblock %}
+    /* Participant Status Styles */
+    .participant-status-active {
+        background-color: #d4edda;
+    }
+
+    .participant-status-inactive {
+        background-color: #f8d7da;
+    }
+
+    .participant-status-disabled {
+        background-color: #e9ecef;
+    }
+
+    /* Calendar Styles */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.4);
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 500px;
+        border-radius: 8px;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .week {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+
+    .calendar-day {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        margin: 2px;
+        text-align: center;
+        line-height: 40px;
+        cursor: pointer;
+        border-radius: 50%;
+    }
+
+    .day-green { background-color: #d4edda; }
+    .day-red { background-color: #f8d7da; }
+    .day-gray {
+        background-color: #e9ecef;
+        cursor: not-allowed;
+    }
+
+    .calendar-btn {
+        margin-left: 5px;
+        padding: 0.2rem 0.5rem;
+        font-size: 0.8rem;
+        border-radius: 50%;
+        border: 1px solid #ddd;
+        background: transparent;
+        color: #666;
+    }
+
+    .calendar-day-header {
+        display: inline-block;
+        width: 40px;
+        height: 30px;
+        margin: 2px;
+        text-align: center;
+        line-height: 30px;
+        font-weight: bold;
+        font-size: 0.9rem;
+        color: #666;
+    }
+
+    /* Button Styles */
+    .btn-outline-secondary {
+        background-color: #e9ecef;
+        border-color: #e9ecef;
+        color: #6c757d;
+    }
+
+    .btn-outline-secondary:disabled {
+        cursor: not-allowed;
+    }
+
+    .status-button {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.8rem;
+    }
+
+    .status-button-disabled {
+        cursor: not-allowed;
+    }
+
+    /* Icon Styles */
+    .icon-active {
+        color: #28a745;
+    }
+
+    .icon-inactive {
+        color: #dc3545;
+    }
+
+    /* Traffic Light Icons */
+    .traffic-light {
+        margin-right: 0.5rem;
+    }
+</style>
+
+<script>
+    let currentParticipantId = null;
+    const WEEKDAY_MAPPING = {
+        0: 'monday',
+        1: 'tuesday',
+        2: 'wednesday',
+        3: 'thursday',
+        4: 'friday',
+        5: 'saturday',
+        6: 'sunday'
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadStations();
+        const modal = document.getElementById('calendarModal');
+        const span = document.getElementsByClassName('close')[0];
+
+        span.onclick = () => modal.style.display = 'none';
+        window.onclick = (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        };
+    });
+
+    async function loadStations() {
+        const { currentDate, isWalkingBusDay } = (await axios.post('/api/initialize-daily-status')).data;
+        const stations = (await axios.get('/api/stations')).data;
+
+        const stationsContainer = document.getElementById('stations');
+        stationsContainer.innerHTML = '';
+
+        stations.forEach(station => {
+            const stationDiv = document.createElement('div');
+            stationDiv.classList.add('station-card');
+            stationDiv.innerHTML = createStationHeader(station);
+
+            const list = document.createElement('ul');
+            list.classList.add('list-group', 'list-group-flush', 'participants-list');
+            list.dataset.stationId = station.id;
+
+            station.participants.forEach(participant => {
+                const item = createParticipantItem(participant, isWalkingBusDay);
+                const nameSpan = createNameSpan(participant, isWalkingBusDay);
+
+                const buttonContainer = document.createElement('div');
+                buttonContainer.classList.add('d-flex', 'align-items-center');
+
+                const statusButton = createStatusButton(participant, isWalkingBusDay);
+                const calendarButton = document.createElement('button');
+                calendarButton.classList.add('calendar-btn');
+                calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
+                calendarButton.onclick = (e) => {
+                    e.stopPropagation();
+                    openCalendar(participant.id);
+                };
+
+                buttonContainer.append(statusButton, calendarButton);
+                item.append(nameSpan, buttonContainer);
+                list.appendChild(item);
+            });
+
+            stationDiv.appendChild(list);
+            stationsContainer.appendChild(stationDiv);
+        });
+    }
+
+    function createStationHeader(station) {
+        return `
+            <div class="station-header">
+                <h5 class="d-flex justify-content-between align-items-center mb-0">
+                    <span>
+                        <i class="fas fa-bus-simple me-2"></i>
+                        ${station.name}
+                    </span>
+                    <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                        ${getStationStats(station)}
+                    </span>
+                </h5>
+            </div>`;
+    }
+
+    function createParticipantItem(participant, isWalkingBusDay) {
+        const item = document.createElement('li');
+        item.classList.add(
+            'list-group-item',
+            'py-1',
+            'd-flex',
+            'justify-content-between',
+            'align-items-center',
+            'participant-item'
+        );
+
+        item.classList.add(
+            isWalkingBusDay
+                ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
+                : 'participant-status-disabled'
+        );
+
+        item.dataset.participantId = participant.id;
+        return item;
+    }
+
+    function createNameSpan(participant, isWalkingBusDay) {
+        const nameSpan = document.createElement('span');
+        nameSpan.classList.add('text-truncate', 'me-2');
+
+        const icon = document.createElement('i');
+        icon.classList.add('fas', 'me-2', 'traffic-light');
+
+        if (!isWalkingBusDay || !participant.today_status) {
+            icon.classList.add('fa-person', 'icon-inactive');
+        } else {
+            icon.classList.add('fa-walking', 'icon-active');
+        }
+
+        nameSpan.appendChild(icon);
+        nameSpan.appendChild(document.createTextNode(participant.name));
+        return nameSpan;
+    }
+
+    function createStatusButton(participant, isWalkingBusDay) {
+        const button = document.createElement('button');
+        button.classList.add('btn', 'btn-sm', 'rounded-pill', 'status-button');
+
+        if (!isWalkingBusDay) {
+            button.classList.add('btn-outline-secondary', 'status-button-disabled');
+            button.innerHTML = '<i class="fas fa-times"></i>';
+        } else {
+            button.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
+            button.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+            button.onclick = () => toggleParticipation(participant.id, button);
+        }
+
+        return button;
+    }
+
+    function getStationStats(station) {
+        const totalParticipants = station.participants.length;
+        const confirmedParticipants = station.participants.filter(p => p.today_status).length;
+        return `${confirmedParticipants} / ${totalParticipants}`;
+    }
+
+    function updateStationStats(stationId) {
+        fetch(`/api/stations/${stationId}/stats`)
+            .then(response => response.json())
+            .then(data => {
+                const statsElement = document.getElementById(`stats-station-${stationId}`);
+                if (statsElement) {
+                    statsElement.textContent = `${data.active} / ${data.total}`;
+                }
+            });
+    }
+
+    async function getStatusForDay(participantId, date) {
+        console.log('Getting status for:', {
+            date: date.toISOString(),
+            localDate: date.toLocaleString(),
+            dayOfWeek: date.getDay(),
+            weekday: WEEKDAY_MAPPING[date.getDay()]
+        });
+        try {
+            const response = await axios.get(`/api/calendar-status/${participantId}`);
+            const dateStr = date.toISOString().split('T')[0];
+            const entry = response.data.find(e => e.date === dateStr);
+
+            if (entry) {
+                return entry.status;
+            }
+
+            const dayNumber = date.getDay();
+            const weekday = WEEKDAY_MAPPING[dayNumber];
+
+            if (weekday) {
+                const defaultStatusResponse = await axios.get(`/api/participant/${participantId}/weekday-status/${weekday}`);
+                return defaultStatusResponse.data.status;
+            }
+
+            return false;
+        } catch (error) {
+            console.error('Error fetching calendar status:', error);
+            return false;
+        }
+    }
+
+    async function toggleParticipation(participantId, button) {
+        try {
+            const serverDate = await initializeDailyStatus();
+            const listItem = button.closest('.participant-item');
+
+            listItem.classList.toggle('participant-status-active');
+            listItem.classList.toggle('participant-status-inactive');
+
+            const newStatus = listItem.classList.contains('participant-status-active');
+
+            await axios.patch(`/api/participation/${participantId}`);
+
+            updateParticipantUI(button, newStatus);
+
+            if (document.getElementById('calendarModal').style.display === 'block') {
+                await renderCalendar();
+            }
+        } catch (error) {
+            console.error('Error toggling participation:', error);
+            listItem.classList.toggle('participant-status-active');
+            listItem.classList.toggle('participant-status-inactive');
+            updateParticipantUI(button, !newStatus);
+        }
+    }
+
+    function updateParticipantUI(button, status) {
+        const listItem = button.closest('.participant-item');
+        listItem.classList.toggle('participant-status-active', status);
+        listItem.classList.toggle('participant-status-inactive', !status);
+        button.classList.toggle('btn-outline-danger', status);
+        button.classList.toggle('btn-outline-success', !status);
+        button.innerHTML = status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+
+        const trafficLightIcon = listItem.querySelector('.text-truncate > i');
+        if (trafficLightIcon) {
+            trafficLightIcon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+            trafficLightIcon.classList.add(status ? 'fa-walking' : 'fa-person');
+            trafficLightIcon.classList.add(status ? 'icon-active' : 'icon-inactive');
+        }
+
+        const stationList = button.closest('.participants-list');
+        const stationId = stationList.dataset.stationId;
+        updateStationStats(stationId);
+    }
+
+
+    async function openCalendar(participantId) {
+        currentParticipantId = participantId;
+        const modal = document.getElementById('calendarModal');
+
+        const calendarButton = event.target;
+        const participantItem = calendarButton.closest('.participant-item');
+        const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
+
+        const modalContent = modal.querySelector('.modal-content');
+        modalContent.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+                <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
+                <h4 class="mb-0 ms-3">${participantName}</h4>
+            </div>
+            <div id="calendar"></div>
+        `;
+
+        modal.style.display = 'block';
+        await renderCalendar();
+    }
+
+    async function initializeDailyStatus() {
+        try {
+            const response = await axios.post('/api/initialize-daily-status');
+            return response.data.currentDate;
+        } catch (error) {
+            console.error('Error initializing daily status:', error);
+        }
+    }
+
+    async function renderCalendar() {
+        const calendar = document.getElementById('calendar');
+        calendar.innerHTML = '';
+
+        try {
+            const calendarData = await fetch(`/api/calendar-data/${currentParticipantId}`).then(r => r.json());
+
+            const weekdayHeader = document.createElement('div');
+            weekdayHeader.className = 'week';
+            ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
+                const dayHeader = document.createElement('div');
+                dayHeader.className = 'calendar-day-header';
+                dayHeader.textContent = day;
+                weekdayHeader.appendChild(dayHeader);
+            });
+            calendar.appendChild(weekdayHeader);
+
+            for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
+                const weekDiv = document.createElement('div');
+                weekDiv.className = 'week';
+
+                const weekData = calendarData.slice(weekIndex * 7, (weekIndex + 1) * 7);
+                weekData.forEach(dayData => {
+                    const dayDiv = document.createElement('div');
+                    dayDiv.className = 'calendar-day';
+                    dayDiv.textContent = new Date(dayData.date).getDate();
+
+                    if (!dayData.is_schedule_day || dayData.is_past) {
+                        dayDiv.classList.add('day-gray');
+                    } else {
+                        dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
+                        dayDiv.onclick = () => toggleDayStatus(currentParticipantId, dayData.date, dayDiv);
+                    }
+
+                    if (dayData.is_today) {
+                        dayDiv.classList.add('day-today');
+                    }
+
+                    weekDiv.appendChild(dayDiv);
+                });
+
+                calendar.appendChild(weekDiv);
+            }
+        } catch (error) {
+            console.error('Calendar rendering error:', error);
+        }
+    }
+
+    async function toggleDayStatus(participantId, dateString, dayDiv) {
+        const serverDate = await initializeDailyStatus();
+        const clickedDate = dateString;
+
+        dayDiv.classList.toggle('day-green');
+        dayDiv.classList.toggle('day-red');
+
+        const newStatus = dayDiv.classList.contains('day-green');
+
+        await axios.post('/api/calendar-status', {
+            participant_id: participantId,
+            date: clickedDate,
+            status: newStatus
+        });
+
+        if (serverDate === clickedDate) {
+            const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+            if (participantItem) {
+                const statusButton = participantItem.querySelector('button');
+                if (statusButton) {
+                    updateParticipantUI(statusButton, newStatus);
+                }
+            }
+        }
+    }
+</script>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+{% endblock %}
