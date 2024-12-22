@@ -1,23 +1,54 @@
 import os
 from app import create_app, db
-from flask_migrate import upgrade, init, migrate, stamp, current
+from flask_migrate import upgrade, init, migrate, stamp
+from sqlalchemy import text
 from alembic.util.exc import CommandError
 
 app = create_app()
 app.app_context().push()
 
-if not os.path.exists('migrations'):
-    print("Creating migrations directory...")
-    init()
-    
-    print("Creating initial migration...")
-    migrate()
-    
-    print("Marking database as current...")
-    with app.app_context():
-        stamp()  # Using stamp() without parameters uses current head
+def check_alembic_version():
+    """Check if alembic_version table exists and has data"""
+    try:
+        with db.engine.connect() as conn:
+            result = conn.execute(text("SELECT version_num FROM alembic_version"))
+            return result.scalar()
+    except Exception:
+        return None
 
-print("Applying migrations...")
+# Get current version if it exists
+current_version = check_alembic_version()
+
+if current_version:
+    print(f"Found existing database with version: {current_version}")
+    if not os.path.exists('migrations'):
+        print("Recreating migrations structure...")
+        init()
+        
+        # Create an empty migration matching current DB state
+        with open(f'migrations/versions/{current_version}_initial_migration.py', 'w') as f:
+            f.write(f"""
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers
+revision = '{current_version}'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    pass
+
+def downgrade():
+    pass
+""")
+else:
+    print("Fresh database detected, initializing migrations...")
+    init()
+    migrate()
+
+print("Applying any pending migrations...")
 upgrade()
 
 print("Starting Flask app...")
