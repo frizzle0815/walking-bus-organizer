@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
+from flask import send_from_directory
 from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
@@ -456,6 +457,15 @@ def stream():
             'Transfer-Encoding': 'chunked'
         }
     )
+
+# Progressive Web App (PWA) Funktionalität
+@bp.route('/static/service-worker.js')
+def service_worker():
+    return send_from_directory('static', 'service-worker.js')
+
+@bp.route('/static/manifest.json')
+def manifest():
+    return send_from_directory('static', 'manifest.json')
 
 
 def is_walking_bus_day(date):

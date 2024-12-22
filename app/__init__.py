@@ -4,12 +4,20 @@ from flask_migrate import Migrate
 from datetime import datetime
 import os
 import pytz
+from zoneinfo import ZoneInfo
 
 db = SQLAlchemy()
 migrate = Migrate()
 
 # Define the application's timezone
-TIMEZONE = pytz.timezone('Europe/Berlin')
+# Get timezone from environment variable or use default
+DEFAULT_TIMEZONE = 'Europe/Berlin'
+timezone_name = os.getenv('APP_TIMEZONE', DEFAULT_TIMEZONE)
+
+try:
+    TIMEZONE = ZoneInfo(timezone_name)
+except Exception:
+    TIMEZONE = pytz.timezone(timezone_name)
 
 # Add this to centralize weekday mapping
 WEEKDAY_MAPPING = {
