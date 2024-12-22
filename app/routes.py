@@ -427,36 +427,49 @@ def time_api():
 @bp.route('/stream')
 def stream():
     def event_stream():
-        while True:
-            # Get current stations data
-            stations = Station.query.order_by(Station.position).all()
-            data = []
-            for station in stations:
-                station_data = {
-                    "id": station.id,
-                    "name": station.name,
-                    "participants": [
-                        {
-                            "id": p.id,
-                            "name": p.name,
-                            "status_today": p.status_today
-                        } for p in station.participants
-                    ]
-                }
-                data.append(station_data)
-            
-            # Send the data
-            yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(5)  # Wait 5 seconds before next update
-    
+        try:
+            last_data = None
+            while True:
+                stations = Station.query.order_by(Station.position).all()
+                current_data = []
+                
+                for station in stations:
+                    station_data = {
+                        "id": station.id,
+                        "name": station.name,
+                        "participants": [
+                            {
+                                "id": p.id,
+                                "name": p.name,
+                                "status_today": p.status_today
+                            } for p in station.participants
+                        ]
+                    }
+                    current_data.append(station_data)
+                
+                current_data_str = json.dumps(current_data)
+                
+                if current_data_str != last_data:
+                    yield f"data: {current_data_str}\n\n"
+                    last_data = current_data_str
+                else:
+                    yield f"event: check\ndata: No changes detected at {datetime.now().strftime('%H:%M:%S')}\n\n"
+                
+                db.session.remove()  # Release DB connection
+                time.sleep(5)
+        except GeneratorExit:
+            db.session.remove()  # Ensure DB connection is released
+
     return Response(
         stream_with_context(event_stream()),
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
-            'Transfer-Encoding': 'chunked'
+            'Transfer-Encoding': 'chunked',
+            'X-Accel-Buffering': 'no'  # Important for nginx
         }
     )
+    
 
 # Progressive Web App (PWA) Funktionalität
 @bp.route('/static/service-worker.js')
