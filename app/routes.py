@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
+import json
+import time
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -419,6 +421,41 @@ def time_api():
     return jsonify({
         "time": current_time.strftime("%H:%M")
     })
+
+
+@bp.route('/stream')
+def stream():
+    def event_stream():
+        while True:
+            # Get current stations data
+            stations = Station.query.order_by(Station.position).all()
+            data = []
+            for station in stations:
+                station_data = {
+                    "id": station.id,
+                    "name": station.name,
+                    "participants": [
+                        {
+                            "id": p.id,
+                            "name": p.name,
+                            "status_today": p.status_today
+                        } for p in station.participants
+                    ]
+                }
+                data.append(station_data)
+            
+            # Send the data
+            yield f"data: {json.dumps(data)}\n\n"
+            time.sleep(5)  # Wait 5 seconds before next update
+    
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Transfer-Encoding': 'chunked'
+        }
+    )
 
 
 def is_walking_bus_day(date):
