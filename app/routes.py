@@ -93,13 +93,22 @@ def delete_station(station_id):
 
 @bp.route("/api/stations/<int:station_id>/stats")
 def get_station_stats(station_id):
-    station = Station.query.get_or_404(station_id)
-    total = len(station.participants)
-    active = sum(1 for p in station.participants if p.status_today)
-    return jsonify({
-        "total": total,
-        "active": active
-    })
+    try:
+        station = Station.query.get_or_404(station_id)
+        total = len(station.participants)
+        today = get_current_date()
+        
+        # Use a different variable name to avoid conflict with function name
+        is_active_day = is_walking_bus_day(today)
+        
+        active = sum(1 for p in station.participants if p.status_today) if is_active_day else 0
+        
+        return jsonify({
+            "total": total,
+            "active": active
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @bp.route("/api/stations/order", methods=["PUT"])

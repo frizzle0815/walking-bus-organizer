@@ -180,6 +180,7 @@
 
 <script>
     let currentParticipantId = null;
+    let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
         1: 'tuesday',
@@ -204,7 +205,8 @@
     });
 
     async function loadStations() {
-        const { currentDate, isWalkingBusDay } = (await axios.post('/api/initialize-daily-status')).data;
+        const response = (await axios.post('/api/initialize-daily-status')).data;
+        isWalkingBusDay = response.isWalkingBusDay;
         const stations = (await axios.get('/api/stations')).data;
 
         const stationsContainer = document.getElementById('stations');
@@ -213,7 +215,7 @@
         stations.forEach(station => {
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
-            stationDiv.innerHTML = createStationHeader(station);
+            stationDiv.innerHTML = createStationHeader(station, isWalkingBusDay);
 
             const list = document.createElement('ul');
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
@@ -245,7 +247,7 @@
         });
     }
 
-    function createStationHeader(station) {
+    function createStationHeader(station, isWalkingBusDay) {
         return `
             <div class="station-header">
                 <h5 class="d-flex justify-content-between align-items-center mb-0">
@@ -320,18 +322,28 @@
 
     function getStationStats(station) {
         const totalParticipants = station.participants.length;
-        const confirmedParticipants = station.participants.filter(p => p.today_status).length;
+        const confirmedParticipants = isWalkingBusDay ? 
+            station.participants.filter(p => p.today_status).length : 0;
         return `${confirmedParticipants} / ${totalParticipants}`;
     }
 
     function updateStationStats(stationId) {
         fetch(`/api/stations/${stationId}/stats`)
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 const statsElement = document.getElementById(`stats-station-${stationId}`);
                 if (statsElement) {
                     statsElement.textContent = `${data.active} / ${data.total}`;
                 }
+            })
+            .catch(error => {
+                console.error('Stats update failed:', error);
+                // Optionally update UI to show error state
             });
     }
 
