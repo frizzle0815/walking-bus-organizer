@@ -205,7 +205,28 @@
     };
 
     document.addEventListener('DOMContentLoaded', () => {
+        // Create alert elements dynamically to ensure they exist
+        const alertsContainer = document.createElement('div');
+        alertsContainer.id = 'alerts-container';
+        alertsContainer.innerHTML = `
+            <div id="connection-alert" class="alert alert-danger d-none" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Die Verbindung zum Server wurde unterbrochen. Die angezeigten Daten sind möglicherweise nicht aktuell.
+            </div>
+            <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
+                <i class="fas fa-info-circle me-2"></i>
+                Heute findet kein Walking Bus statt.
+            </div>
+        `;
+
+        // Insert alerts before stations div
+        const stationsDiv = document.getElementById('stations');
+        stationsDiv.parentNode.insertBefore(alertsContainer, stationsDiv);
+
+        // Now initialize everything else
         loadStations();
+        initializeSSE();
+        console.log('SSE initialization attempted');
         const modal = document.getElementById('calendarModal');
         const span = document.getElementsByClassName('close')[0];
 
@@ -220,6 +241,11 @@
     async function loadStations() {
         const response = (await axios.post('/api/initialize-daily-status')).data;
         isWalkingBusDay = response.isWalkingBusDay;
+
+        // Show/hide walking bus alert
+        const walkingbusAlert = document.getElementById('walkingbus-alert');
+        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+
         const stations = (await axios.get('/api/stations')).data;
 
         const stationsContainer = document.getElementById('stations');
@@ -539,6 +565,37 @@
                 }
             }
         }
+    }
+
+    function initializeSSE() {
+        console.log('Starting SSE connection...');
+        const eventSource = new EventSource('/stream');
+        
+        eventSource.onmessage = (event) => {
+            console.log('Received SSE update:', event.data);
+            loadStations();
+            updateConnectionStatus('connected');
+        };
+
+        eventSource.addEventListener('comment', (event) => {
+            console.log('Check performed:', event.data);
+        });
+
+        eventSource.onopen = () => {
+            console.log('SSE connection opened');
+            updateConnectionStatus('connected');
+        };
+
+        eventSource.onerror = (error) => {
+            console.error('SSE connection error:', error);
+            updateConnectionStatus('disconnected');
+        };
+    }
+
+
+    function updateConnectionStatus(status) {
+        const connectionAlert = document.getElementById('connection-alert');
+        connectionAlert.classList.toggle('d-none', status === 'connected');
     }
 </script>
 
