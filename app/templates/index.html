@@ -571,25 +571,29 @@
         console.log('Starting SSE connection...');
         const eventSource = new EventSource('/stream');
         
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        
         eventSource.onmessage = (event) => {
             console.log('Received SSE update:', event.data);
             loadStations();
             updateConnectionStatus('connected');
+            reconnectAttempts = 0;
         };
 
-        eventSource.addEventListener('comment', (event) => {
-            console.log('Check performed:', event.data);
-        });
-
-        eventSource.onopen = () => {
-            console.log('SSE connection opened');
-            updateConnectionStatus('connected');
-        };
-
-        eventSource.onerror = (error) => {
-            console.error('SSE connection error:', error);
+        eventSource.addEventListener('error', (event) => {
+            console.error('SSE connection error:', event);
             updateConnectionStatus('disconnected');
-        };
+            
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                setTimeout(() => {
+                    console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                    eventSource.close();
+                    initializeSSE();
+                }, 5000 * reconnectAttempts);
+            }
+        });
     }
 
 
