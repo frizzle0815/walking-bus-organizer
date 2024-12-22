@@ -234,7 +234,7 @@
 
              try {
                  await fetch('/api/walking-bus-schedule', {
-                     method: 'POST',
+                     method: 'PUT',
                      headers: { 'Content-Type': 'application/json' },
                      body: JSON.stringify(newSchedule)
                  });
@@ -385,7 +385,7 @@
                     });
 
                     await fetch('/api/update-future-entries', {
-                        method: 'POST',
+                        method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             participant_id: participantId,
@@ -439,7 +439,7 @@
                 position: document.querySelectorAll('.station-card').length
             };
 
-            fetch('/admin/stations', {
+            fetch('/api/stations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newStation)
@@ -457,8 +457,8 @@
         }
 
         function deleteStation(stationId, element) {
-            fetch(`/admin/stations/${stationId}/delete`, {
-                method: 'POST'
+            fetch(`/api/stations/${stationId}`, {
+                method: 'DELETE'
             }).then(() => element.remove());
         }
 
@@ -480,7 +480,7 @@
                         sunday: schedule.sunday
                     };
 
-                    fetch('/admin/participants', {
+                    fetch('/api/participants', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(newParticipant)
@@ -543,8 +543,8 @@
         function deleteParticipant(participantId, element) {
             console.log('Attempting to delete participant:', participantId);
 
-            fetch(`/admin/participants/${participantId}/delete`, {
-                method: 'POST',
+            fetch(`/api/participants/${participantId}`, {
+                method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'
                 }
@@ -587,8 +587,8 @@
 
             console.log('Sending station order update:', stations);
 
-            fetch('/api/stations', {
-                method: 'POST',
+            fetch('/api/stations/order', {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(stations)
             })

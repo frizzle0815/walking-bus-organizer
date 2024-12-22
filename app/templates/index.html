@@ -120,8 +120,9 @@
         font-size: 0.8rem;
         border-radius: 50%;
         border: 1px solid #ddd;
-        background: transparent;
+        background-color: white;  /* Changed from transparent */
         color: #666;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);  /* Adding subtle shadow */
     }
 
     .calendar-day-header {
@@ -150,6 +151,8 @@
     .status-button {
         font-size: 0.8rem;
         padding: 0.2rem 0.8rem;
+        background-color: white;  /* Adding white background */
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);  /* Adding subtle shadow */
     }
 
     .status-button-disabled {
@@ -163,6 +166,10 @@
 
     .icon-inactive {
         color: #dc3545;
+    }
+
+    .icon-disabled {
+        color: #6c757d;  /* Bootstrap's secondary gray color */
     }
 
     /* Traffic Light Icons */
@@ -281,10 +288,13 @@
         const icon = document.createElement('i');
         icon.classList.add('fas', 'me-2', 'traffic-light');
 
-        if (!isWalkingBusDay || !participant.today_status) {
-            icon.classList.add('fa-person', 'icon-inactive');
+        if (!isWalkingBusDay) {
+            icon.classList.add('fa-person', 'icon-disabled');  // Changed to icon-disabled
         } else {
-            icon.classList.add('fa-walking', 'icon-active');
+            icon.classList.add(
+                participant.today_status ? 'fa-walking' : 'fa-person',
+                participant.today_status ? 'icon-active' : 'icon-inactive'
+            );
         }
 
         nameSpan.appendChild(icon);
