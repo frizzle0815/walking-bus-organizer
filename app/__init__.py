@@ -1,10 +1,23 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from datetime import datetime
 import os
+import pytz
 
 db = SQLAlchemy()
 migrate = Migrate()
+
+# Define the application's timezone
+TIMEZONE = pytz.timezone('Europe/Berlin')
+
+def get_current_time():
+    """Get current time in application timezone"""
+    return datetime.now(TIMEZONE)
+
+def get_current_date():
+    """Get current date in application timezone"""
+    return get_current_time().date()
 
 def create_app():
     app = Flask(__name__)
@@ -18,7 +31,7 @@ def create_app():
     db.init_app(app)
     migrate.init_app(app, db)
 
-    from .routes import bp as main_bp
-    app.register_blueprint(main_bp)
+    from .routes import bp
+    app.register_blueprint(bp)
 
     return app

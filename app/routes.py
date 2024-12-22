@@ -1,7 +1,7 @@
-from sqlalchemy import extract
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request
 from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
+from . import get_current_time, get_current_date, TIMEZONE
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -169,13 +169,17 @@ def is_walking_bus_day(date):
 
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 def initialize_daily_status():
-    today = datetime.now().date()
-    walking_bus_day = is_walking_bus_day(today)
-    return jsonify({
-        "success": True,
-        "currentDate": today.isoformat(),
-        "isWalkingBusDay": walking_bus_day
-    })
+    try:
+        today = get_current_date()
+        walking_bus_day = is_walking_bus_day(today)
+        return jsonify({
+            "success": True,
+            "currentDate": today.isoformat(),
+            "isWalkingBusDay": walking_bus_day
+        })
+    except Exception as e:
+        print(f"Error in initialize_daily_status: {str(e)}")  # Debug log
+        return jsonify({"error": str(e)}), 500
 
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
 def get_schedule():
@@ -244,7 +248,8 @@ def toggle_participation(participant_id):
 def update_calendar_status():
     data = request.get_json()
     participant_id = data['participant_id']
-    date = datetime.strptime(data['date'], '%Y-%m-%d').date()  # Ensure date is parsed correctly
+    # Parse incoming dates with timezone awareness
+    date = datetime.strptime(data['date'], '%Y-%m-%d').replace(tzinfo=TIMEZONE).date()
     status = data['status']
 
     calendar_entry = CalendarStatus.query.filter_by(
@@ -265,7 +270,7 @@ def update_calendar_status():
         db.session.add(calendar_entry)
 
     # Update status_today if this is for today
-    if date == datetime.now().date():
+    if date == get_current_date():
         participant = Participant.query.get(participant_id)
         participant.status_today = status
 
