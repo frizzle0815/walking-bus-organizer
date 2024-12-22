@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
+from flask import send_from_directory
 from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
@@ -426,36 +427,61 @@ def time_api():
 @bp.route('/stream')
 def stream():
     def event_stream():
-        while True:
-            # Get current stations data
-            stations = Station.query.order_by(Station.position).all()
-            data = []
-            for station in stations:
-                station_data = {
-                    "id": station.id,
-                    "name": station.name,
-                    "participants": [
-                        {
-                            "id": p.id,
-                            "name": p.name,
-                            "status_today": p.status_today
-                        } for p in station.participants
-                    ]
-                }
-                data.append(station_data)
-            
-            # Send the data
-            yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(5)  # Wait 5 seconds before next update
-    
+        try:
+            last_data = None
+            while True:
+                with db.session.begin():
+                    stations = Station.query.order_by(Station.position).all()
+                    current_data = []
+                    
+                    for station in stations:
+                        station_data = {
+                            "id": station.id,
+                            "name": station.name,
+                            "participants": [
+                                {
+                                    "id": p.id,
+                                    "name": p.name,
+                                    "status_today": p.status_today
+                                } for p in station.participants
+                            ]
+                        }
+                        current_data.append(station_data)
+                    
+                    current_data_str = json.dumps(current_data)
+                    
+                    if current_data_str != last_data:
+                        yield f"data: {current_data_str}\n\n"
+                        last_data = current_data_str
+                    else:
+                        yield f"event: check\ndata: No changes detected at {datetime.now().strftime('%H:%M:%S')}\n\n"
+                
+                time.sleep(5)
+        except Exception as e:
+            print(f"Stream error: {e}")
+            db.session.remove()
+            yield f"event: error\ndata: Connection error occurred\n\n"
+
     return Response(
         stream_with_context(event_stream()),
         mimetype='text/event-stream',
         headers={
-            'Cache-Control': 'no-cache',
-            'Transfer-Encoding': 'chunked'
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*'
         }
     )
+
+
+# Progressive Web App (PWA) Funktionalität
+@bp.route('/static/service-worker.js')
+def service_worker():
+    return send_from_directory('static', 'service-worker.js')
+
+@bp.route('/static/manifest.json')
+def manifest():
+    return send_from_directory('static', 'manifest.json')
 
 
 def is_walking_bus_day(date):

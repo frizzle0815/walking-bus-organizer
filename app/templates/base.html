@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <meta name="theme-color" content="#414141">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
@@ -36,6 +42,18 @@
          }
      </style>
      <script>
+          if ('serviceWorker' in navigator) {
+             window.addEventListener('load', () => {
+                 navigator.serviceWorker.register('/static/service-worker.js')
+                     .then(registration => {
+                         console.log('ServiceWorker registration successful');
+                     })
+                     .catch(err => {
+                         console.log('ServiceWorker registration failed: ', err);
+                     });
+             });
+         }
+
          function updateTime() {
             fetch('/api/current-time')
                 .then(response => response.json())
