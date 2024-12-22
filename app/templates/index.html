@@ -47,6 +47,10 @@
         font-size: 0.9rem;
     }
 
+    .participant-name {
+        font-weight: bold;
+    }
+
     /* Participant Status Styles */
     .participant-status-active {
         background-color: #d4edda;
@@ -136,6 +140,11 @@
         font-size: 0.9rem;
         color: #666;
     }
+
+    .day-today {
+        border: 2px solid #0d6efd;  /* Bootstrap primary blue */
+    }
+
 
     /* Button Styles */
     .btn-outline-secondary {
@@ -285,7 +294,7 @@
 
     function createNameSpan(participant, isWalkingBusDay) {
         const nameSpan = document.createElement('span');
-        nameSpan.classList.add('text-truncate', 'me-2');
+        nameSpan.classList.add('text-truncate', 'me-2', 'participant-name');
 
         const icon = document.createElement('i');
         icon.classList.add('fas', 'me-2', 'traffic-light');

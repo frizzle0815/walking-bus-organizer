@@ -412,6 +412,14 @@ def update_future_entries():
     db.session.commit()
     return jsonify({"success": True})
 
+# Used in base.html
+@bp.route("/api/current-time")
+def time_api():
+    current_time = get_current_time()
+    return jsonify({
+        "time": current_time.strftime("%H:%M")
+    })
+
 
 def is_walking_bus_day(date):
     schedule = WalkingBusSchedule.query.first()

@@ -22,13 +22,16 @@ WEEKDAY_MAPPING = {
     6: 'sunday'
 }
 
+
 def get_current_time():
     """Get current time in application timezone"""
     return datetime.now(TIMEZONE)
 
+
 def get_current_date():
     """Get current date in application timezone"""
     return get_current_time().date()
+
 
 def create_app():
     app = Flask(__name__)
