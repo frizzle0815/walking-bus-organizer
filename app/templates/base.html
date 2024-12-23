@@ -35,15 +35,20 @@
        
        <!-- Navigation Items -->
        <div class="collapse navbar-collapse" id="navbarNav">
-           <ul class="navbar-nav">
-               <li class="nav-item">
-                   <a class="nav-link" href="/">Zusagen</a>
-               </li>
-               <li class="nav-item">
-                   <a class="nav-link" href="/admin">Teilnehmer</a>
-               </li>
-           </ul>
-       </div>
+          <ul class="navbar-nav">
+              <li class="nav-item">
+                  <a class="nav-link" href="/">Zusagen</a>
+              </li>
+              <li class="nav-item">
+                  <a class="nav-link" href="/admin">Teilnehmer</a>
+              </li>
+              <li class="nav-item" id="install-app-item" style="display: none;">
+                  <a class="nav-link" href="#" id="install-app">
+                      <i class="fas fa-download me-2"></i>Als App installieren
+                  </a>
+              </li>
+          </ul>
+      </div>
    </div>
  </nav>
  <div class="container mt-4">
@@ -93,6 +98,40 @@
       }
   </style>
   <script>
+      let deferredPrompt;
+
+      window.addEventListener('beforeinstallprompt', (e) => {
+          // Prevent Chrome 67 and earlier from automatically showing the prompt
+          e.preventDefault();
+          // Stash the event so it can be triggered later
+          deferredPrompt = e;
+          // Show the install button
+          document.getElementById('install-app-item').style.display = 'block';
+      });
+
+      document.getElementById('install-app').addEventListener('click', async () => {
+          if (!deferredPrompt) return;
+          
+          // Show the install prompt
+          deferredPrompt.prompt();
+          
+          // Wait for the user to respond to the prompt
+          const { outcome } = await deferredPrompt.userChoice;
+          console.log(`User response to the install prompt: ${outcome}`);
+          
+          // Clear the deferredPrompt variable
+          deferredPrompt = null;
+          
+          // Hide the install button
+          document.getElementById('install-app-item').style.display = 'none';
+      });
+
+      // Hide install prompt when app is installed
+      window.addEventListener('appinstalled', () => {
+          document.getElementById('install-app-item').style.display = 'none';
+          console.log('PWA was installed');
+      });
+
       if ('serviceWorker' in navigator) {
           window.addEventListener('load', () => {
               navigator.serviceWorker.register('/static/service-worker.js')
