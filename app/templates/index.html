@@ -613,12 +613,27 @@
         });
     }
 
+    // Add visibility change handling
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // Page becomes visible again
+            const connectionAlert = document.getElementById('connection-alert');
+            connectionAlert.classList.add('d-none');
+            
+            // Reset SSE connection
+            initializeSSE();
+        }
+    });
+
 
     function updateConnectionStatus(status) {
         const connectionAlert = document.getElementById('connection-alert');
         const connectionIndicator = document.querySelector('.connection-indicator');
         
-        connectionAlert.classList.toggle('d-none', status === 'connected');
+        // Only update alert if we're actively showing the page
+        if (!document.hidden) {
+            connectionAlert.classList.toggle('d-none', status === 'connected');
+        }
         
         connectionIndicator.classList.remove('connected', 'disconnected');
         connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
