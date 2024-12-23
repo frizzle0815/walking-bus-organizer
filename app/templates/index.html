@@ -207,8 +207,9 @@
         6: 'sunday'
     };
 
-    document.addEventListener('DOMContentLoaded', () => {
-        // Create alert elements dynamically to ensure they exist
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Create and insert alert container
         const alertsContainer = document.createElement('div');
         alertsContainer.id = 'alerts-container';
         alertsContainer.innerHTML = `
@@ -222,14 +223,18 @@
             </div>
         `;
 
-        // Insert alerts before stations div
         const stationsDiv = document.getElementById('stations');
         stationsDiv.parentNode.insertBefore(alertsContainer, stationsDiv);
 
-        // Now initialize everything else
-        loadStations();
+        // Initialize IndexedDB first
+        await initDB();
+        
+        // Initialize data and connections
+        await loadStations();
         initializeSSE();
-        console.log('SSE initialization attempted');
+        console.log('SSE initialization completed');
+
+        // Setup modal handling
         const modal = document.getElementById('calendarModal');
         const span = document.getElementsByClassName('close')[0];
 
@@ -239,7 +244,42 @@
                 modal.style.display = 'none';
             }
         };
+
+        // Add offline/online handlers
+        window.addEventListener('online', () => {
+            loadStations();
+        });
+
+        window.addEventListener('offline', () => {
+            updateConnectionStatus('disconnected');
+        });
     });
+
+
+
+    // First, create a promise for database initialization
+    let dbPromise;
+
+    function initDB() {
+        dbPromise = new Promise((resolve, reject) => {
+            const request = indexedDB.open('WalkingBusDB', 1);
+            
+            request.onerror = () => reject(request.error);
+            
+            request.onsuccess = (event) => {
+                const db = event.target.result;
+                resolve(db);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('stationsData')) {
+                    db.createObjectStore('stationsData', { keyPath: 'timestamp' });
+                }
+            };
+        });
+        return dbPromise;
+    }
 
     async function loadStations() {
         const now = Date.now();
@@ -248,14 +288,65 @@
         }
         lastUpdateTimestamp = now;
 
-        const response = (await axios.post('/api/initialize-daily-status')).data;
-        isWalkingBusDay = response.isWalkingBusDay;
+        try {
+             // Get database instance
+            const db = await dbPromise;
+            // Try to fetch fresh data
+            const response = (await axios.post('/api/initialize-daily-status')).data;
+            isWalkingBusDay = response.isWalkingBusDay;
+            const stations = (await axios.get('/api/stations')).data;
 
+            // Store successful response in IndexedDB
+            const transaction = db.transaction(['stationsData'], 'readwrite');
+            const store = transaction.objectStore('stationsData');
+            await store.put({
+                timestamp: new Date().toISOString(),
+                stations: stations,
+                isWalkingBusDay: isWalkingBusDay,
+                lastKnownTime: document.getElementById('current-time').textContent // Store current time
+            });
+
+            // Update connection status to connected
+            renderStations(stations, isWalkingBusDay);
+            updateConnectionStatus('connected');
+        } catch (error) {
+            console.log('Loading cached data...');
+            try {
+                const db = await dbPromise;
+                const transaction = db.transaction(['stationsData'], 'readonly');
+                const store = transaction.objectStore('stationsData');
+                const request = store.getAll();
+                
+                request.onsuccess = (event) => {
+                    const cachedData = event.target.result;
+                    if (cachedData && cachedData.length > 0) {
+                        const latestData = cachedData.reduce((latest, current) => 
+                            latest.timestamp > current.timestamp ? latest : current
+                        );
+                        
+                        isWalkingBusDay = latestData.isWalkingBusDay;
+                        renderStations(latestData.stations, latestData.isWalkingBusDay);
+                        
+                        // Restore last known time
+                        if (latestData.lastKnownTime) {
+                            document.getElementById('current-time').textContent = latestData.lastKnownTime;
+                        }
+                        
+                        updateConnectionStatus('disconnected');
+                    }
+                };
+            } catch (dbError) {
+                console.error('IndexedDB error:', dbError);
+            }
+        }
+    }
+
+
+    function renderStations(stations, isWalkingBusDay) {
         // Show/hide walking bus alert
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
 
-        const stations = (await axios.get('/api/stations')).data;
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
@@ -293,6 +384,7 @@
             stationsContainer.appendChild(stationDiv);
         });
     }
+
 
     function createStationHeader(station, isWalkingBusDay) {
         return `
@@ -591,6 +683,10 @@
         
         globalEventSource.onmessage = (event) => {
             console.log('Received SSE update:', event.data);
+            const data = JSON.parse(event.data);
+            if (data.time) {
+                document.getElementById('current-time').textContent = data.time;
+            }
             loadStations();
             updateConnectionStatus('connected');
             reconnectAttempts = 0;
