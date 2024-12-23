@@ -415,14 +415,6 @@ def update_future_entries():
     db.session.commit()
     return jsonify({"success": True})
 
-# Used in base.html
-@bp.route("/api/current-time")
-def time_api():
-    current_time = get_current_time()
-    return jsonify({
-        "time": current_time.strftime("%H:%M")
-    })
-
 
 @bp.route('/stream')
 def stream():
@@ -431,8 +423,12 @@ def stream():
             last_data = None
             while True:
                 with db.session.begin():
+                    current_time = get_current_time()
                     stations = Station.query.order_by(Station.position).all()
-                    current_data = []
+                    current_data = {
+                        "time": current_time.strftime("%H:%M"),
+                        "stations": []
+                    }
                     
                     for station in stations:
                         station_data = {
@@ -446,7 +442,7 @@ def stream():
                                 } for p in station.participants
                             ]
                         }
-                        current_data.append(station_data)
+                        current_data["stations"].append(station_data)
                     
                     current_data_str = json.dumps(current_data)
                     

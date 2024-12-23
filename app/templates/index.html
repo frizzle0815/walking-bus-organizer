@@ -573,17 +573,34 @@
         
         let reconnectAttempts = 0;
         const maxReconnectAttempts = 5;
+        let connectionAlertTimeout;
+        const alertDelay = 10000; // 10 seconds delay before showing connection-alert
         
         eventSource.onmessage = (event) => {
             console.log('Received SSE update:', event.data);
             loadStations();
             updateConnectionStatus('connected');
             reconnectAttempts = 0;
+            // Clear any pending alert timeout
+            if (connectionAlertTimeout) {
+                clearTimeout(connectionAlertTimeout);
+                connectionAlertTimeout = null;
+            }
         };
 
         eventSource.addEventListener('error', (event) => {
             console.error('SSE connection error:', event);
-            updateConnectionStatus('disconnected');
+            // Immediately update indicator
+            const connectionIndicator = document.querySelector('.connection-indicator');
+            connectionIndicator.classList.remove('connected');
+            connectionIndicator.classList.add('disconnected');
+            
+            // Set timeout for alert
+            if (!connectionAlertTimeout) {
+                connectionAlertTimeout = setTimeout(() => {
+                    updateConnectionStatus('disconnected');
+                }, alertDelay);
+            }
             
             if (reconnectAttempts < maxReconnectAttempts) {
                 reconnectAttempts++;
@@ -599,7 +616,12 @@
 
     function updateConnectionStatus(status) {
         const connectionAlert = document.getElementById('connection-alert');
+        const connectionIndicator = document.querySelector('.connection-indicator');
+        
         connectionAlert.classList.toggle('d-none', status === 'connected');
+        
+        connectionIndicator.classList.remove('connected', 'disconnected');
+        connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
     }
 </script>
 
