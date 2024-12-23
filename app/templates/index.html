@@ -193,6 +193,9 @@
 
 <script>
     let currentParticipantId = null;
+    let lastUpdateTimestamp = 0;
+    const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
+    let globalEventSource = null;
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
@@ -239,6 +242,12 @@
     });
 
     async function loadStations() {
+        const now = Date.now();
+        if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
+            return;
+        }
+        lastUpdateTimestamp = now;
+
         const response = (await axios.post('/api/initialize-daily-status')).data;
         isWalkingBusDay = response.isWalkingBusDay;
 
@@ -247,7 +256,6 @@
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
 
         const stations = (await axios.get('/api/stations')).data;
-
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
@@ -567,60 +575,74 @@
         }
     }
 
+    // Modify initializeSSE to handle mobile focus better
     function initializeSSE() {
         console.log('Starting SSE connection...');
-        const eventSource = new EventSource('/stream');
+        if (globalEventSource) {
+            globalEventSource.close();
+        }
+        
+        globalEventSource = new EventSource('/stream');
         
         let reconnectAttempts = 0;
         const maxReconnectAttempts = 5;
         let connectionAlertTimeout;
-        const alertDelay = 10000; // 10 seconds delay before showing connection-alert
+        const alertDelay = 10000; // 10 seconds delay
         
-        eventSource.onmessage = (event) => {
+        globalEventSource.onmessage = (event) => {
             console.log('Received SSE update:', event.data);
             loadStations();
             updateConnectionStatus('connected');
             reconnectAttempts = 0;
-            // Clear any pending alert timeout
             if (connectionAlertTimeout) {
                 clearTimeout(connectionAlertTimeout);
                 connectionAlertTimeout = null;
             }
         };
 
-        eventSource.addEventListener('error', (event) => {
+        globalEventSource.addEventListener('error', (event) => {
             console.error('SSE connection error:', event);
-            // Immediately update indicator
-            const connectionIndicator = document.querySelector('.connection-indicator');
-            connectionIndicator.classList.remove('connected');
-            connectionIndicator.classList.add('disconnected');
-            
-            // Set timeout for alert
-            if (!connectionAlertTimeout) {
-                connectionAlertTimeout = setTimeout(() => {
-                    updateConnectionStatus('disconnected');
-                }, alertDelay);
-            }
+            updateConnectionStatus('disconnected');
             
             if (reconnectAttempts < maxReconnectAttempts) {
                 reconnectAttempts++;
                 setTimeout(() => {
                     console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                    eventSource.close();
+                    globalEventSource.close();
                     initializeSSE();
                 }, 5000 * reconnectAttempts);
             }
         });
+
+        // Add mobile-specific event listeners
+        document.addEventListener('focus', handlePageFocus);
+        document.addEventListener('resume', handlePageFocus);
+        
+        function handlePageFocus() {
+            loadStations();
+            if (connectionAlertTimeout) {
+                clearTimeout(connectionAlertTimeout);
+                connectionAlertTimeout = null;
+            }
+        }
+
+        return globalEventSource;
     }
 
-    // Add visibility change handling
+    // Add visibility change handling for mobile users
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
-            // Page becomes visible again
+            // Clear any existing alert immediately
             const connectionAlert = document.getElementById('connection-alert');
             connectionAlert.classList.add('d-none');
             
+            // Force data refresh
+            loadStations();
+            
             // Reset SSE connection
+            if (eventSource) {
+                eventSource.close();
+            }
             initializeSSE();
         }
     });
