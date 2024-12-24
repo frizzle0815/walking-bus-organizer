@@ -289,7 +289,12 @@ def update_schedule():
 def update_calendar_status():
     data = request.get_json()
     participant_id = data['participant_id']
-    date = TIMEZONE.localize(datetime.strptime(data['date'], '%Y-%m-%d')).date()
+    
+    # Correct way to handle timezone with zoneinfo
+    naive_date = datetime.strptime(data['date'], '%Y-%m-%d')
+    aware_date = datetime.combine(naive_date.date(), datetime.min.time(), tzinfo=TIMEZONE)
+    date = aware_date.date()
+    
     status = data['status']
 
     calendar_entry = CalendarStatus.query.filter_by(
@@ -315,6 +320,7 @@ def update_calendar_status():
 
     db.session.commit()
     return jsonify({"success": True})
+
 
 
 @bp.route("/api/calendar-status/<int:participant_id>", methods=["GET"])
