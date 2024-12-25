@@ -249,6 +249,7 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
  document.addEventListener('DOMContentLoaded', async () => {
+     let globalSchedule = null;
      const stationsContainer = document.getElementById('stationsContainer');
      const stationTemplate = document.querySelector('.station-template');
      const participantTemplate = document.querySelector('.participant-template');
@@ -257,7 +258,8 @@
      document.addEventListener('touchstart', function() {}, { passive: true });
 
      // Load initial stations
-     loadStations();
+     await initializeSchedule();
+     await loadStations();
 
      // Station container event delegation for clicks
      stationsContainer.addEventListener('click', async (e) => {
@@ -436,7 +438,7 @@
 
      async function createParticipantCard(participant) {
          console.log('Creating participant card with data:', participant);
-         const schedule = await fetch('/api/walking-bus-schedule').then(r => r.json());
+         const schedule = globalSchedule;
 
          // Create participant card with explicit data-participant-id
          const newParticipant = participantTemplate.cloneNode(true);
@@ -480,6 +482,12 @@
          return newParticipant;
      }
 
+
+       // Fetch schedule once at startup
+        async function initializeSchedule() {
+            const response = await fetch('/api/walking-bus-schedule');
+            globalSchedule = await response.json();
+        }
 
         function initializeSortable() {
             // Initialize sortable for stations
