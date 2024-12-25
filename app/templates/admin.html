@@ -76,48 +76,64 @@
         </div>
           <!-- Participant Template -->
           <div class="participant-template d-none">
-              <div class="participant-card mb-2 border rounded p-2">
-                  <div class="d-flex align-items-center mb-2">
-                      <div class="drag-handle me-2">⋮⋮</div>
-                      <div class="flex-grow-1">
-                          <input type="text" class="form-control participant-name" placeholder="Name">
-                          <div class="days-container d-flex justify-content-between mt-2">
-                              <div class="form-check">
-                                  <input type="checkbox" class="form-check-input monday" id="mon-{id}">
-                                  <label class="form-check-label" for="mon-{id}">Mo</label>
-                              </div>
-                              <div class="form-check">
-                                  <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
-                                  <label class="form-check-label" for="tue-{id}">Di</label>
-                              </div>
-                              <div class="form-check">
-                                  <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
-                                  <label class="form-check-label" for="wed-{id}">Mi</label>
-                              </div>
-                              <div class="form-check">
-                                  <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
-                                  <label class="form-check-label" for="thu-{id}">Do</label>
-                              </div>
-                              <div class="form-check">
-                                  <input type="checkbox" class="form-check-input friday" id="fri-{id}">
-                                  <label class="form-check-label" for="fri-{id}">Fr</label>
-                              </div>
-                          </div>
-                      </div>
-                      <button class="btn btn-danger btn-sm ms-2 delete-participant">
-                          <i class="fas fa-trash"></i>
-                      </button>
-                  </div>
-              </div>
-          </div>
-          </div>        </div>
+           <div class="participant-card mb-2 border rounded p-2">
+               <div class="d-flex align-items-center mb-2">
+                   <div class="drag-handle me-2">⋮⋮</div>
+                   <div class="flex-grow-1 d-flex align-items-center">
+                       <input type="text" class="form-control participant-name" placeholder="Name">
+                       <button class="btn btn-danger btn-sm ms-2 delete-participant">
+                           <i class="fas fa-trash"></i>
+                       </button>
+                   </div>
+               </div>
+               <div class="days-container d-flex justify-content-between mt-2">
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input monday" id="mon-{id}">
+                       <label class="form-check-label" for="mon-{id}">Mo</label>
+                   </div>
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input tuesday" id="tue-{id}">
+                       <label class="form-check-label" for="tue-{id}">Di</label>
+                   </div>
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input wednesday" id="wed-{id}">
+                       <label class="form-check-label" for="wed-{id}">Mi</label>
+                   </div>
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input thursday" id="thu-{id}">
+                       <label class="form-check-label" for="thu-{id}">Do</label>
+                   </div>
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input friday" id="fri-{id}">
+                       <label class="form-check-label" for="fri-{id}">Fr</label>
+                   </div>
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input saturday" id="sat-{id}">
+                       <label class="form-check-label" for="sat-{id}">Sa</label>
+                   </div>
+                   <div class="form-check">
+                       <input type="checkbox" class="form-check-input sunday" id="sun-{id}">
+                       <label class="form-check-label" for="sun-{id}">So</label>
+                   </div>
+               </div>
+           </div>
+       </div>
+           
     </div>
 </div>
 <style>
+/* Prevent text selection for app like experience */
+*:not(input, textarea) {
+    user-select: none; /* Prevent text selection */
+    -webkit-user-select: none; /* For Safari */
+    -moz-user-select: none; /* For Firefox */
+    -ms-user-select: none; /* For IE10+/Edge */
+}
+
  /* General Styles */
  .drag-handle {
      cursor: move;
-     font-size: 1.2rem;
+     font-size: 1.3rem;
      color: #666;
      user-select: none;
      touch-action: none;
@@ -127,6 +143,11 @@
      background-color: #fff;
      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
  }
+
+ .station-card.dragging {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    background-color: #f0f0f0;
+}
 
  .form-check-label {
      font-size: 0.8rem;
@@ -189,18 +210,41 @@
      margin-bottom: 0.5rem !important;
  }
 
- .card-footer {
+
+.participant-card .d-flex {
+     align-items: center;
+}
+
+.days-container {
+     display: flex;
+     justify-content: space-between;
+     margin-top: 0.5rem; /* Ensure there's space between the input line and checkboxes */
+}
+
+.form-check {
+     display: flex;
+     align-items: center;
+     margin-bottom: 0;
+}
+
+.form-check-label {
+     margin-left: 4px; /* Ensure the label is close to the checkbox */
+     font-size: 0.8rem;
+}
+
+.card-footer {
      background-color: #414141 !important;
      padding: 0.5rem !important;
- }
 
- /* Button Styles */
- .add-participant {
+}
+
+/* Button Styles */
+.add-participant {
      background-color: #0d6efd !important;
      border-color: #0d6efd !important;
      color: white !important;
- }
-</style>
+
+}</style>
 <!-- Include necessary scripts -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
@@ -209,8 +253,94 @@
      const stationTemplate = document.querySelector('.station-template');
      const participantTemplate = document.querySelector('.participant-template');
 
+     // Add a passive touchstart event listener to improve scrolling performance
+     document.addEventListener('touchstart', function() {}, { passive: true });
+
      // Load initial stations
      loadStations();
+
+     // Station container event delegation for clicks
+     stationsContainer.addEventListener('click', async (e) => {
+         // Handle station deletion
+         if (e.target.closest('.delete-station')) {
+             const stationElement = e.target.closest('.station-card');
+             const stationId = stationElement.dataset.stationId;
+             const stationName = stationElement.querySelector('.station-name').value;
+             if (confirm(`Station "${stationName}" wirklich löschen?`)) {
+                 await deleteStation(stationId, stationElement);
+             }
+         }
+         
+         // Handle add participant
+         if (e.target.closest('.add-participant')) {
+             const stationElement = e.target.closest('.station-card');
+             const stationId = stationElement.dataset.stationId;
+             await createNewParticipant(stationId, stationElement);
+         }
+         
+         // Handle participant deletion
+         if (e.target.closest('.delete-participant')) {
+             const participantElement = e.target.closest('.participant-card');
+             // Get participantId and validate it exists
+             const participantId = participantElement?.dataset?.participantId;
+             
+             if (!participantId) {
+                 console.error('No participant ID found:', participantElement);
+                 return;
+             }
+             
+             const participantName = participantElement.querySelector('.participant-name').value;
+             if (confirm(`Teilnehmer "${participantName}" wirklich löschen?`)) {
+                 await deleteParticipant(participantId, participantElement);
+             }
+         }
+     });
+
+     // Station container event delegation for input changes
+     stationsContainer.addEventListener('change', async (e) => {
+         // Handle station name changes
+         if (e.target.classList.contains('station-name')) {
+             const stationElement = e.target.closest('.station-card');
+             const stationId = stationElement.dataset.stationId;
+             await updateStation(stationId, { name: e.target.value });
+         }
+         
+         // Handle participant name changes
+         if (e.target.classList.contains('participant-name')) {
+             const participantElement = e.target.closest('.participant-card');
+             const participantId = participantElement.dataset.participantId;
+             const stationId = participantElement.closest('.station-card').dataset.stationId;
+             await updateParticipant(participantId, {
+                 name: e.target.value,
+                 station_id: stationId
+             });
+         }
+         
+         // Handle participant day checkboxes
+         if (e.target.classList.contains('form-check-input')) {
+             const participantElement = e.target.closest('.participant-card');
+             if (participantElement) {
+                 const participantId = participantElement.dataset.participantId;
+                 const day = Array.from(e.target.classList).find(cls => 
+                     ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(cls)
+                 );
+                 if (day) {
+                     await updateParticipant(participantId, { [day]: e.target.checked });
+                     
+                     // Update future entries
+                     await fetch('/api/update-future-entries', {
+                         method: 'PUT',
+                         headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({
+                             participant_id: participantId,
+                             day: day,
+                             status: e.target.checked
+                         })
+                     });
+                 }
+             }
+         }
+     });
 
      // Add new station button handler
      document.getElementById('addStationBtn').addEventListener('click', createNewStation);
@@ -267,38 +397,55 @@
          newStation.querySelector('.station-name').value = station.name;
 
          const participantsContainer = newStation.querySelector('.participants-container');
-
-         // Handle participants sequentially
-         if (station.participants) {
-             for (const participant of station.participants) {
-                 const participantCard = await createParticipantCard(participant);
-                 participantsContainer.appendChild(participantCard);
+         
+         // Create and observe intersection
+         const observer = new IntersectionObserver(async (entries) => {
+             if (entries[0].isIntersecting) {
+                 if (station.participants) {
+                     const fragment = document.createDocumentFragment();
+                     for (const participant of station.participants) {
+                         const participantCard = await createParticipantCard(participant);
+                         fragment.appendChild(participantCard);
+                     }
+                     participantsContainer.appendChild(fragment);
+                 }
+                 observer.disconnect();
              }
-         }
-
-         setupStationEventListeners(newStation, station);
-         stationsContainer.appendChild(newStation);
+         }, { threshold: 0.1 });
+         
+         observer.observe(newStation);
          return newStation;
      }
 
-     function loadStations() {
-         fetch('/api/stations')
-             .then(response => response.json())
-             .then(async stations => {
-                 for (const station of stations) {
-                     await createStationCard(station);
-                 }
-                 initializeSortable();
-             });
+     async function loadStations() {
+         try {
+             const response = await fetch('/api/stations?include=participants');
+             const stations = await response.json();
+             
+             const fragment = document.createDocumentFragment();
+             for (const station of stations) {
+                 const card = await createStationCard(station);
+                 fragment.appendChild(card);
+             }
+             stationsContainer.appendChild(fragment);
+             initializeSortable();
+         } catch (error) {
+             console.error('Failed to load stations:', error);
+         }
      }
 
      async function createParticipantCard(participant) {
-         console.log('Participant data:', participant);
+         console.log('Creating participant card with data:', participant);
          const schedule = await fetch('/api/walking-bus-schedule').then(r => r.json());
 
+         // Create participant card with explicit data-participant-id
          const newParticipant = participantTemplate.cloneNode(true);
          newParticipant.classList.remove('d-none', 'participant-template');
-         newParticipant.dataset.participantId = participant.id;
+         
+         // Set the participant ID on the correct element
+         const participantCard = newParticipant.querySelector('.participant-card');
+         participantCard.dataset.participantId = participant.id;
+         
          newParticipant.querySelector('.participant-name').value = participant.name;
 
          const daysContainer = newParticipant.querySelector('.days-container');
@@ -330,81 +477,9 @@
              daysContainer.appendChild(dayCheck);
          });
 
-         // Setup other event listeners
-         setupParticipantEventListeners(newParticipant, participant);
-
          return newParticipant;
      }
-     function setupStationEventListeners(stationElement, station) {
-            // Station name change
-            stationElement.querySelector('.station-name').addEventListener('change', (e) => {
-                updateStation(station.id, { name: e.target.value });
-            });
 
-            // Delete station
-            stationElement.querySelector('.delete-station').addEventListener('click', () => {
-                const stationName = stationElement.querySelector('.station-name').value;
-                if (confirm(`Station "${stationName}" wirklich löschen?`)) {
-                    deleteStation(station.id, stationElement);
-                }
-            });
-
-            // Add participant
-            stationElement.querySelector('.add-participant').addEventListener('click', () => {
-                createNewParticipant(station.id, stationElement);
-            });
-        }
-
-        function setupParticipantEventListeners(participantElement, participant) {
-            // Name change
-            participantElement.querySelector('.participant-name').addEventListener('change', (e) => {
-                const stationId = participantElement.closest('.station-card').dataset.stationId;
-                updateParticipant(participant.id, {
-                    name: e.target.value,
-                    station_id: stationId
-                });
-            });
-
-            // Day checkboxes
-            participantElement.querySelectorAll('.form-check-input').forEach(checkbox => {
-                checkbox.addEventListener('change', async (e) => {
-                    const day = e.target.classList[1];
-                    console.log('Admin checkbox change:', {
-                        day: day,
-                        checked: e.target.checked,
-                        weekdayClass: e.target.classList
-                    });
-                    const participantId = participantElement.dataset.participantId;
-
-                    await updateParticipant(participantId, { [day]: e.target.checked });
-
-                    console.log('Updating future entries for:', {
-                        participantId: participantId,
-                        day: day,
-                        status: e.target.checked
-                    });
-
-                    await fetch('/api/update-future-entries', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            participant_id: participantId,
-                            day: day,
-                            status: e.target.checked
-                        })
-                    });
-                });
-            });
-
-            // Delete participant button
-            const deleteButton = participantElement.querySelector('.delete-participant');
-            deleteButton.addEventListener('click', () => {
-                const participantName = participantElement.querySelector('.participant-name').value;
-                if (confirm(`Teilnehmer "${participantName}" wirklich löschen?`)) {
-                    deleteParticipant(participant.id, participantElement);
-                }
-            });
-        }
 
         function initializeSortable() {
             // Initialize sortable for stations
@@ -413,8 +488,8 @@
                 handle: '.drag-handle',
                 draggable: '.station-card',
                 delayOnTouchOnly: true,
-                delay: 250,
-                touchStartThreshold: 5,
+                delay: 100,
+                touchStartThreshold: 3,
                 onEnd: updateStationOrder
             });
 
@@ -541,7 +616,13 @@
         }
 
         function deleteParticipant(participantId, element) {
-            console.log('Attempting to delete participant:', participantId);
+            // Early validation of participantId
+            if (!participantId) {
+                console.error('Invalid participant ID');
+                return;
+            }
+
+            console.log('Deleting participant:', participantId);
 
             fetch(`/api/participants/${participantId}`, {
                 method: 'DELETE',
@@ -553,26 +634,16 @@
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                // Find and remove the entire participant card
-                const participantCard = element;
-                if (participantCard) {
-                    participantCard.remove();
-
-                    // Get station container and update stats
-                    const stationContainer = participantCard.closest('.participants-container');
-                    if (stationContainer) {
-                        const stationCard = stationContainer.closest('.station-card');
-                        const stationId = stationCard.dataset.stationId;
-                        updateStationStats(stationId);
-                    }
-                }
-                console.log('Participant successfully deleted and removed from UI');
+                // Remove the participant card from UI
+                element.remove();
+                console.log('Participant successfully deleted');
             })
             .catch(error => {
                 console.error('Delete failed:', error);
-                alert(`Could not delete participant: ${error.message}`);
+                alert('Could not delete participant. Please try again.');
             });
         }
+
 
         function updateStationOrder() {
             const stations = Array.from(document.querySelectorAll('.station-card')).map((card, index) => {
@@ -605,9 +676,26 @@
         }
 
         function updateParticipantOrder(evt) {
-            const participantId = evt.item.dataset.participantId;
+            // Get participant ID from the dragged element
+            const participantId = evt.item.querySelector('.participant-card').dataset.participantId;
+            
+            // Get new station ID from the target container
             const newStationId = evt.to.closest('.station-card').dataset.stationId;
+            
+            // Calculate new position
             const newPosition = Array.from(evt.to.children).indexOf(evt.item);
+
+            console.log('Updating participant order:', {
+                participantId,
+                newStationId,
+                newPosition
+            });
+
+            // Only proceed if we have valid IDs
+            if (!participantId || !newStationId) {
+                console.error('Missing required IDs:', { participantId, newStationId });
+                return;
+            }
 
             fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
                 method: 'PUT',
@@ -623,8 +711,12 @@
                 return response.json();
             })
             .then(data => console.log('Participant order updated:', data))
-            .catch(error => console.error('Update failed:', error));
+            .catch(error => {
+                console.error('Update failed:', error);
+                // Optionally revert the UI change here
+            });
         }
+
     });
 </script>
 {% endblock %}

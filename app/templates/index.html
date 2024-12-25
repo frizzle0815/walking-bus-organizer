@@ -14,6 +14,14 @@
 </div>
 
 <style>
+    /* Prevent text selection for app like experience */
+    *:not(input, textarea) {
+        user-select: none; /* Prevent text selection */
+        -webkit-user-select: none; /* For Safari */
+        -moz-user-select: none; /* For Firefox */
+        -ms-user-select: none; /* For IE10+/Edge */
+    }
+
     /* General Styles */
     .content-container {
         max-width: 600px;
@@ -109,10 +117,6 @@
         line-height: 40px;
         cursor: pointer;
         border-radius: 50%;
-        user-select: none;  /* Prevents text selection */
-        -webkit-user-select: none;  /* For Safari */
-        -moz-user-select: none;     /* For Firefox */
-        -ms-user-select: none;      /* For IE10+/Edge */
     }
 
     .day-green { background-color: #d4edda; }
@@ -445,7 +449,13 @@
 
     function createStatusButton(participant, isWalkingBusDay) {
         const button = document.createElement('button');
-        button.classList.add('btn', 'btn-sm', 'rounded-pill', 'status-button');
+        button.classList.add(
+            'btn', 
+            'btn-sm', 
+            'rounded-pill', 
+            'status-button',
+            'touch-target'  // New class for better touch area
+        );
 
         if (!isWalkingBusDay) {
             button.classList.add('btn-outline-secondary', 'status-button-disabled');
@@ -453,7 +463,10 @@
         } else {
             button.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
             button.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-            button.onclick = () => toggleParticipation(participant.id, button);
+            button.onclick = (e) => {
+                e.preventDefault();  // Prevent any default behavior
+                toggleParticipation(participant.id, button);
+            };
         }
 
         return button;
@@ -518,27 +531,23 @@
     }
 
     async function toggleParticipation(participantId, button) {
+        const listItem = button.closest('.participant-item');
+        const currentStatus = listItem.classList.contains('participant-status-active');
+        const newStatus = !currentStatus;
+        
+        // Immediately update UI
+        updateParticipantUI(button, newStatus);
+
         try {
-            const serverDate = await initializeDailyStatus();
-            const listItem = button.closest('.participant-item');
-
-            listItem.classList.toggle('participant-status-active');
-            listItem.classList.toggle('participant-status-inactive');
-
-            const newStatus = listItem.classList.contains('participant-status-active');
-
             await axios.patch(`/api/participation/${participantId}`);
-
-            updateParticipantUI(button, newStatus);
-
+            
             if (document.getElementById('calendarModal').style.display === 'block') {
                 await renderCalendar();
             }
         } catch (error) {
             console.error('Error toggling participation:', error);
-            listItem.classList.toggle('participant-status-active');
-            listItem.classList.toggle('participant-status-inactive');
-            updateParticipantUI(button, !newStatus);
+            // Revert UI on error
+            updateParticipantUI(button, currentStatus);
         }
     }
 
