@@ -10,16 +10,35 @@ const URLS_TO_CACHE = [
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css'
 ];
 
+// Cache Namen für verschiedene Ressourcen
+const STATIC_CACHE = 'walking-bus-static-v1';
+const DATA_CACHE = 'walking-bus-data-v1';
+
+// Installation des Service Workers
 self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(URLS_TO_CACHE))
-    );
+ event.waitUntil(
+     Promise.all([
+         caches.open(STATIC_CACHE),
+         caches.open(DATA_CACHE)
+     ])
+ );
 });
 
+// Abfangen von Fetch-Requests
 self.addEventListener('fetch', (event) => {
-    event.respondWith(
-        caches.match(event.request)
-            .then(response => response || fetch(event.request))
-    );
+ if (event.request.url.includes('/api/')) {
+     event.respondWith(
+         fetch(event.request)
+             .then(response => {
+                 const clonedResponse = response.clone();
+                 caches.open(DATA_CACHE).then(cache => {
+                     cache.put(event.request, clonedResponse);
+                 });
+                 return response;
+             })
+             .catch(() => {
+                 return caches.match(event.request);
+             })
+     );
+ }
 });

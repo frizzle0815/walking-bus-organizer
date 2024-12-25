@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <meta name="theme-color" content="#414141">
@@ -14,58 +14,158 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
-     <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
-      <div class="container-fluid">
-          <a class="navbar-brand" href="/">Walking Bus</a>
-          <div id="current-time" class="mx-auto fw-bold"></div>
-          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-              <span class="navbar-toggler-icon"></span>
-          </button>
-          <div class="collapse navbar-collapse" id="navbarNav">
-              <ul class="navbar-nav">
-                  <li class="nav-item">
-                      <a class="nav-link" href="/">Zusagen</a>
-                  </li>
-                  <li class="nav-item">
-                      <a class="nav-link" href="/admin">Teilnehmer</a>
-                  </li>
-              </ul>
-          </div>
+ <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
+   <div class="container-fluid">
+       <!-- Left side: Brand -->
+       <a class="navbar-brand" href="/">Walking Bus</a>
+       
+       <!-- Center: Connection Status + Time -->
+       <div class="d-flex align-items-center mx-auto">
+           <div id="connection-status" class="me-2">
+               <i class="fas fa-circle connection-indicator"></i>
+           </div>
+           <div id="current-time" class="fw-bold"></div>
+       </div>
+       
+       <!-- Right side: Toggle Button -->
+       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
+               aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+           <span class="navbar-toggler-icon"></span>
+       </button>
+       
+       <!-- Navigation Items -->
+       <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav">
+              <li class="nav-item">
+                  <a class="nav-link" href="/">Zusagen</a>
+              </li>
+              <li class="nav-item">
+                  <a class="nav-link" href="/admin">Teilnehmer</a>
+              </li>
+              <li class="nav-item" id="install-app-item" style="display: none;">
+                  <a class="nav-link" href="#" id="install-app">
+                      <i class="fas fa-download me-2"></i>Als App installieren
+                  </a>
+              </li>
+          </ul>
       </div>
-    </nav>
-    <div class="container mt-4">
-        {% block content %}{% endblock %}
-    </div>
-    <style>
-         body {
-             padding-top: 60px;
-         }
-     </style>
-     <script>
-          if ('serviceWorker' in navigator) {
-             window.addEventListener('load', () => {
-                 navigator.serviceWorker.register('/static/service-worker.js')
-                     .then(registration => {
-                         console.log('ServiceWorker registration successful');
-                     })
-                     .catch(err => {
-                         console.log('ServiceWorker registration failed: ', err);
-                     });
-             });
-         }
+   </div>
+ </nav>
+ <div class="container mt-4">
+     {% block content %}{% endblock %}
+ </div>
+ <style>
+      body {
+          padding-top: 60px;
+      }
+      .navbar-center {
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1; /* Ensures the centered content stays above other elements */
+          display: flex;
+          align-items: center;
+      }
+      
+      @media (max-width: 991.98px) {  /* Bootstrap's lg breakpoint */
+          .navbar-brand {
+              margin-right: 0;  /* Removes default margin to help with centering */
+          }
+      }
+      .connection-indicator {
+          font-size: 0.7rem;
+          transition: all 0.3s ease;
+          position: relative;
+          top: -1px;  /* Fine-tune vertical alignment */
+      }
 
-         function updateTime() {
-            fetch('/api/current-time')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('current-time').textContent = data.time;
-                });
-        }
-     
-         // Update time immediately and then every minute (since we only show HH:MM)
-         updateTime();
-         setInterval(updateTime, 60000);
-     </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+      .connection-indicator.connected {
+          color: #6ed686;  /* Matching the .participant-status-active background color */
+          text-shadow: 0 0 10px rgba(212, 237, 218, 0.4);
+          animation: glow 2s infinite;
+      }
+
+      .connection-indicator.disconnected {
+          color: #dc3545;  /* Bootstrap red */
+          animation: none;
+      }
+
+      @keyframes glow {
+          0% {
+              text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
+          }
+          50% {
+              text-shadow: 0 0 15px rgba(0, 253, 59, 0.6);  /* Brighter green for more visible glow */
+          }
+          100% {
+              text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
+          }
+      }
+  </style>
+  <script>
+      let deferredPrompt;
+
+      window.addEventListener('beforeinstallprompt', (e) => {
+          // Prevent Chrome 67 and earlier from automatically showing the prompt
+          e.preventDefault();
+          // Stash the event so it can be triggered later
+          deferredPrompt = e;
+          // Show the install button
+          document.getElementById('install-app-item').style.display = 'block';
+      });
+
+      document.getElementById('install-app').addEventListener('click', async () => {
+          if (!deferredPrompt) return;
+          
+          // Show the install prompt
+          deferredPrompt.prompt();
+          
+          // Wait for the user to respond to the prompt
+          const { outcome } = await deferredPrompt.userChoice;
+          console.log(`User response to the install prompt: ${outcome}`);
+          
+          // Clear the deferredPrompt variable
+          deferredPrompt = null;
+          
+          // Hide the install button
+          document.getElementById('install-app-item').style.display = 'none';
+      });
+
+      // Hide install prompt when app is installed
+      window.addEventListener('appinstalled', () => {
+          document.getElementById('install-app-item').style.display = 'none';
+          console.log('PWA was installed');
+      });
+
+      if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/static/service-worker.js')
+                  .then(registration => {
+                      console.log('ServiceWorker registration successful');
+                  })
+                  .catch(err => {
+                      console.log('ServiceWorker registration failed: ', err);
+                  });
+          });
+      }
+  
+      // Create EventSource for server updates
+      const eventSource = new EventSource('/stream');
+      
+      eventSource.onmessage = function(event) {
+          const data = JSON.parse(event.data);
+          // Update time display
+          if (data.time) {
+              document.getElementById('current-time').textContent = data.time;
+          }
+          // Handle other station data as needed
+      };
+  
+      eventSource.onerror = function(error) {
+          console.error('EventSource failed:', error);
+          eventSource.close();
+      };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

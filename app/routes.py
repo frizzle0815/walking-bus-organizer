@@ -289,7 +289,12 @@ def update_schedule():
 def update_calendar_status():
     data = request.get_json()
     participant_id = data['participant_id']
-    date = TIMEZONE.localize(datetime.strptime(data['date'], '%Y-%m-%d')).date()
+    
+    # Correct way to handle timezone with zoneinfo
+    naive_date = datetime.strptime(data['date'], '%Y-%m-%d')
+    aware_date = datetime.combine(naive_date.date(), datetime.min.time(), tzinfo=TIMEZONE)
+    date = aware_date.date()
+    
     status = data['status']
 
     calendar_entry = CalendarStatus.query.filter_by(
@@ -315,6 +320,7 @@ def update_calendar_status():
 
     db.session.commit()
     return jsonify({"success": True})
+
 
 
 @bp.route("/api/calendar-status/<int:participant_id>", methods=["GET"])
@@ -415,14 +421,6 @@ def update_future_entries():
     db.session.commit()
     return jsonify({"success": True})
 
-# Used in base.html
-@bp.route("/api/current-time")
-def time_api():
-    current_time = get_current_time()
-    return jsonify({
-        "time": current_time.strftime("%H:%M")
-    })
-
 
 @bp.route('/stream')
 def stream():
@@ -431,8 +429,12 @@ def stream():
             last_data = None
             while True:
                 with db.session.begin():
+                    current_time = get_current_time()
                     stations = Station.query.order_by(Station.position).all()
-                    current_data = []
+                    current_data = {
+                        "time": current_time.strftime("%H:%M"),
+                        "stations": []
+                    }
                     
                     for station in stations:
                         station_data = {
@@ -446,7 +448,7 @@ def stream():
                                 } for p in station.participants
                             ]
                         }
-                        current_data.append(station_data)
+                        current_data["stations"].append(station_data)
                     
                     current_data_str = json.dumps(current_data)
                     

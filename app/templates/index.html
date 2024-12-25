@@ -14,6 +14,14 @@
 </div>
 
 <style>
+    /* Prevent text selection for app like experience */
+    *:not(input, textarea) {
+        user-select: none; /* Prevent text selection */
+        -webkit-user-select: none; /* For Safari */
+        -moz-user-select: none; /* For Firefox */
+        -ms-user-select: none; /* For IE10+/Edge */
+    }
+
     /* General Styles */
     .content-container {
         max-width: 600px;
@@ -109,10 +117,6 @@
         line-height: 40px;
         cursor: pointer;
         border-radius: 50%;
-        user-select: none;  /* Prevents text selection */
-        -webkit-user-select: none;  /* For Safari */
-        -moz-user-select: none;     /* For Firefox */
-        -ms-user-select: none;      /* For IE10+/Edge */
     }
 
     .day-green { background-color: #d4edda; }
@@ -193,6 +197,9 @@
 
 <script>
     let currentParticipantId = null;
+    let lastUpdateTimestamp = 0;
+    const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
+    let globalEventSource = null;
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
@@ -204,8 +211,9 @@
         6: 'sunday'
     };
 
-    document.addEventListener('DOMContentLoaded', () => {
-        // Create alert elements dynamically to ensure they exist
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Create and insert alert container
         const alertsContainer = document.createElement('div');
         alertsContainer.id = 'alerts-container';
         alertsContainer.innerHTML = `
@@ -219,14 +227,18 @@
             </div>
         `;
 
-        // Insert alerts before stations div
         const stationsDiv = document.getElementById('stations');
         stationsDiv.parentNode.insertBefore(alertsContainer, stationsDiv);
 
-        // Now initialize everything else
-        loadStations();
+        // Initialize IndexedDB first
+        await initDB();
+        
+        // Initialize data and connections
+        await loadStations();
         initializeSSE();
-        console.log('SSE initialization attempted');
+        console.log('SSE initialization completed');
+
+        // Setup modal handling
         const modal = document.getElementById('calendarModal');
         const span = document.getElementsByClassName('close')[0];
 
@@ -236,17 +248,108 @@
                 modal.style.display = 'none';
             }
         };
+
+        // Add offline/online handlers
+        window.addEventListener('online', () => {
+            loadStations();
+        });
+
+        window.addEventListener('offline', () => {
+            updateConnectionStatus('disconnected');
+        });
     });
 
-    async function loadStations() {
-        const response = (await axios.post('/api/initialize-daily-status')).data;
-        isWalkingBusDay = response.isWalkingBusDay;
 
+
+    // First, create a promise for database initialization
+    let dbPromise;
+
+    function initDB() {
+        dbPromise = new Promise((resolve, reject) => {
+            const request = indexedDB.open('WalkingBusDB', 1);
+            
+            request.onerror = () => reject(request.error);
+            
+            request.onsuccess = (event) => {
+                const db = event.target.result;
+                resolve(db);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('stationsData')) {
+                    db.createObjectStore('stationsData', { keyPath: 'timestamp' });
+                }
+            };
+        });
+        return dbPromise;
+    }
+
+    async function loadStations() {
+        const now = Date.now();
+        if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
+            return;
+        }
+        lastUpdateTimestamp = now;
+
+        try {
+             // Get database instance
+            const db = await dbPromise;
+            // Try to fetch fresh data
+            const response = (await axios.post('/api/initialize-daily-status')).data;
+            isWalkingBusDay = response.isWalkingBusDay;
+            const stations = (await axios.get('/api/stations')).data;
+
+            // Store successful response in IndexedDB
+            const transaction = db.transaction(['stationsData'], 'readwrite');
+            const store = transaction.objectStore('stationsData');
+            await store.put({
+                timestamp: new Date().toISOString(),
+                stations: stations,
+                isWalkingBusDay: isWalkingBusDay,
+                lastKnownTime: document.getElementById('current-time').textContent // Store current time
+            });
+
+            // Update connection status to connected
+            renderStations(stations, isWalkingBusDay);
+            updateConnectionStatus('connected');
+        } catch (error) {
+            console.log('Loading cached data...');
+            try {
+                const db = await dbPromise;
+                const transaction = db.transaction(['stationsData'], 'readonly');
+                const store = transaction.objectStore('stationsData');
+                const request = store.getAll();
+                
+                request.onsuccess = (event) => {
+                    const cachedData = event.target.result;
+                    if (cachedData && cachedData.length > 0) {
+                        const latestData = cachedData.reduce((latest, current) => 
+                            latest.timestamp > current.timestamp ? latest : current
+                        );
+                        
+                        isWalkingBusDay = latestData.isWalkingBusDay;
+                        renderStations(latestData.stations, latestData.isWalkingBusDay);
+                        
+                        // Restore last known time
+                        if (latestData.lastKnownTime) {
+                            document.getElementById('current-time').textContent = latestData.lastKnownTime;
+                        }
+                        
+                        updateConnectionStatus('disconnected');
+                    }
+                };
+            } catch (dbError) {
+                console.error('IndexedDB error:', dbError);
+            }
+        }
+    }
+
+
+    function renderStations(stations, isWalkingBusDay) {
         // Show/hide walking bus alert
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-
-        const stations = (await axios.get('/api/stations')).data;
 
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
@@ -285,6 +388,7 @@
             stationsContainer.appendChild(stationDiv);
         });
     }
+
 
     function createStationHeader(station, isWalkingBusDay) {
         return `
@@ -345,7 +449,13 @@
 
     function createStatusButton(participant, isWalkingBusDay) {
         const button = document.createElement('button');
-        button.classList.add('btn', 'btn-sm', 'rounded-pill', 'status-button');
+        button.classList.add(
+            'btn', 
+            'btn-sm', 
+            'rounded-pill', 
+            'status-button',
+            'touch-target'  // New class for better touch area
+        );
 
         if (!isWalkingBusDay) {
             button.classList.add('btn-outline-secondary', 'status-button-disabled');
@@ -353,7 +463,10 @@
         } else {
             button.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
             button.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-            button.onclick = () => toggleParticipation(participant.id, button);
+            button.onclick = (e) => {
+                e.preventDefault();  // Prevent any default behavior
+                toggleParticipation(participant.id, button);
+            };
         }
 
         return button;
@@ -418,27 +531,23 @@
     }
 
     async function toggleParticipation(participantId, button) {
+        const listItem = button.closest('.participant-item');
+        const currentStatus = listItem.classList.contains('participant-status-active');
+        const newStatus = !currentStatus;
+        
+        // Immediately update UI
+        updateParticipantUI(button, newStatus);
+
         try {
-            const serverDate = await initializeDailyStatus();
-            const listItem = button.closest('.participant-item');
-
-            listItem.classList.toggle('participant-status-active');
-            listItem.classList.toggle('participant-status-inactive');
-
-            const newStatus = listItem.classList.contains('participant-status-active');
-
             await axios.patch(`/api/participation/${participantId}`);
-
-            updateParticipantUI(button, newStatus);
-
+            
             if (document.getElementById('calendarModal').style.display === 'block') {
                 await renderCalendar();
             }
         } catch (error) {
             console.error('Error toggling participation:', error);
-            listItem.classList.toggle('participant-status-active');
-            listItem.classList.toggle('participant-status-inactive');
-            updateParticipantUI(button, !newStatus);
+            // Revert UI on error
+            updateParticipantUI(button, currentStatus);
         }
     }
 
@@ -567,21 +676,36 @@
         }
     }
 
+    // Modify initializeSSE to handle mobile focus better
     function initializeSSE() {
         console.log('Starting SSE connection...');
-        const eventSource = new EventSource('/stream');
+        if (globalEventSource) {
+            globalEventSource.close();
+        }
+        
+        globalEventSource = new EventSource('/stream');
         
         let reconnectAttempts = 0;
         const maxReconnectAttempts = 5;
+        let connectionAlertTimeout;
+        const alertDelay = 10000; // 10 seconds delay
         
-        eventSource.onmessage = (event) => {
+        globalEventSource.onmessage = (event) => {
             console.log('Received SSE update:', event.data);
+            const data = JSON.parse(event.data);
+            if (data.time) {
+                document.getElementById('current-time').textContent = data.time;
+            }
             loadStations();
             updateConnectionStatus('connected');
             reconnectAttempts = 0;
+            if (connectionAlertTimeout) {
+                clearTimeout(connectionAlertTimeout);
+                connectionAlertTimeout = null;
+            }
         };
 
-        eventSource.addEventListener('error', (event) => {
+        globalEventSource.addEventListener('error', (event) => {
             console.error('SSE connection error:', event);
             updateConnectionStatus('disconnected');
             
@@ -589,17 +713,57 @@
                 reconnectAttempts++;
                 setTimeout(() => {
                     console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                    eventSource.close();
+                    globalEventSource.close();
                     initializeSSE();
                 }, 5000 * reconnectAttempts);
             }
         });
+
+        // Add mobile-specific event listeners
+        document.addEventListener('focus', handlePageFocus);
+        document.addEventListener('resume', handlePageFocus);
+        
+        function handlePageFocus() {
+            loadStations();
+            if (connectionAlertTimeout) {
+                clearTimeout(connectionAlertTimeout);
+                connectionAlertTimeout = null;
+            }
+        }
+
+        return globalEventSource;
     }
+
+    // Add visibility change handling for mobile users
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // Clear any existing alert immediately
+            const connectionAlert = document.getElementById('connection-alert');
+            connectionAlert.classList.add('d-none');
+            
+            // Force data refresh
+            loadStations();
+            
+            // Reset SSE connection
+            if (eventSource) {
+                eventSource.close();
+            }
+            initializeSSE();
+        }
+    });
 
 
     function updateConnectionStatus(status) {
         const connectionAlert = document.getElementById('connection-alert');
-        connectionAlert.classList.toggle('d-none', status === 'connected');
+        const connectionIndicator = document.querySelector('.connection-indicator');
+        
+        // Only update alert if we're actively showing the page
+        if (!document.hidden) {
+            connectionAlert.classList.toggle('d-none', status === 'connected');
+        }
+        
+        connectionIndicator.classList.remove('connected', 'disconnected');
+        connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
     }
 </script>
 
