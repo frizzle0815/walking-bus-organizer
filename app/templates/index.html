@@ -14,8 +14,8 @@
 </div>
 
 <style>
-    /* Prevent text selection for app like experience */
-    *:not(input, textarea) {
+        /* Prevent text selection for app like experience */
+        *:not(input, textarea) {
         user-select: none; /* Prevent text selection */
         -webkit-user-select: none; /* For Safari */
         -moz-user-select: none; /* For Firefox */
@@ -44,6 +44,7 @@
 
     /* Base styles */
     .participants-list {
+        perspective: 400px;
         background-color: #fff;
         border-radius: 0 0 8px 8px;
         padding: 4px;
@@ -78,13 +79,13 @@
     /* Flip Animation */
     @keyframes cardFlip {
         0% { transform: rotateX(0); }
-        100% { transform: rotateX(360deg); }
+        100% { transform: rotateX(-360deg); }
     }
 
     .participant-item.status-changing {
-        animation: cardFlip 0.8s ease-in-out;
+        animation: cardFlip 1s ease-in-out;
         transform-style: preserve-3d;
-        perspective: 1000px;
+        transform-origin: center;
         backface-visibility: hidden;
     }
 
