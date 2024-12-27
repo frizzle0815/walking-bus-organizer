@@ -303,7 +303,10 @@
     let currentParticipantId = null;
     let lastUpdateTimestamp = 0;
     const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
+    const userInitiatedChanges = new Set();
     let globalEventSource = null;
+    let isPageVisible = !document.hidden;
+    let animationQueue = [];
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
@@ -571,12 +574,19 @@
                 // Check for status change and add to animation queue
                 if (previousStates && previousStates[participant.id]) {
                     const previousStatus = previousStates[participant.id].today_status;
-                    if (previousStatus !== participant.today_status) {
+                    if (previousStatus !== participant.today_status && !userInitiatedChanges.has(participant.id)) {
                         animationQueue.push({
                             item,
                             newStatus: participant.today_status
                         });
                     }
+                }
+
+                // After rendering is complete, play animations if page is visible
+                if (isPageVisible) {
+                    setTimeout(() => {
+                        playQueuedAnimations();
+                    }, 1000);
                 }
 
                 const nameSpan = createNameSpan(participant, isWalkingBusDay);
@@ -603,7 +613,7 @@
         }
 
         // Play animations sequentially
-        const ANIMATION_DELAY = 500; // Delay between animations
+        const ANIMATION_DELAY = 200; // Delay between animations
         animationQueue.forEach(({item, newStatus}, index) => {
             setTimeout(() => {
                 animateParticipantStatusChange(item, newStatus);
@@ -771,6 +781,10 @@
         try {
             const response = await axios.patch(`/api/participation/${participantId}`);
             const newStatus = response.data.status_today;
+
+           // Record that this change was user-initiated
+           userInitiatedChanges.add(participantId);
+
             const listItem = button.closest('.participant-item');
             
             await animateParticipantStatusChange(listItem, newStatus);
@@ -1117,6 +1131,8 @@
 
     // Add visibility change handling for mobile users
     document.addEventListener('visibilitychange', () => {
+        isPageVisible = !document.hidden;
+        
         if (!document.hidden) {
             // Clear any existing alert immediately
             const connectionAlert = document.getElementById('connection-alert');
@@ -1130,8 +1146,28 @@
                 eventSource.close();
             }
             initializeSSE();
+            
+            // Play queued animations after a delay
+            if (animationQueue.length > 0) {
+                setTimeout(() => {
+                    playQueuedAnimations();
+                }, 1000);
+            }
         }
     });
+
+    function playQueuedAnimations() {
+        if (!isPageVisible) return;
+        
+        const ANIMATION_DELAY = 500;
+        animationQueue.forEach(({item, newStatus}, index) => {
+            setTimeout(() => {
+                animateParticipantStatusChange(item, newStatus);
+            }, index * ANIMATION_DELAY);
+        });
+        
+        animationQueue = []; // Clear queue after playing
+    }
 
 
     function updateConnectionStatus(status) {
