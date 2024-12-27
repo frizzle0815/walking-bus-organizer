@@ -327,7 +327,7 @@
 
     function initDB() {
         dbPromise = new Promise((resolve, reject) => {
-            const request = indexedDB.open('WalkingBusDB', 2); // Increment version
+            const request = indexedDB.open('WalkingBusDB', 3);
             
             request.onerror = () => reject(request.error);
             
@@ -338,16 +338,22 @@
             
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                // Add existing stores
                 if (!db.objectStoreNames.contains('stationsData')) {
                     db.createObjectStore('stationsData', { keyPath: 'timestamp' });
                 }
                 if (!db.objectStoreNames.contains('participantStates')) {
                     db.createObjectStore('participantStates', { keyPath: 'id' });
                 }
+                // Add new store for calendar data
+                if (!db.objectStoreNames.contains('calendarData')) {
+                    db.createObjectStore('calendarData', { keyPath: ['participantId', 'date'] });
+                }
             };
         });
         return dbPromise;
     }
+
 
     async function loadStations() {
         const now = Date.now();
@@ -676,6 +682,7 @@
         currentParticipantId = participantId;
         const modal = document.getElementById('calendarModal');
 
+        // Setup modal content first
         const calendarButton = event.target;
         const participantItem = calendarButton.closest('.participant-item');
         const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
@@ -689,9 +696,62 @@
             <div id="calendar"></div>
         `;
 
+        try {
+            // Try online first
+            const response = await fetch(`/api/calendar-data/${participantId}`);
+            if (response.ok) {
+                const calendarData = await response.json();
+                // Store in IndexedDB for offline use
+                const db = await dbPromise;
+                const tx = db.transaction('calendarData', 'readwrite');
+                const store = tx.objectStore('calendarData');
+                
+                for (const day of calendarData) {
+                    await store.put({
+                        participantId,
+                        date: day.date,
+                        status: day.status,
+                        is_schedule_day: day.is_schedule_day,
+                        is_past: day.is_past,
+                        is_today: day.is_today
+                    });
+                }
+                await renderCalendar(calendarData);
+            } else {
+                throw new Error('Network response was not ok');
+            }
+        } catch (error) {
+            // Offline fallback
+            const db = await dbPromise;
+            const tx = db.transaction('calendarData', 'readonly');
+            const store = tx.objectStore('calendarData');
+            const range = IDBKeyRange.bound(
+                [participantId, ""], 
+                [participantId, "\uffff"]
+            );
+            const request = store.getAll(range);
+            
+            const offlineData = await new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+
+            // Transform offline data to match online format
+            const transformedData = offlineData.map(item => ({
+                date: item.date,
+                status: item.status,
+                is_schedule_day: item.is_schedule_day,
+                is_past: item.is_past,
+                is_today: item.is_today
+            }));
+
+            await renderCalendar(transformedData);
+        }
+
         modal.style.display = 'block';
-        await renderCalendar();
     }
+
+
 
     async function initializeDailyStatus() {
         try {
@@ -702,79 +762,110 @@
         }
     }
 
-    async function renderCalendar() {
+    async function renderCalendar(calendarData) {
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
 
-        try {
-            const calendarData = await fetch(`/api/calendar-data/${currentParticipantId}`).then(r => r.json());
+        // Generate 4 weeks of dates starting from current week
+        const today = new Date();
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
 
-            const weekdayHeader = document.createElement('div');
-            weekdayHeader.className = 'week';
-            ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
-                const dayHeader = document.createElement('div');
-                dayHeader.className = 'calendar-day-header';
-                dayHeader.textContent = day;
-                weekdayHeader.appendChild(dayHeader);
-            });
-            calendar.appendChild(weekdayHeader);
+        // Create weekday header
+        const weekdayHeader = document.createElement('div');
+        weekdayHeader.className = 'week';
+        ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
+            const dayHeader = document.createElement('div');
+            dayHeader.className = 'calendar-day-header';
+            dayHeader.textContent = day;
+            weekdayHeader.appendChild(dayHeader);
+        });
+        calendar.appendChild(weekdayHeader);
 
-            for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
-                const weekDiv = document.createElement('div');
-                weekDiv.className = 'week';
+        // Generate calendar days
+        for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
+            const weekDiv = document.createElement('div');
+            weekDiv.className = 'week';
 
-                const weekData = calendarData.slice(weekIndex * 7, (weekIndex + 1) * 7);
-                weekData.forEach(dayData => {
-                    const dayDiv = document.createElement('div');
-                    dayDiv.className = 'calendar-day';
-                    dayDiv.textContent = new Date(dayData.date).getDate();
+            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                const currentDate = new Date(startOfWeek);
+                currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
+                const dateStr = currentDate.toISOString().split('T')[0];
 
-                    if (!dayData.is_schedule_day || dayData.is_past) {
-                        dayDiv.classList.add('day-gray');
-                    } else {
-                        dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
-                        dayDiv.onclick = () => toggleDayStatus(currentParticipantId, dayData.date, dayDiv);
-                    }
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'calendar-day';
+                dayDiv.textContent = currentDate.getDate();
 
-                    if (dayData.is_today) {
-                        dayDiv.classList.add('day-today');
-                    }
+                // Find matching data for this date
+                const dayData = calendarData.find(d => d.date === dateStr) || {
+                    date: dateStr,
+                    status: false,
+                    is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
+                    is_past: currentDate < today,
+                    is_today: dateStr === today.toISOString().split('T')[0]
+                };
 
-                    weekDiv.appendChild(dayDiv);
-                });
+                if (!dayData.is_schedule_day || dayData.is_past) {
+                    dayDiv.classList.add('day-gray');
+                } else {
+                    dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
+                    dayDiv.onclick = () => toggleDayStatus(currentParticipantId, dateStr, dayDiv);
+                }
 
-                calendar.appendChild(weekDiv);
+                if (dayData.is_today) {
+                    dayDiv.classList.add('day-today');
+                }
+
+                weekDiv.appendChild(dayDiv);
             }
-        } catch (error) {
-            console.error('Calendar rendering error:', error);
+
+            calendar.appendChild(weekDiv);
         }
     }
+
 
     async function toggleDayStatus(participantId, dateString, dayDiv) {
-        const serverDate = await initializeDailyStatus();
-        const clickedDate = dateString;
-
-        dayDiv.classList.toggle('day-green');
-        dayDiv.classList.toggle('day-red');
-
-        const newStatus = dayDiv.classList.contains('day-green');
-
-        await axios.post('/api/calendar-status', {
-            participant_id: participantId,
-            date: clickedDate,
-            status: newStatus
-        });
-
-        if (serverDate === clickedDate) {
-            const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-            if (participantItem) {
-                const statusButton = participantItem.querySelector('button');
-                if (statusButton) {
-                    updateParticipantUI(statusButton, newStatus);
-                }
-            }
+        const newStatus = !dayDiv.classList.contains('day-green');
+        
+        // Store original content
+        const originalContent = dayDiv.textContent;
+        // Show loading state
+        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
+        try {
+            await axios.post('/api/calendar-status', {
+                participant_id: participantId,
+                date: dateString,
+                status: newStatus
+            });
+            
+            // Success - update UI
+            dayDiv.textContent = originalContent;
+            dayDiv.classList.toggle('day-green');
+            dayDiv.classList.toggle('day-red');
+            
+            // Update IndexedDB
+            const db = await dbPromise;
+            const tx = db.transaction('calendarData', 'readwrite');
+            const store = tx.objectStore('calendarData');
+            await store.put({
+                participantId,
+                date: dateString,
+                status: newStatus
+            });
+            
+        } catch (error) {
+            // Error - show warning triangle
+            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i>';
+            dayDiv.title = 'Änderung konnte nicht gespeichert werden';
+            
+            // Restore original state after 3 seconds
+            setTimeout(() => {
+                dayDiv.textContent = originalContent;
+            }, 3000);
         }
     }
+
 
     // Modify initializeSSE to handle mobile focus better
     function initializeSSE() {
