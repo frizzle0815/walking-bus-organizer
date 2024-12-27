@@ -79,11 +79,17 @@
     /* Flip Animation */
     @keyframes cardFlip {
         0% { transform: rotateX(0); }
+        49.99% { transform: rotateX(-90deg); }
+        50% { 
+            transform: rotateX(-90deg);
+            /* State changes will happen here */
+        }
         100% { transform: rotateX(-360deg); }
     }
+    
 
     .participant-item.status-changing {
-        animation: cardFlip 1s ease-in-out;
+        animation: cardFlip 1s linear;
         transform-style: preserve-3d;
         transform-origin: center;
         backface-visibility: hidden;
@@ -230,8 +236,32 @@
     }
 
     /* Traffic Light Icons */
-    .traffic-light {
+    .icon-container {
+        position: relative;
+        display: inline-block;
+        width: 1em;    /* Width of one icon */
+        height: 1em;   /* Height of one icon */
         margin-right: 0.5rem;
+    }
+
+    .traffic-light {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    .traffic-light.next-icon {
+        opacity: 0;  /* Initially hidden */
+    }
+
+    .status-changing .traffic-light.current-icon {
+        animation: iconTransition 1s linear;
+    }
+
+    .status-changing .traffic-light.next-icon {
+        animation: iconTransition 1s linear reverse;
     }
 
     /* Add this to your existing style section */
@@ -486,19 +516,33 @@
         const nameSpan = document.createElement('span');
         nameSpan.classList.add('text-truncate', 'me-2', 'participant-name');
 
-        const icon = document.createElement('i');
-        icon.classList.add('fas', 'me-2', 'traffic-light');
+        const iconContainer = document.createElement('span');
+        iconContainer.classList.add('icon-container');
 
+        const currentIcon = document.createElement('i');
+        currentIcon.classList.add('fas', 'traffic-light', 'current-icon');
+
+        const nextIcon = document.createElement('i');
+        nextIcon.classList.add('fas', 'traffic-light', 'next-icon');
+
+        // Rest of the icon class assignments remain the same
         if (!isWalkingBusDay) {
-            icon.classList.add('fa-person', 'icon-disabled');  // Changed to icon-disabled
+            currentIcon.classList.add('fa-person', 'icon-disabled');
+            nextIcon.classList.add('fa-person', 'icon-disabled');
         } else {
-            icon.classList.add(
+            currentIcon.classList.add(
                 participant.today_status ? 'fa-walking' : 'fa-person',
                 participant.today_status ? 'icon-active' : 'icon-inactive'
             );
+            nextIcon.classList.add(
+                participant.today_status ? 'fa-person' : 'fa-walking',
+                participant.today_status ? 'icon-inactive' : 'icon-active'
+            );
         }
 
-        nameSpan.appendChild(icon);
+        iconContainer.appendChild(currentIcon);
+        iconContainer.appendChild(nextIcon);
+        nameSpan.appendChild(iconContainer);
         nameSpan.appendChild(document.createTextNode(participant.name));
         return nameSpan;
     }
@@ -589,36 +633,35 @@
     // Modify the toggleParticipation function to track local changes
     async function toggleParticipation(participantId, button) {
         locallyChangedParticipants.add(participantId);
-        // Save original button content for restoration if needed
         const originalButtonContent = button.innerHTML;
-        
-        // Show loading state
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         button.disabled = true;
         
         try {
-            // Attempt server update
             const response = await axios.patch(`/api/participation/${participantId}`);
-            
-            // Server confirmed the change
             const newStatus = response.data.status_today;
-            
-            // Execute flip animation and update UI
             const listItem = button.closest('.participant-item');
+            
+            // Start animation
             listItem.classList.add('status-changing');
             
+            // Update at animation midpoint
+            setTimeout(() => {
+                const icon = listItem.querySelector('.traffic-light');
+                icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+                icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
+                icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
+            }, 500);
+
+            // Complete animation
             setTimeout(() => {
                 updateParticipantUI(button, newStatus);
                 button.disabled = false;
                 button.innerHTML = newStatus ? 
                     '<i class="fas fa-times"></i>' : 
                     '<i class="fas fa-check"></i>';
-            }, 400);
-            
-            // Update calendar if open
-            if (document.getElementById('calendarModal').style.display === 'block') {
-                await renderCalendar();
-            }
+                listItem.classList.remove('status-changing');
+            }, 1000);
             
         } catch (error) {
             // Error handling
@@ -652,28 +695,15 @@
         const stationList = button.closest('.participants-list');
         const stationId = stationList.dataset.stationId;
         
-        // Get the current stats element
+        // Update stats
         const statsElement = document.getElementById(`stats-station-${stationId}`);
         const [active, total] = statsElement.textContent.split(' / ').map(Number);
-        
-        // Immediately update the stats based on the new status
-        // If status is true (active), increment, if false (inactive), decrement
         const newActive = status ? active + 1 : active - 1;
         statsElement.textContent = `${newActive} / ${total}`;
 
-        // Rest of the existing updateParticipantUI code...
-        listItem.classList.add('status-changing');
-        
-        setTimeout(() => {
-            listItem.classList.toggle('participant-status-active', status);
-            listItem.classList.toggle('participant-status-inactive', !status);
-            // ... rest of the setTimeout code
-        }, 400);
-
-        // Remove animation class after completion
-        listItem.addEventListener('animationend', () => {
-            listItem.classList.remove('status-changing');
-        }, { once: true });
+        // Update status classes only
+        listItem.classList.toggle('participant-status-active', status);
+        listItem.classList.toggle('participant-status-inactive', !status);
     }
 
 
@@ -831,7 +861,6 @@
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            // Add to local changes tracking
             locallyChangedParticipants.add(participantId);
             
             const response = await axios.post('/api/calendar-status', {
@@ -855,38 +884,44 @@
                 status: newStatus
             });
 
-            // If the changed date is today, update main page UI
+            // If the changed date is today, update main page UI with animation
             const today = new Date().toISOString().split('T')[0];
             if (dateString === today) {
                 const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
                 if (participantItem) {
-                    // Update participant status
-                    participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-                    participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+                    // Start the flip animation
+                    participantItem.classList.add('status-changing');
                     
-                    // Update status button
+                    // Update button immediately
                     const statusButton = participantItem.querySelector('.status-button');
                     statusButton.classList.remove('btn-outline-success', 'btn-outline-danger');
                     statusButton.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
                     statusButton.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-                    
-                    // Update icon
-                    const icon = participantItem.querySelector('.traffic-light');
-                    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-                    icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
-                    icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
 
-                    // Update station statistics
-                    const stationList = participantItem.closest('.participants-list');
-                    const stationId = stationList.dataset.stationId;
-                    updateStationStats(stationId);
+                    // Update icon at animation midpoint (500ms)
+                    setTimeout(() => {
+                        const icon = participantItem.querySelector('.traffic-light');
+                        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+                        icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
+                        icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
+                    }, 500);
+
+                    // Complete animation and cleanup
+                    setTimeout(() => {
+                        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+                        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+                        participantItem.classList.remove('status-changing');
+                        
+                        // Update station statistics
+                        const stationList = participantItem.closest('.participants-list');
+                        const stationId = stationList.dataset.stationId;
+                        updateStationStats(stationId);
+                    }, 1000);
                 }
             }
-            
         } catch (error) {
-            // Remove from local changes if the update failed
+            // Error handling remains the same
             locallyChangedParticipants.delete(participantId);
-            
             dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i>';
             dayDiv.title = 'Änderung konnte nicht gespeichert werden';
             
@@ -895,6 +930,8 @@
             }, 3000);
         }
     }
+
+
 
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
