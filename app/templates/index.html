@@ -15,7 +15,7 @@
 
 <style>
         /* Prevent text selection for app like experience */
-        *:not(input, textarea) {
+    *:not(input, textarea) {
         user-select: none; /* Prevent text selection */
         -webkit-user-select: none; /* For Safari */
         -moz-user-select: none; /* For Firefox */
@@ -196,6 +196,22 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);  /* Adding subtle shadow */
     }
 
+    .status-button:disabled {
+        opacity: 0.7;
+        cursor: wait;
+    }
+
+    @keyframes warningPulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+
+    .fa-exclamation-triangle {
+        animation: warningPulse 2s infinite;
+    }
+
+
     .status-button-disabled {
         cursor: not-allowed;
     }
@@ -227,6 +243,14 @@
 
     .highlight-change {
         animation: highlightChange 1.5s ease-in-out;
+    }
+
+    .warning-icon {
+        color: #dc3545; /* Bootstrap's danger color */
+        background-color: #fff; /* White background for contrast */
+        padding: 2px; /* Padding for better visibility */
+        margin-right: 8px; /* Space between icon and button */
+        border-radius: 50%; /* Optional: round the icon */
     }
 
 </style>
@@ -558,30 +582,64 @@
 
     // Modify the toggleParticipation function to track local changes
     async function toggleParticipation(participantId, button) {
-        const listItem = button.closest('.participant-item');
-        const currentStatus = listItem.classList.contains('participant-status-active');
-        const newStatus = !currentStatus;
-        
-        // Add to locally changed set
         locallyChangedParticipants.add(participantId);
+        // Save original button content for restoration if needed
+        const originalButtonContent = button.innerHTML;
         
-        // Immediately update UI
-        updateParticipantUI(button, newStatus);
-
+        // Show loading state
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        button.disabled = true;
+        
         try {
-            await axios.patch(`/api/participation/${participantId}`);
+            // Attempt server update
+            const response = await axios.patch(`/api/participation/${participantId}`);
             
+            // Server confirmed the change
+            const newStatus = response.data.status_today;
+            
+            // Execute flip animation and update UI
+            const listItem = button.closest('.participant-item');
+            listItem.classList.add('status-changing');
+            
+            setTimeout(() => {
+                updateParticipantUI(button, newStatus);
+                button.disabled = false;
+                button.innerHTML = newStatus ? 
+                    '<i class="fas fa-times"></i>' : 
+                    '<i class="fas fa-check"></i>';
+            }, 400);
+            
+            // Update calendar if open
             if (document.getElementById('calendarModal').style.display === 'block') {
                 await renderCalendar();
             }
+            
         } catch (error) {
+            // Error handling
             console.error('Error toggling participation:', error);
-            // Revert UI on error
-            updateParticipantUI(button, currentStatus);
-            // Remove from locally changed set if the change failed
-            locallyChangedParticipants.delete(participantId);
+
+            // Restore original button state
+            button.disabled = false;
+            button.innerHTML = originalButtonContent;
+
+            // Show warning indicator
+            const warningIcon = document.createElement('i');
+            warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+            warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+
+            const buttonContainer = button.parentElement;
+
+            // Append the warning icon before the button
+            buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
+
+            // Remove warning after 5 seconds
+            setTimeout(() => {
+                warningIcon.remove();
+            }, 5000);
+
         }
     }
+
 
     function updateParticipantUI(button, status) {
         const listItem = button.closest('.participant-item');
