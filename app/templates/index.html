@@ -152,18 +152,18 @@
     }
 
     .calendar-day {
-        display: inline-block;
+        display: inline-flex;
         width: 40px;
         height: 40px;
         margin: 2px;
-        text-align: center;
-        line-height: 40px;
-        cursor: pointer;
+        justify-content: center;  /* Center horizontally */
+        align-items: center;     /* Center vertically */
         border-radius: 50%;
+        cursor: pointer;
     }
 
-    .day-green { background-color: #d4edda; }
-    .day-red { background-color: #f8d7da; }
+    .day-green { background-color: #a9e6b7; }
+    .day-red { background-color: #f8bfc3 }
     .day-gray {
         background-color: #e9ecef;
         cursor: not-allowed;
@@ -916,6 +916,19 @@
     async function renderCalendar(calendarData) {
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
+
+        // Add weekday header row first
+        const weekdayHeader = document.createElement('div');
+        weekdayHeader.className = 'week';
+        const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        
+        weekdays.forEach(day => {
+            const dayHeader = document.createElement('div');
+            dayHeader.className = 'calendar-day-header';
+            dayHeader.textContent = day;
+            weekdayHeader.appendChild(dayHeader);
+        });
+        calendar.appendChild(weekdayHeader);
 
         // Get the current participant's element from the main view to ensure state consistency
         const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
