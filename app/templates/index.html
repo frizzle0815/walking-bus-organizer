@@ -304,7 +304,6 @@
     let lastUpdateTimestamp = 0;
     const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
     let globalEventSource = null;
-    let locallyChangedParticipants = new Set(); // For animations
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
@@ -433,7 +432,8 @@
 
 
 
-    async function loadStations() {
+    async function loadStations(previousStates = {}) { 
+        console.log('Previous states at load:', previousStates);
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
             return;
@@ -448,28 +448,26 @@
             isWalkingBusDay = response.isWalkingBusDay;
             const stations = (await axios.get('/api/stations')).data;
 
-            // Get previous states for comparison
-            const previousStates = await getPreviousStates(db);
-
-            // Store new states
-            const transaction = db.transaction(['participantStates'], 'readwrite');
-            const store = transaction.objectStore('participantStates');
-
-            // Render the stations first
-            renderStations(stations, isWalkingBusDay);
-
-            // Collect all changed participants
+            // Important: Collect changed participants BEFORE rendering
             const changedParticipants = [];
             stations.forEach(station => {
                 station.participants.forEach(participant => {
-                    const previousState = previousStates[participant.id];
-                    // Check for changes and collect changed IDs
-                    if (previousState !== undefined &&
-                        previousState.today_status !== participant.today_status &&
-                        !locallyChangedParticipants.has(participant.id)) {
-                        changedParticipants.push(participant.id);
-                    }
-                    // Store current state in IndexedDB
+                    console.log(`Participant ${participant.id} state change:`, {
+                        previous: previousStates[participant.id]?.today_status,
+                        new: participant.today_status
+                    });
+                });
+            });
+
+            // Render stations without animations first
+            await renderStations(stations, isWalkingBusDay, previousStates);
+
+            // Store new states in IndexedDB
+            const transaction = db.transaction(['participantStates'], 'readwrite');
+            const store = transaction.objectStore('participantStates');
+            
+            stations.forEach(station => {
+                station.participants.forEach(participant => {
                     store.put({
                         id: participant.id,
                         today_status: participant.today_status
@@ -477,25 +475,21 @@
                 });
             });
 
-            // Apply sequential animations with delays
-            const INITIAL_DELAY = 1000;
+            // Apply animations after rendering
+            const INITIAL_DELAY = 100; // Reduced initial delay
             const DELAY_BETWEEN_ANIMATIONS = 200;
 
-            changedParticipants.forEach((participantId, index) => {
-            const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-            if (participantItem) {
-                const participant = stations
-                    .flatMap(s => s.participants)
-                    .find(p => p.id === participantId);
-                animateParticipantStatusChange(
-                    participantItem, 
-                    participant.today_status, 
-                    INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS)
-                );
-            }
-        });
+            changedParticipants.forEach(({id, newStatus}, index) => {
+                const participantItem = document.querySelector(`[data-participant-id="${id}"]`);
+                if (participantItem) {
+                    animateParticipantStatusChange(
+                        participantItem,
+                        newStatus,
+                        INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS)
+                    );
+                }
+            });
 
-            // Update connection status on success
             updateConnectionStatus('connected');
 
         } catch (error) {
@@ -551,15 +545,17 @@
 
 
 
-    function renderStations(stations, isWalkingBusDay) {
-        // Show/hide walking bus alert
+    async function renderStations(stations, isWalkingBusDay, previousStates) {
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
 
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
-        stations.forEach(station => {
+        // Collect all items that need animation
+        const animationQueue = [];
+
+        for (const station of stations) {
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
             stationDiv.innerHTML = createStationHeader(station, isWalkingBusDay);
@@ -568,8 +564,21 @@
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
-            station.participants.forEach(participant => {
-                const item = createParticipantItem(participant, isWalkingBusDay);
+            // Handle async participant creation
+            for (const participant of station.participants) {
+                const item = await createParticipantItem(participant, isWalkingBusDay, previousStates);
+                
+                // Check for status change and add to animation queue
+                if (previousStates && previousStates[participant.id]) {
+                    const previousStatus = previousStates[participant.id].today_status;
+                    if (previousStatus !== participant.today_status) {
+                        animationQueue.push({
+                            item,
+                            newStatus: participant.today_status
+                        });
+                    }
+                }
+
                 const nameSpan = createNameSpan(participant, isWalkingBusDay);
 
                 const buttonContainer = document.createElement('div');
@@ -587,12 +596,21 @@
                 buttonContainer.append(statusButton, calendarButton);
                 item.append(nameSpan, buttonContainer);
                 list.appendChild(item);
-            });
+            }
 
             stationDiv.appendChild(list);
             stationsContainer.appendChild(stationDiv);
+        }
+
+        // Play animations sequentially
+        const ANIMATION_DELAY = 500; // Delay between animations
+        animationQueue.forEach(({item, newStatus}, index) => {
+            setTimeout(() => {
+                animateParticipantStatusChange(item, newStatus);
+            }, index * ANIMATION_DELAY);
         });
     }
+
 
 
     function createStationHeader(station, isWalkingBusDay) {
@@ -610,7 +628,7 @@
             </div>`;
     }
 
-    function createParticipantItem(participant, isWalkingBusDay) {
+    async function createParticipantItem(participant, isWalkingBusDay, previousStates = {}) {
         const item = document.createElement('li');
         item.classList.add(
             'list-group-item',
@@ -621,15 +639,39 @@
             'participant-item'
         );
 
-        item.classList.add(
-            isWalkingBusDay
-                ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
-                : 'participant-status-disabled'
-        );
+        // Important: Don't add the status class immediately for changed items
+        const previousState = previousStates[participant.id];
+        const hasStatusChanged = previousState !== undefined && 
+                               previousState.today_status !== participant.today_status;
+
+        if (!hasStatusChanged) {
+            // Only add initial status class if status hasn't changed
+            item.classList.add(
+                isWalkingBusDay
+                    ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
+                    : 'participant-status-disabled'
+            );
+        } else {
+            // For changed items, add the previous status first
+            item.classList.add(
+                isWalkingBusDay
+                    ? (previousState.today_status ? 'participant-status-active' : 'participant-status-inactive')
+                    : 'participant-status-disabled'
+            );
+        }
 
         item.dataset.participantId = participant.id;
+
+        if (hasStatusChanged && isWalkingBusDay) {
+            console.log('Triggering animation from previous state:', previousState.today_status, 'to new state:', participant.today_status);
+            setTimeout(() => {
+                animateParticipantStatusChange(item, participant.today_status);
+            }, 1000);
+        }
+
         return item;
     }
+
 
     function createNameSpan(participant, isWalkingBusDay) {
         const nameSpan = document.createElement('span');
@@ -718,42 +760,10 @@
             });
     }
 
-    async function getStatusForDay(participantId, date) {
-        console.log('Getting status for:', {
-            date: date.toISOString(),
-            localDate: date.toLocaleString(),
-            dayOfWeek: date.getDay(),
-            weekday: WEEKDAY_MAPPING[date.getDay()]
-        });
-        try {
-            const response = await axios.get(`/api/calendar-status/${participantId}`);
-            const dateStr = date.toISOString().split('T')[0];
-            const entry = response.data.find(e => e.date === dateStr);
-
-            if (entry) {
-                return entry.status;
-            }
-
-            const dayNumber = date.getDay();
-            const weekday = WEEKDAY_MAPPING[dayNumber];
-
-            if (weekday) {
-                const defaultStatusResponse = await axios.get(`/api/participant/${participantId}/weekday-status/${weekday}`);
-                return defaultStatusResponse.data.status;
-            }
-
-            return false;
-        } catch (error) {
-            console.error('Error fetching calendar status:', error);
-            return false;
-        }
-    }
-
     // Modify the toggleParticipation function to track local changes
     // Example of how the animation is triggered in the existing code
 
     async function toggleParticipation(participantId, button) {
-        locallyChangedParticipants.add(participantId);
         const originalButtonContent = button.innerHTML;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         button.disabled = true;
@@ -765,10 +775,14 @@
             
             await animateParticipantStatusChange(listItem, newStatus);
             
-            updateParticipantUI(button, newStatus);
             button.disabled = false;
             button.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-        } catch (error) {
+        
+            // Update station statistics
+            const stationList = listItem.closest('.participants-list');
+            const stationId = stationList.dataset.stationId;
+            updateStationStats(stationId);
+           } catch (error) {
             // Error handling
             console.error('Error toggling participation:', error);
 
@@ -792,27 +806,6 @@
             }, 5000);
         }
     }
-
-
-
-
-
-    function updateParticipantUI(button, status) {
-        const listItem = button.closest('.participant-item');
-        const stationList = button.closest('.participants-list');
-        const stationId = stationList.dataset.stationId;
-        
-        // Update stats
-        const statsElement = document.getElementById(`stats-station-${stationId}`);
-        const [active, total] = statsElement.textContent.split(' / ').map(Number);
-        const newActive = status ? active + 1 : active - 1;
-        statsElement.textContent = `${newActive} / ${total}`;
-
-        // Update status classes only
-        listItem.classList.toggle('participant-status-active', status);
-        listItem.classList.toggle('participant-status-inactive', !status);
-    }
-
 
 
     async function openCalendar(participantId) {
@@ -961,7 +954,7 @@
                     dayDiv.classList.add('day-gray');
                 } else {
                     dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
-                    dayDiv.onclick = () => toggleDayStatus(currentParticipantId, dateStr, dayDiv);
+                    dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
                 }
 
                 if (dayData.is_today) {
@@ -975,14 +968,12 @@
     }
 
 
-    async function toggleDayStatus(participantId, dateString, dayDiv) {
+    async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
         const newStatus = !dayDiv.classList.contains('day-green');
         const originalContent = dayDiv.textContent;
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            locallyChangedParticipants.add(participantId);
-            
             const response = await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
@@ -1024,8 +1015,6 @@
              }
             }
         } catch (error) {
-            // Error handling remains the same
-            locallyChangedParticipants.delete(participantId);
             dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i>';
             dayDiv.title = 'Änderung konnte nicht gespeichert werden';
             
@@ -1055,20 +1044,27 @@
         try {
             globalEventSource = new EventSource('/stream');
             
-            globalEventSource.onmessage = (event) => {
-                console.log('Received SSE update:', event.data);
-                const data = JSON.parse(event.data);
-                if (data.time) {
-                    document.getElementById('current-time').textContent = data.time;
-                }
-                loadStations();
-                updateConnectionStatus('connected');
-                reconnectAttempts = 0;
-                isReconnecting = false;
-                if (connectionAlertTimeout) {
-                    clearTimeout(connectionAlertTimeout);
-                    connectionAlertTimeout = null;
-                }
+            globalEventSource.onmessage = function(event) {
+                (async () => {
+                    console.log('Received SSE update:', event.data);
+                    const data = JSON.parse(event.data);
+                    if (data.time) {
+                        document.getElementById('current-time').textContent = data.time;
+                    }
+
+                    // Get previous states before updating
+                    const db = await dbPromise;
+                    const previousStates = await getPreviousStates(db);
+
+                    await loadStations(previousStates);
+                    updateConnectionStatus('connected');
+                    reconnectAttempts = 0;
+                    isReconnecting = false;
+                    if (connectionAlertTimeout) {
+                        clearTimeout(connectionAlertTimeout);
+                        connectionAlertTimeout = null;
+                    }
+                })();
             };
 
             globalEventSource.addEventListener('error', (event) => {
@@ -1116,6 +1112,7 @@
 
         return globalEventSource;
     }
+
 
 
     // Add visibility change handling for mobile users
@@ -1166,29 +1163,6 @@
             };
             
             request.onerror = () => resolve({});
-        });
-    }
-
-
-    // Function to highlight changed participants
-    // Modify the highlight function to add sequential delays
-    function highlightChangedParticipants(changedIds) {
-        // Filter out locally changed participants
-        const remoteChanges = changedIds.filter(id => !locallyChangedParticipants.has(id));
-        
-        const INITIAL_DELAY = 1000; // 1 second delay before starting animations
-        const DELAY_BETWEEN_ANIMATIONS = 200; // Keep existing delay between animations
-
-        remoteChanges.forEach((id, index) => {
-            const element = document.querySelector(`[data-participant-id="${id}"]`);
-            if (element) {
-                setTimeout(() => {
-                    element.classList.add('highlight-change');
-                    element.addEventListener('animationend', () => {
-                        element.classList.remove('highlight-change');
-                    }, { once: true });
-                }, INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS));
-            }
         });
     }
 </script>
