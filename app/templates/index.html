@@ -399,6 +399,40 @@
     }
 
 
+    function animateParticipantStatusChange(participantItem, newStatus, delay = 0) {
+        return new Promise((resolve) => {
+            setTimeout(() => {
+                // Determine current status
+                const isCurrentlyActive = participantItem.classList.contains('participant-status-active');
+
+                // Apply the appropriate animation class
+                if (isCurrentlyActive && !newStatus) {
+                    participantItem.classList.add('active-to-inactive');
+                } else if (!isCurrentlyActive && newStatus) {
+                    participantItem.classList.add('inactive-to-active');
+                }
+
+                // Update icon at animation midpoint
+                setTimeout(() => {
+                    const icon = participantItem.querySelector('.traffic-light');
+                    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+                    icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
+                    icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
+                }, 250);
+
+                // Remove animation class after completion
+                setTimeout(() => {
+                    participantItem.classList.remove('active-to-inactive', 'inactive-to-active');
+                    participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+                    participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+                    resolve();
+                }, 500);
+            }, delay);
+        });
+    }
+
+
+
     async function loadStations() {
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
@@ -448,38 +482,18 @@
             const DELAY_BETWEEN_ANIMATIONS = 200;
 
             changedParticipants.forEach((participantId, index) => {
-                const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-                if (participantItem) {
-                    setTimeout(() => {
-                        const participant = stations
-                            .flatMap(s => s.participants)
-                            .find(p => p.id === participantId);
-
-                        // Determine current status
-                        const isCurrentlyActive = participantItem.classList.contains('participant-status-active');
-
-                        // Apply the appropriate animation class
-                        if (isCurrentlyActive && !participant.today_status) {
-                            participantItem.classList.add('active-to-inactive');
-                        } else if (!isCurrentlyActive && participant.today_status) {
-                            participantItem.classList.add('inactive-to-active');
-                        }
-
-                        // Update icon at animation midpoint
-                        setTimeout(() => {
-                            const icon = participantItem.querySelector('.traffic-light');
-                            icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-                            icon.classList.add(participant.today_status ? 'fa-walking' : 'fa-person');
-                            icon.classList.add(participant.today_status ? 'icon-active' : 'icon-inactive');
-                        }, 250);
-
-                        // Remove animation class after completion
-                        setTimeout(() => {
-                            participantItem.classList.remove('active-to-inactive', 'inactive-to-active');
-                        }, 500);
-                    }, INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS));
-                }
-            });
+            const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+            if (participantItem) {
+                const participant = stations
+                    .flatMap(s => s.participants)
+                    .find(p => p.id === participantId);
+                animateParticipantStatusChange(
+                    participantItem, 
+                    participant.today_status, 
+                    INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS)
+                );
+            }
+        });
 
             // Update connection status on success
             updateConnectionStatus('connected');
@@ -748,33 +762,12 @@
             const response = await axios.patch(`/api/participation/${participantId}`);
             const newStatus = response.data.status_today;
             const listItem = button.closest('.participant-item');
-
-            // Determine current status
-            const isCurrentlyActive = listItem.classList.contains('participant-status-active');
-
-            // Apply the appropriate animation class
-            if (isCurrentlyActive && !newStatus) {
-                listItem.classList.add('active-to-inactive');
-            } else if (!isCurrentlyActive && newStatus) {
-                listItem.classList.add('inactive-to-active');
-            }
-
-            // Update at animation midpoint
-            setTimeout(() => {
-                const icon = listItem.querySelector('.traffic-light');
-                icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-                icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
-                icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
-            }, 250);
-
-            // Complete animation
-            setTimeout(() => {
-                updateParticipantUI(button, newStatus);
-                button.disabled = false;
-                button.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-                listItem.classList.remove('active-to-inactive', 'inactive-to-active');
-            }, 500);
-
+            
+            await animateParticipantStatusChange(listItem, newStatus);
+            
+            updateParticipantUI(button, newStatus);
+            button.disabled = false;
+            button.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
         } catch (error) {
             // Error handling
             console.error('Error toggling participation:', error);
@@ -1014,37 +1007,21 @@
             // If the changed date is today, update main page UI with animation
             const today = new Date().toISOString().split('T')[0];
             if (dateString === today) {
-                const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-                if (participantItem) {
-                    // Start the flip animation
-                    participantItem.classList.add('status-changing');
-                    
-                    // Update button immediately
-                    const statusButton = participantItem.querySelector('.status-button');
-                    statusButton.classList.remove('btn-outline-success', 'btn-outline-danger');
-                    statusButton.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
-                    statusButton.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-
-                    // Update icon at animation midpoint (500ms)
-                    setTimeout(() => {
-                        const icon = participantItem.querySelector('.traffic-light');
-                        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-                        icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
-                        icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
-                    }, 500);
-
-                    // Complete animation and cleanup
-                    setTimeout(() => {
-                        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-                        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
-                        participantItem.classList.remove('status-changing');
-                        
-                        // Update station statistics
-                        const stationList = participantItem.closest('.participants-list');
-                        const stationId = stationList.dataset.stationId;
-                        updateStationStats(stationId);
-                    }, 1000);
-                }
+             const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+             if (participantItem) {
+                 await animateParticipantStatusChange(participantItem, newStatus);
+                 
+                 // Update button
+                 const statusButton = participantItem.querySelector('.status-button');
+                 statusButton.classList.remove('btn-outline-success', 'btn-outline-danger');
+                 statusButton.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
+                 statusButton.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+                 
+                 // Update station statistics
+                 const stationList = participantItem.closest('.participants-list');
+                 const stationId = stationList.dataset.stationId;
+                 updateStationStats(stationId);
+             }
             }
         } catch (error) {
             // Error handling remains the same
