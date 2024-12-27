@@ -720,33 +720,40 @@
             } else {
                 throw new Error('Network response was not ok');
             }
-        } catch (error) {
-            // Offline fallback
-            const db = await dbPromise;
-            const tx = db.transaction('calendarData', 'readonly');
-            const store = tx.objectStore('calendarData');
-            const range = IDBKeyRange.bound(
-                [participantId, ""], 
-                [participantId, "\uffff"]
-            );
-            const request = store.getAll(range);
-            
-            const offlineData = await new Promise((resolve, reject) => {
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+           } catch (error) {
+               // Offline path - enhance data transformation
+               const db = await dbPromise;
+               const tx = db.transaction('calendarData', 'readonly');
+               const store = tx.objectStore('calendarData');
+               const range = IDBKeyRange.bound([participantId, ""], [participantId, "\uffff"]);
+               
+               const offlineData = await new Promise((resolve, reject) => {
+                   const request = store.getAll(range);
+                   request.onsuccess = () => resolve(request.result);
+                   request.onerror = () => reject(request.error);
+               });
 
-            // Transform offline data to match online format
-            const transformedData = offlineData.map(item => ({
-                date: item.date,
-                status: item.status,
-                is_schedule_day: item.is_schedule_day,
-                is_past: item.is_past,
-                is_today: item.is_today
-            }));
+               // Get current participant's status for today
+               const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+               const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
+               const today = new Date().toISOString().split('T')[0];
 
-            await renderCalendar(transformedData);
-        }
+               // Transform offline data with special handling for today
+               const transformedData = offlineData.map(item => {
+                   const isToday = item.date === today;
+                   return {
+                       date: item.date,
+                       // Use current status for today, stored status for other days
+                       status: isToday ? currentStatus : item.status,
+                       // Ensure weekdays (including today) are always schedule days
+                       is_schedule_day: new Date(item.date).getDay() !== 0 && new Date(item.date).getDay() !== 6,
+                       is_past: new Date(item.date) < new Date(),
+                       is_today: isToday
+                   };
+               });
+
+               await renderCalendar(transformedData);
+           }
 
         modal.style.display = 'block';
     }
@@ -766,23 +773,15 @@
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
 
-        // Generate 4 weeks of dates starting from current week
+        // Get the current participant's element from the main view to ensure state consistency
+        const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
+        const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
+
         const today = new Date();
         const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
+        startOfWeek.setDate(today.getDate() - today.getDay() + 1);
 
-        // Create weekday header
-        const weekdayHeader = document.createElement('div');
-        weekdayHeader.className = 'week';
-        ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
-            const dayHeader = document.createElement('div');
-            dayHeader.className = 'calendar-day-header';
-            dayHeader.textContent = day;
-            weekdayHeader.appendChild(dayHeader);
-        });
-        calendar.appendChild(weekdayHeader);
-
-        // Generate calendar days
+        // Generate calendar days with synchronized status
         for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
             const weekDiv = document.createElement('div');
             weekDiv.className = 'week';
@@ -791,6 +790,7 @@
                 const currentDate = new Date(startOfWeek);
                 currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
                 const dateStr = currentDate.toISOString().split('T')[0];
+                const isToday = dateStr === today.toISOString().split('T')[0];
 
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'calendar-day';
@@ -799,10 +799,12 @@
                 // Find matching data for this date
                 const dayData = calendarData.find(d => d.date === dateStr) || {
                     date: dateStr,
-                    status: false,
+                    // For today, use the status from the main view
+                    status: isToday ? currentStatus : false,
+                    // Always calculate is_schedule_day based on the actual date
                     is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
                     is_past: currentDate < today,
-                    is_today: dateStr === today.toISOString().split('T')[0]
+                    is_today: isToday
                 };
 
                 if (!dayData.is_schedule_day || dayData.is_past) {
@@ -818,7 +820,6 @@
 
                 weekDiv.appendChild(dayDiv);
             }
-
             calendar.appendChild(weekDiv);
         }
     }
@@ -826,20 +827,20 @@
 
     async function toggleDayStatus(participantId, dateString, dayDiv) {
         const newStatus = !dayDiv.classList.contains('day-green');
-        
-        // Store original content
         const originalContent = dayDiv.textContent;
-        // Show loading state
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            await axios.post('/api/calendar-status', {
+            // Add to local changes tracking
+            locallyChangedParticipants.add(participantId);
+            
+            const response = await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
                 status: newStatus
             });
             
-            // Success - update UI
+            // Success - update calendar UI
             dayDiv.textContent = originalContent;
             dayDiv.classList.toggle('day-green');
             dayDiv.classList.toggle('day-red');
@@ -853,77 +854,128 @@
                 date: dateString,
                 status: newStatus
             });
+
+            // If the changed date is today, update main page UI
+            const today = new Date().toISOString().split('T')[0];
+            if (dateString === today) {
+                const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+                if (participantItem) {
+                    // Update participant status
+                    participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+                    participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+                    
+                    // Update status button
+                    const statusButton = participantItem.querySelector('.status-button');
+                    statusButton.classList.remove('btn-outline-success', 'btn-outline-danger');
+                    statusButton.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
+                    statusButton.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+                    
+                    // Update icon
+                    const icon = participantItem.querySelector('.traffic-light');
+                    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+                    icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
+                    icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
+
+                    // Update station statistics
+                    const stationList = participantItem.closest('.participants-list');
+                    const stationId = stationList.dataset.stationId;
+                    updateStationStats(stationId);
+                }
+            }
             
         } catch (error) {
-            // Error - show warning triangle
+            // Remove from local changes if the update failed
+            locallyChangedParticipants.delete(participantId);
+            
             dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i>';
             dayDiv.title = 'Änderung konnte nicht gespeichert werden';
             
-            // Restore original state after 3 seconds
             setTimeout(() => {
                 dayDiv.textContent = originalContent;
             }, 3000);
         }
     }
 
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    let isReconnecting = false;
 
     // Modify initializeSSE to handle mobile focus better
     function initializeSSE() {
         console.log('Starting SSE connection...');
+        
         if (globalEventSource) {
             globalEventSource.close();
         }
         
-        globalEventSource = new EventSource('/stream');
-        
-        let reconnectAttempts = 0;
-        const maxReconnectAttempts = 5;
         let connectionAlertTimeout;
-        const alertDelay = 10000; // 10 seconds delay
+        const alertDelay = 10000;
         
-        globalEventSource.onmessage = (event) => {
-            console.log('Received SSE update:', event.data);
-            const data = JSON.parse(event.data);
-            if (data.time) {
-                document.getElementById('current-time').textContent = data.time;
-            }
-            loadStations();
-            updateConnectionStatus('connected');
-            reconnectAttempts = 0;
-            if (connectionAlertTimeout) {
-                clearTimeout(connectionAlertTimeout);
-                connectionAlertTimeout = null;
-            }
-        };
-
-        globalEventSource.addEventListener('error', (event) => {
-            console.error('SSE connection error:', event);
-            updateConnectionStatus('disconnected');
+        try {
+            globalEventSource = new EventSource('/stream');
             
-            if (reconnectAttempts < maxReconnectAttempts) {
-                reconnectAttempts++;
-                setTimeout(() => {
-                    console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                    globalEventSource.close();
-                    initializeSSE();
-                }, 5000 * reconnectAttempts);
-            }
-        });
+            globalEventSource.onmessage = (event) => {
+                console.log('Received SSE update:', event.data);
+                const data = JSON.parse(event.data);
+                if (data.time) {
+                    document.getElementById('current-time').textContent = data.time;
+                }
+                loadStations();
+                updateConnectionStatus('connected');
+                reconnectAttempts = 0;
+                isReconnecting = false;
+                if (connectionAlertTimeout) {
+                    clearTimeout(connectionAlertTimeout);
+                    connectionAlertTimeout = null;
+                }
+            };
 
-        // Add mobile-specific event listeners
-        document.addEventListener('focus', handlePageFocus);
-        document.addEventListener('resume', handlePageFocus);
-        
-        function handlePageFocus() {
-            loadStations();
-            if (connectionAlertTimeout) {
-                clearTimeout(connectionAlertTimeout);
-                connectionAlertTimeout = null;
+            globalEventSource.addEventListener('error', (event) => {
+                console.error('SSE connection error:', event);
+                updateConnectionStatus('disconnected');
+                
+                if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
+                    isReconnecting = true;
+                    reconnectAttempts++;
+                    
+                    setTimeout(() => {
+                        console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                        isReconnecting = false;
+                        globalEventSource.close();
+                        initializeSSE();
+                    }, 5000 * reconnectAttempts);
+                } else if (reconnectAttempts >= maxReconnectAttempts) {
+                    const connectionAlert = document.getElementById('connection-alert');
+                    connectionAlert.innerHTML = `
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Die Verbindung zum Server wurde unterbrochen.
+                    `;
+                    connectionAlert.classList.remove('d-none');
+                    globalEventSource.close();
+                }
+            });
+
+            // Mobile-specific event listeners
+            document.addEventListener('focus', handlePageFocus);
+            document.addEventListener('resume', handlePageFocus);
+            
+            function handlePageFocus() {
+                if (!isReconnecting) {
+                    loadStations();
+                }
+                if (connectionAlertTimeout) {
+                    clearTimeout(connectionAlertTimeout);
+                    connectionAlertTimeout = null;
+                }
             }
+        } catch (error) {
+            console.error('SSE initialization failed:', error);
+            updateConnectionStatus('disconnected');
         }
 
         return globalEventSource;
     }
+
 
     // Add visibility change handling for mobile users
     document.addEventListener('visibilitychange', () => {
@@ -983,7 +1035,8 @@
         // Filter out locally changed participants
         const remoteChanges = changedIds.filter(id => !locallyChangedParticipants.has(id));
         
-        const DELAY_BETWEEN_ANIMATIONS = 200;
+        const INITIAL_DELAY = 1000; // 1 second delay before starting animations
+        const DELAY_BETWEEN_ANIMATIONS = 200; // Keep existing delay between animations
 
         remoteChanges.forEach((id, index) => {
             const element = document.querySelector(`[data-participant-id="${id}"]`);
@@ -993,7 +1046,7 @@
                     element.addEventListener('animationend', () => {
                         element.classList.remove('highlight-change');
                     }, { once: true });
-                }, index * DELAY_BETWEEN_ANIMATIONS);
+                }, INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS));
             }
         });
     }
