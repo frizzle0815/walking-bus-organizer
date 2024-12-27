@@ -303,10 +303,8 @@
     let currentParticipantId = null;
     let lastUpdateTimestamp = 0;
     const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
-    const userInitiatedChanges = new Set();
     let globalEventSource = null;
     let isPageVisible = !document.hidden;
-    let animationQueue = [];
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
@@ -435,8 +433,7 @@
 
 
 
-    async function loadStations(previousStates = {}) { 
-        console.log('Previous states at load:', previousStates);
+    async function loadStations() { 
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
             return;
@@ -451,19 +448,8 @@
             isWalkingBusDay = response.isWalkingBusDay;
             const stations = (await axios.get('/api/stations')).data;
 
-            // Important: Collect changed participants BEFORE rendering
-            const changedParticipants = [];
-            stations.forEach(station => {
-                station.participants.forEach(participant => {
-                    console.log(`Participant ${participant.id} state change:`, {
-                        previous: previousStates[participant.id]?.today_status,
-                        new: participant.today_status
-                    });
-                });
-            });
-
-            // Render stations without animations first
-            await renderStations(stations, isWalkingBusDay, previousStates);
+            // Render stations directly
+            await renderStations(stations, isWalkingBusDay);
 
             // Store new states in IndexedDB
             const transaction = db.transaction(['participantStates'], 'readwrite');
@@ -476,21 +462,6 @@
                         today_status: participant.today_status
                     });
                 });
-            });
-
-            // Apply animations after rendering
-            const INITIAL_DELAY = 100; // Reduced initial delay
-            const DELAY_BETWEEN_ANIMATIONS = 200;
-
-            changedParticipants.forEach(({id, newStatus}, index) => {
-                const participantItem = document.querySelector(`[data-participant-id="${id}"]`);
-                if (participantItem) {
-                    animateParticipantStatusChange(
-                        participantItem,
-                        newStatus,
-                        INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS)
-                    );
-                }
             });
 
             updateConnectionStatus('connected');
@@ -548,15 +519,12 @@
 
 
 
-    async function renderStations(stations, isWalkingBusDay, previousStates) {
+    async function renderStations(stations, isWalkingBusDay) {
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
 
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
-
-        // Collect all items that need animation
-        const animationQueue = [];
 
         for (const station of stations) {
             const stationDiv = document.createElement('div');
@@ -567,30 +535,9 @@
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
-            // Handle async participant creation
             for (const participant of station.participants) {
-                const item = await createParticipantItem(participant, isWalkingBusDay, previousStates);
-                
-                // Check for status change and add to animation queue
-                if (previousStates && previousStates[participant.id]) {
-                    const previousStatus = previousStates[participant.id].today_status;
-                    if (previousStatus !== participant.today_status && !userInitiatedChanges.has(participant.id)) {
-                        animationQueue.push({
-                            item,
-                            newStatus: participant.today_status
-                        });
-                    }
-                }
-
-                // After rendering is complete, play animations if page is visible
-                if (isPageVisible) {
-                    setTimeout(() => {
-                        playQueuedAnimations();
-                    }, 1000);
-                }
-
+                const item = await createParticipantItem(participant, isWalkingBusDay);
                 const nameSpan = createNameSpan(participant, isWalkingBusDay);
-
                 const buttonContainer = document.createElement('div');
                 buttonContainer.classList.add('d-flex', 'align-items-center');
 
@@ -611,14 +558,6 @@
             stationDiv.appendChild(list);
             stationsContainer.appendChild(stationDiv);
         }
-
-        // Play animations sequentially
-        const ANIMATION_DELAY = 200; // Delay between animations
-        animationQueue.forEach(({item, newStatus}, index) => {
-            setTimeout(() => {
-                animateParticipantStatusChange(item, newStatus);
-            }, index * ANIMATION_DELAY);
-        });
     }
 
 
@@ -638,7 +577,7 @@
             </div>`;
     }
 
-    async function createParticipantItem(participant, isWalkingBusDay, previousStates = {}) {
+    async function createParticipantItem(participant, isWalkingBusDay) {
         const item = document.createElement('li');
         item.classList.add(
             'list-group-item',
@@ -646,39 +585,13 @@
             'd-flex',
             'justify-content-between',
             'align-items-center',
-            'participant-item'
+            'participant-item',
+            isWalkingBusDay
+                ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
+                : 'participant-status-disabled'
         );
-
-        // Important: Don't add the status class immediately for changed items
-        const previousState = previousStates[participant.id];
-        const hasStatusChanged = previousState !== undefined && 
-                               previousState.today_status !== participant.today_status;
-
-        if (!hasStatusChanged) {
-            // Only add initial status class if status hasn't changed
-            item.classList.add(
-                isWalkingBusDay
-                    ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
-                    : 'participant-status-disabled'
-            );
-        } else {
-            // For changed items, add the previous status first
-            item.classList.add(
-                isWalkingBusDay
-                    ? (previousState.today_status ? 'participant-status-active' : 'participant-status-inactive')
-                    : 'participant-status-disabled'
-            );
-        }
-
+        
         item.dataset.participantId = participant.id;
-
-        if (hasStatusChanged && isWalkingBusDay) {
-            console.log('Triggering animation from previous state:', previousState.today_status, 'to new state:', participant.today_status);
-            setTimeout(() => {
-                animateParticipantStatusChange(item, participant.today_status);
-            }, 1000);
-        }
-
         return item;
     }
 
@@ -781,12 +694,9 @@
         try {
             const response = await axios.patch(`/api/participation/${participantId}`);
             const newStatus = response.data.status_today;
-
-           // Record that this change was user-initiated
-           userInitiatedChanges.add(participantId);
-
             const listItem = button.closest('.participant-item');
             
+            // Direct user interaction - animate the change
             await animateParticipantStatusChange(listItem, newStatus);
             
             button.disabled = false;
@@ -796,7 +706,7 @@
             const stationList = listItem.closest('.participants-list');
             const stationId = stationList.dataset.stationId;
             updateStationStats(stationId);
-           } catch (error) {
+        } catch (error) {
             // Error handling
             console.error('Error toggling participation:', error);
 
@@ -1147,27 +1057,8 @@
             }
             initializeSSE();
             
-            // Play queued animations after a delay
-            if (animationQueue.length > 0) {
-                setTimeout(() => {
-                    playQueuedAnimations();
-                }, 1000);
-            }
         }
     });
-
-    function playQueuedAnimations() {
-        if (!isPageVisible) return;
-        
-        const ANIMATION_DELAY = 500;
-        animationQueue.forEach(({item, newStatus}, index) => {
-            setTimeout(() => {
-                animateParticipantStatusChange(item, newStatus);
-            }, index * ANIMATION_DELAY);
-        });
-        
-        animationQueue = []; // Clear queue after playing
-    }
 
 
     function updateConnectionStatus(status) {
