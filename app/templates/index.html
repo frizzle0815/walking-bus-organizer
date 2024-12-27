@@ -82,8 +82,8 @@
     /* Flip Animation */
     @keyframes cardFlip {
         0% { transform: rotateX(0); }
-        49.99% { transform: rotateX(-90deg); }
-        50% { 
+        59.99% { transform: rotateX(-90deg); }
+        60% { 
             transform: rotateX(-90deg);
             /* State changes will happen here */
         }
@@ -398,26 +398,34 @@
 
         try {
             const db = await dbPromise;
+            
+            // Initialize daily status and fetch stations
             const response = (await axios.post('/api/initialize-daily-status')).data;
             isWalkingBusDay = response.isWalkingBusDay;
             const stations = (await axios.get('/api/stations')).data;
 
-            // Get previous states
+            // Get previous states for comparison
             const previousStates = await getPreviousStates(db);
             
             // Store new states
             const transaction = db.transaction(['participantStates'], 'readwrite');
             const store = transaction.objectStore('participantStates');
             
-            // Create array of changed participants
+            // Render the stations first
+            renderStations(stations, isWalkingBusDay);
+
+            // Collect all changed participants
             const changedParticipants = [];
             stations.forEach(station => {
                 station.participants.forEach(participant => {
                     const previousState = previousStates[participant.id];
+                    // Check for changes and collect changed IDs
                     if (previousState !== undefined && 
-                        previousState.today_status !== participant.today_status) {
+                        previousState.today_status !== participant.today_status &&
+                        !locallyChangedParticipants.has(participant.id)) {
                         changedParticipants.push(participant.id);
                     }
+                    // Store current state in IndexedDB
                     store.put({
                         id: participant.id,
                         today_status: participant.today_status
@@ -425,16 +433,90 @@
                 });
             });
 
-            renderStations(stations, isWalkingBusDay);
+            // Apply sequential animations with delays
+            const INITIAL_DELAY = 1000;
+            const DELAY_BETWEEN_ANIMATIONS = 200;
+
+            changedParticipants.forEach((participantId, index) => {
+                const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+                if (participantItem) {
+                    setTimeout(() => {
+                        participantItem.classList.add('status-changing');
+                        
+                        // Update icon at animation midpoint
+                        setTimeout(() => {
+                            const icon = participantItem.querySelector('.traffic-light');
+                            const participant = stations
+                                .flatMap(s => s.participants)
+                                .find(p => p.id === participantId);
+                                
+                            icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+                            icon.classList.add(participant.today_status ? 'fa-walking' : 'fa-person');
+                            icon.classList.add(participant.today_status ? 'icon-active' : 'icon-inactive');
+                        }, 500);
+
+                        // Remove animation class after completion
+                        setTimeout(() => {
+                            participantItem.classList.remove('status-changing');
+                        }, 1000);
+                    }, INITIAL_DELAY + (index * DELAY_BETWEEN_ANIMATIONS));
+                }
+            });
             
-            // Highlight changed participants
-            highlightChangedParticipants(changedParticipants);
-            
+            // Update connection status on success
             updateConnectionStatus('connected');
+            
         } catch (error) {
-            // ... existing error handling ...
+            console.error('Error loading stations:', error);
+            
+            // Handle different types of errors
+            if (error.response) {
+                // Server responded with error status
+                const statusCode = error.response.status;
+                switch(statusCode) {
+                    case 401:
+                        window.location.href = '/login';
+                        break;
+                    case 503:
+                        updateConnectionStatus('disconnected');
+                        break;
+                    default:
+                        // Try to load from IndexedDB as fallback
+                        const db = await dbPromise;
+                        const tx = db.transaction(['stationsData'], 'readonly');
+                        const store = tx.objectStore('stationsData');
+                        const cachedData = await store.get('latest');
+                        
+                        if (cachedData) {
+                            renderStations(cachedData.stations, cachedData.isWalkingBusDay);
+                        }
+                }
+            } else if (error.request) {
+                // Network error
+                updateConnectionStatus('disconnected');
+                
+                // Try to load cached data
+                try {
+                    const db = await dbPromise;
+                    const tx = db.transaction(['stationsData'], 'readonly');
+                    const store = tx.objectStore('stationsData');
+                    const cachedData = await store.get('latest');
+                    
+                    if (cachedData) {
+                        renderStations(cachedData.stations, cachedData.isWalkingBusDay);
+                    }
+                } catch (dbError) {
+                    console.error('Error accessing cached data:', dbError);
+                }
+            }
+            
+            // Show error alert to user
+            const connectionAlert = document.getElementById('connection-alert');
+            connectionAlert.classList.remove('d-none');
         }
     }
+
+
 
     function renderStations(stations, isWalkingBusDay) {
         // Show/hide walking bus alert
