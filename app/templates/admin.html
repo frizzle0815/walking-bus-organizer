@@ -528,7 +528,13 @@
                 body: JSON.stringify(newStation)
             })
             .then(response => response.json())
-            .then(station => createStationCard(station));
+            .then(station => {
+                createStationCard(station).then(card => {
+                    stationsContainer.appendChild(card);
+                    initializeSortable();
+                    alert("Neue Station wurde erfolgreich erstellt!");
+                });
+            });
         }
 
         function updateStation(stationId, data) {

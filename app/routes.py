@@ -190,7 +190,7 @@ def update_participant(station_id, participant_id):
             setattr(participant, field, data[field])
     
     db.session.commit()
-    app.logger.info(f"Teilnehmer aktualisiert von '{old_name}' zu '{participant.name}' (ID: {participant_id})")
+    app.logger.info(f"Teilnehmer aktualisiert von '{old_name}' zu '{participant.name}', '{participant.station_id}', '{participant.position}' (ID: {participant_id})")
     return jsonify({"success": True})
 
 
