@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
+from flask import current_app as app
 from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
@@ -67,6 +68,7 @@ def create_station():
     new_station = Station(name=data['name'], position=data['position'])
     db.session.add(new_station)
     db.session.commit()
+    app.logger.info(f"Neue Haltestelle erstellt: {new_station.name} (ID: {new_station.id})")
     return jsonify({
         "id": new_station.id,
         "name": new_station.name,
@@ -80,9 +82,11 @@ def create_station():
 def update_station(station_id):
     station = Station.query.get_or_404(station_id)
     data = request.get_json()
+    old_name = station.name
     if 'name' in data:
         station.name = data['name']
     db.session.commit()
+    app.logger.info(f"Haltestelle geändert von '{old_name}' zu '{station.name}' (ID: {station_id})")
     return jsonify({"success": True})
 
 
@@ -146,6 +150,7 @@ def create_participant():
     )
     db.session.add(new_participant)
     db.session.flush()
+    app.logger.info(f"Neuer Teilnehmer erstellt: {new_participant.name} (ID: {new_participant.id})")
     
     calendar_entry = CalendarStatus(
         participant_id=new_participant.id,
@@ -177,6 +182,7 @@ def create_participant():
 def update_participant(station_id, participant_id):
     participant = Participant.query.get_or_404(participant_id)
     data = request.get_json()
+    old_name = participant.name
     
     for field in ['name', 'station_id', 'position', 'monday', 'tuesday', 'wednesday', 
                  'thursday', 'friday', 'saturday', 'sunday']:
@@ -184,6 +190,7 @@ def update_participant(station_id, participant_id):
             setattr(participant, field, data[field])
     
     db.session.commit()
+    app.logger.info(f"Teilnehmer aktualisiert von '{old_name}' zu '{participant.name}' (ID: {participant_id})")
     return jsonify({"success": True})
 
 
@@ -192,6 +199,8 @@ def delete_participant(participant_id):
     try:
         CalendarStatus.query.filter_by(participant_id=participant_id).delete()
         participant = Participant.query.get_or_404(participant_id)
+        name = participant.name  # Store name before deletion
+        app.logger.info(f"Lösche Teilnehmer {name} (ID: {participant_id})")
         db.session.delete(participant)
         db.session.commit()
         return jsonify({"success": True})
@@ -204,6 +213,9 @@ def delete_participant(participant_id):
 def toggle_participation(participant_id):
     participant = Participant.query.get_or_404(participant_id)
     participant.status_today = not participant.status_today
+
+    # Add logging
+    app.logger.info(f"Teilnehmer {participant.name} (ID: {participant_id}) Status Heute geändert zu {participant.status_today}")
     
     today = get_current_date()
     calendar_entry = CalendarStatus.query.filter_by(
@@ -324,6 +336,7 @@ def update_calendar_status():
         participant.status_today = status
 
     db.session.commit()
+    app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
     return jsonify({"success": True})
 
 
