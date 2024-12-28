@@ -4,6 +4,7 @@ from flask_migrate import Migrate
 from datetime import datetime
 import os
 import pytz
+import logging
 from zoneinfo import ZoneInfo
 
 db = SQLAlchemy()
@@ -43,10 +44,15 @@ def get_current_date():
 
 def create_app():
     app = Flask(__name__)
-    
+
+    # Configure logging
+    if not app.debug:
+        logging.basicConfig(level=logging.INFO)
+        app.logger.info('Walking Bus Organizer startup')
+
     # Get DATABASE_URL from environment, fallback to localhost for local development
     database_url = os.getenv('DATABASE_URL', 'postgresql://walkingbus:password@localhost:5432/walkingbus')
-    
+
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
