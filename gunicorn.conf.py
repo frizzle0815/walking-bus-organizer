@@ -12,4 +12,4 @@ timeout = 300
 loglevel = "info"
 accesslog = "-"  # "-" means stdout
 errorlog = "-"   # "-" means stderr
-access_log_format = '%({x-real-ip}i)s %(l)s %(t)s "%(r)s" %(s)s %(b)s'
+access_log_format = '%({X-Forwarded-For}i)s %(l)s %(t)s "%(r)s" %(s)s %(b)s'
