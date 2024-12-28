@@ -51,6 +51,7 @@ class RequestFormatter(logging.Formatter):
             record.client_ip = '-'
         return f"[{self.formatTime(record)}] [{record.client_ip}] {record.getMessage()}"
 
+
 def create_app():
     app = Flask(__name__)
 
@@ -59,11 +60,6 @@ def create_app():
     handler.setFormatter(RequestFormatter())
     app.logger.addHandler(handler)
     app.logger.setLevel(logging.INFO)
-
-    # Configure logging
-    if not app.debug:
-        logging.basicConfig(level=logging.INFO)
-        app.logger.info('Walking Bus Organizer startup')
 
     # Get DATABASE_URL from environment, fallback to localhost for local development
     database_url = os.getenv('DATABASE_URL', 'postgresql://walkingbus:password@localhost:5432/walkingbus')
