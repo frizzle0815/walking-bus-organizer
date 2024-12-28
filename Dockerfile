@@ -8,5 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 ENV FLASK_APP=app
-ENV FLASK_ENV=development
-CMD ["python", "migrate_and_run.py"]
+ENV FLASK_ENV=production
+
+CMD python migrate.py && gunicorn --config gunicorn.conf.py "app:create_app()"
