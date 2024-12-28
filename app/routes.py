@@ -242,6 +242,11 @@ def get_participant_weekday_status(participant_id, weekday):
 def initialize_daily_status():
     try:
         today = get_current_date()
+
+        # Delete all calendar entries from past dates
+        CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        db.session.commit()
+
         walking_bus_day = is_walking_bus_day(today)
         return jsonify({
             "success": True,
