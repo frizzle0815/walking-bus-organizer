@@ -304,8 +304,14 @@ def update_schedule():
 
 @bp.route("/api/calendar-status", methods=["POST"])
 def update_calendar_status():
+    client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     data = request.get_json()
     participant_id = data['participant_id']
+    
+    # Get participant information early
+    participant = Participant.query.get_or_404(participant_id)
     
     # Correct way to handle timezone with zoneinfo
     naive_date = datetime.strptime(data['date'], '%Y-%m-%d')
@@ -332,11 +338,10 @@ def update_calendar_status():
         db.session.add(calendar_entry)
 
     if date == get_current_date():
-        participant = Participant.query.get(participant_id)
         participant.status_today = status
 
     db.session.commit()
-    app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
+    app.logger.info(f"[{current_time}] [{client_ip}] Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
     return jsonify({"success": True})
 
 
