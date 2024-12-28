@@ -341,7 +341,7 @@ def update_calendar_status():
         participant.status_today = status
 
     db.session.commit()
-    app.logger.info(f"[{current_time}] [{client_ip}] Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
+    app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
     return jsonify({"success": True})
 
 
