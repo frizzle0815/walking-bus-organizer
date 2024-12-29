@@ -133,7 +133,7 @@
  /* General Styles */
  .drag-handle {
      cursor: move;
-     font-size: 1.3rem;
+     font-size: 2.3rem;
      color: #666;
      user-select: none;
      touch-action: none;
@@ -519,7 +519,7 @@
         function createNewStation() {
             const newStation = {
                 name: 'Neue Station',
-                position: document.querySelectorAll('.station-card').length
+                position: 0 
             };
 
             fetch('/api/stations', {
@@ -528,8 +528,20 @@
                 body: JSON.stringify(newStation)
             })
             .then(response => response.json())
-            .then(station => createStationCard(station));
+            .then(station => {
+                createStationCard(station).then(card => {
+                    // Insert at the beginning of the container
+                    stationsContainer.insertBefore(card, stationsContainer.firstChild);
+                    
+                    // Update positions of all stations
+                    updateStationOrder();
+                    
+                    // Reinitialize sortable
+                    initializeSortable();
+                });
+            });
         }
+
 
         function updateStation(stationId, data) {
             fetch(`/api/stations/${stationId}`, {

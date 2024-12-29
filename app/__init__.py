@@ -1,9 +1,10 @@
-from flask import Flask
+from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from datetime import datetime
 import os
 import pytz
+import logging
 from zoneinfo import ZoneInfo
 
 db = SQLAlchemy()
@@ -41,12 +42,28 @@ def get_current_date():
     return get_current_time().date()
 
 
+class RequestFormatter(logging.Formatter):
+    def format(self, record):
+        # Add request information to the record
+        if request:
+            record.client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+        else:
+            record.client_ip = '-'
+        return f"[{self.formatTime(record)}] [{record.client_ip}] {record.getMessage()}"
+
+
 def create_app():
     app = Flask(__name__)
-    
+
+    # Configure the logger
+    handler = logging.StreamHandler()
+    handler.setFormatter(RequestFormatter())
+    app.logger.addHandler(handler)
+    app.logger.setLevel(logging.INFO)
+
     # Get DATABASE_URL from environment, fallback to localhost for local development
     database_url = os.getenv('DATABASE_URL', 'postgresql://walkingbus:password@localhost:5432/walkingbus')
-    
+
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

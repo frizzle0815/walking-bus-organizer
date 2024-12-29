@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
+from flask import current_app as app
 from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
@@ -64,9 +65,18 @@ def get_stations():
 @bp.route("/api/stations", methods=["POST"])
 def create_station():
     data = request.get_json()
-    new_station = Station(name=data['name'], position=data['position'])
+    
+    # First update positions of existing stations to make room
+    existing_stations = Station.query.filter(Station.position >= 0).order_by(Station.position).all()
+    for station in existing_stations:
+        station.position += 1
+    
+    # Create new station at position 0
+    new_station = Station(name=data['name'], position=0)
     db.session.add(new_station)
     db.session.commit()
+    
+    app.logger.info(f"Neue Haltestelle erstellt: {new_station.name} (ID: {new_station.id})")
     return jsonify({
         "id": new_station.id,
         "name": new_station.name,
@@ -80,9 +90,11 @@ def create_station():
 def update_station(station_id):
     station = Station.query.get_or_404(station_id)
     data = request.get_json()
+    old_name = station.name
     if 'name' in data:
         station.name = data['name']
     db.session.commit()
+    app.logger.info(f"Haltestelle geändert von '{old_name}' zu '{station.name}' (ID: {station_id})")
     return jsonify({"success": True})
 
 
@@ -121,14 +133,24 @@ def update_stations_order():
         if not isinstance(data, list):
             return jsonify({"error": "Invalid data format. Expected a list."}), 400
 
+        # Validate all station IDs exist before updating
+        station_ids = [station_data['id'] for station_data in data]
+        stations = Station.query.filter(Station.id.in_(station_ids)).all()
+        
+        # Create a mapping of id to station for efficient updates
+        station_map = {station.id: station for station in stations}
+        
+        # Update positions
         for station_data in data:
-            station = Station.query.get(station_data['id'])
-            if station:
-                station.position = station_data['position']
+            station_id = station_data['id']
+            if station_id in station_map:
+                station_map[station_id].position = station_data['position']
         
         db.session.commit()
         return jsonify({"success": True}), 200
     except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating station order: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -146,6 +168,7 @@ def create_participant():
     )
     db.session.add(new_participant)
     db.session.flush()
+    app.logger.info(f"Neuer Teilnehmer erstellt: {new_participant.name} (ID: {new_participant.id})")
     
     calendar_entry = CalendarStatus(
         participant_id=new_participant.id,
@@ -177,6 +200,7 @@ def create_participant():
 def update_participant(station_id, participant_id):
     participant = Participant.query.get_or_404(participant_id)
     data = request.get_json()
+    old_name = participant.name
     
     for field in ['name', 'station_id', 'position', 'monday', 'tuesday', 'wednesday', 
                  'thursday', 'friday', 'saturday', 'sunday']:
@@ -184,6 +208,7 @@ def update_participant(station_id, participant_id):
             setattr(participant, field, data[field])
     
     db.session.commit()
+    app.logger.info(f"Teilnehmer aktualisiert von '{old_name}' zu '{participant.name}', '{participant.station_id}', '{participant.position}' (ID: {participant_id})")
     return jsonify({"success": True})
 
 
@@ -192,6 +217,8 @@ def delete_participant(participant_id):
     try:
         CalendarStatus.query.filter_by(participant_id=participant_id).delete()
         participant = Participant.query.get_or_404(participant_id)
+        name = participant.name  # Store name before deletion
+        app.logger.info(f"Lösche Teilnehmer {name} (ID: {participant_id})")
         db.session.delete(participant)
         db.session.commit()
         return jsonify({"success": True})
@@ -204,6 +231,9 @@ def delete_participant(participant_id):
 def toggle_participation(participant_id):
     participant = Participant.query.get_or_404(participant_id)
     participant.status_today = not participant.status_today
+
+    # Add logging
+    app.logger.info(f"Teilnehmer {participant.name} (ID: {participant_id}) Status Heute geändert zu {participant.status_today}")
     
     today = get_current_date()
     calendar_entry = CalendarStatus.query.filter_by(
@@ -242,6 +272,11 @@ def get_participant_weekday_status(participant_id, weekday):
 def initialize_daily_status():
     try:
         today = get_current_date()
+
+        # Delete all calendar entries from past dates
+        CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        db.session.commit()
+
         walking_bus_day = is_walking_bus_day(today)
         return jsonify({
             "success": True,
@@ -287,8 +322,14 @@ def update_schedule():
 
 @bp.route("/api/calendar-status", methods=["POST"])
 def update_calendar_status():
+    client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     data = request.get_json()
     participant_id = data['participant_id']
+    
+    # Get participant information early
+    participant = Participant.query.get_or_404(participant_id)
     
     # Correct way to handle timezone with zoneinfo
     naive_date = datetime.strptime(data['date'], '%Y-%m-%d')
@@ -315,10 +356,10 @@ def update_calendar_status():
         db.session.add(calendar_entry)
 
     if date == get_current_date():
-        participant = Participant.query.get(participant_id)
         participant.status_today = status
 
     db.session.commit()
+    app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
     return jsonify({"success": True})
 
 

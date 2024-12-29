@@ -14,7 +14,7 @@
 </div>
 
 <style>
-    /* Prevent text selection for app like experience */
+        /* Prevent text selection for app like experience */
     *:not(input, textarea) {
         user-select: none; /* Prevent text selection */
         -webkit-user-select: none; /* For Safari */
@@ -42,7 +42,9 @@
         color: white;
     }
 
+    /* Base styles */
     .participants-list {
+        perspective: 400px;
         background-color: #fff;
         border-radius: 0 0 8px 8px;
         padding: 4px;
@@ -53,23 +55,64 @@
         margin: 2px 0;
         border-radius: 4px !important;
         font-size: 0.9rem;
+        transform-style: preserve-3d;
+        perspective: 1000px;
     }
 
     .participant-name {
         font-weight: bold;
+        display: flex;
+        align-items: center;
+        line-height: 1; /* Ensures text aligns with icon */
     }
 
-    /* Participant Status Styles */
+    /* Status colors */
     .participant-status-active {
-        background-color: #d4edda;
+        background-color: #a9e6b7;
     }
 
     .participant-status-inactive {
-        background-color: #f8d7da;
+        background-color: #f8bfc3;
     }
 
     .participant-status-disabled {
         background-color: #e9ecef;
+    }
+
+    /* Animation for transitioning from active to inactive */
+    @keyframes fadeSlideActiveToInactive {
+        0% {
+            background-color: #a9e6b7; /* Active color */
+            transform: translateX(0);
+            opacity: 0.5;
+        }
+        100% {
+            background-color: #f8bfc3; /* Inactive color */
+            transform: translateX(10px);
+            opacity: 1;
+        }
+    }
+
+    /* Animation for transitioning from inactive to active */
+    @keyframes fadeSlideInactiveToActive {
+        0% {
+            background-color: #f8bfc3; /* Inactive color */
+            transform: translateX(0);
+            opacity: 0.5;
+        }
+        100% {
+            background-color: #a9e6b7; /* Active color */
+            transform: translateX(10px);
+            opacity: 1;
+        }
+    }
+
+    .participant-item.active-to-inactive {
+        animation: fadeSlideActiveToInactive 0.5s ease-in-out;
+    }
+
+    .participant-item.inactive-to-active {
+        animation: fadeSlideInactiveToActive 0.5s ease-in-out;
     }
 
     /* Calendar Styles */
@@ -109,18 +152,18 @@
     }
 
     .calendar-day {
-        display: inline-block;
+        display: inline-flex;
         width: 40px;
         height: 40px;
         margin: 2px;
-        text-align: center;
-        line-height: 40px;
-        cursor: pointer;
+        justify-content: center;  /* Center horizontally */
+        align-items: center;     /* Center vertically */
         border-radius: 50%;
+        cursor: pointer;
     }
 
-    .day-green { background-color: #d4edda; }
-    .day-red { background-color: #f8d7da; }
+    .day-green { background-color: #a9e6b7; }
+    .day-red { background-color: #f8bfc3 }
     .day-gray {
         background-color: #e9ecef;
         cursor: not-allowed;
@@ -172,6 +215,34 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);  /* Adding subtle shadow */
     }
 
+    /* Override Bootstrap's background colors for outline buttons */
+    .btn-outline-success, 
+    .btn-outline-danger {
+        background-color: white !important;
+    }
+
+    .btn-outline-success:hover,
+    .btn-outline-danger:hover {
+        background-color: white !important;
+        opacity: 0.8;
+    }
+
+    .status-button:disabled {
+        opacity: 0.7;
+        cursor: wait;
+    }
+
+    @keyframes warningPulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+
+    .fa-exclamation-triangle {
+        animation: warningPulse 2s infinite;
+    }
+
+
     .status-button-disabled {
         cursor: not-allowed;
     }
@@ -190,9 +261,54 @@
     }
 
     /* Traffic Light Icons */
-    .traffic-light {
+    .icon-container {
+        position: relative;
+        display: inline-block;
+        width: 1em;    /* Width of one icon */
+        height: 1em;   /* Height of one icon */
         margin-right: 0.5rem;
     }
+
+    .traffic-light {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.2em; /* Slightly wider to accommodate icon */
+        height: 1.2em; /* Match width for perfect square */
+        margin-right: 0.5rem;
+    }
+
+    .traffic-light.next-icon {
+        opacity: 0;  /* Initially hidden */
+    }
+
+    .status-changing .traffic-light.current-icon {
+        animation: iconTransition 1s linear;
+    }
+
+    .status-changing .traffic-light.next-icon {
+        animation: iconTransition 1s linear reverse;
+    }
+
+    /* Add this to your existing style section */
+    @keyframes highlightChange {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); background-color: #fff3cd; }
+        100% { transform: scale(1); }
+    }
+
+    .highlight-change {
+        animation: highlightChange 1.5s ease-in-out;
+    }
+
+    .warning-icon {
+        color: #dc3545; /* Bootstrap's danger color */
+        background-color: #fff; /* White background for contrast */
+        padding: 2px; /* Padding for better visibility */
+        margin-right: 8px; /* Space between icon and button */
+        border-radius: 50%; /* Optional: round the icon */
+    }
+
 </style>
 
 <script>
@@ -200,6 +316,7 @@
     let lastUpdateTimestamp = 0;
     const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
     let globalEventSource = null;
+    let isPageVisible = !document.hidden;
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
         0: 'monday',
@@ -266,7 +383,7 @@
 
     function initDB() {
         dbPromise = new Promise((resolve, reject) => {
-            const request = indexedDB.open('WalkingBusDB', 1);
+            const request = indexedDB.open('WalkingBusDB', 3);
             
             request.onerror = () => reject(request.error);
             
@@ -277,15 +394,58 @@
             
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                // Add existing stores
                 if (!db.objectStoreNames.contains('stationsData')) {
                     db.createObjectStore('stationsData', { keyPath: 'timestamp' });
+                }
+                if (!db.objectStoreNames.contains('participantStates')) {
+                    db.createObjectStore('participantStates', { keyPath: 'id' });
+                }
+                // Add new store for calendar data
+                if (!db.objectStoreNames.contains('calendarData')) {
+                    db.createObjectStore('calendarData', { keyPath: ['participantId', 'date'] });
                 }
             };
         });
         return dbPromise;
     }
 
-    async function loadStations() {
+
+    function animateParticipantStatusChange(participantItem, newStatus, delay = 0) {
+        return new Promise((resolve) => {
+            setTimeout(() => {
+                // Determine current status
+                const isCurrentlyActive = participantItem.classList.contains('participant-status-active');
+
+                // Apply the appropriate animation class
+                if (isCurrentlyActive && !newStatus) {
+                    participantItem.classList.add('active-to-inactive');
+                } else if (!isCurrentlyActive && newStatus) {
+                    participantItem.classList.add('inactive-to-active');
+                }
+
+                // Update icon at animation midpoint
+                setTimeout(() => {
+                    const icon = participantItem.querySelector('.traffic-light');
+                    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+                    icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
+                    icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
+                }, 250);
+
+                // Remove animation class after completion
+                setTimeout(() => {
+                    participantItem.classList.remove('active-to-inactive', 'inactive-to-active');
+                    participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+                    participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+                    resolve();
+                }, 500);
+            }, delay);
+        });
+    }
+
+
+
+    async function loadStations() { 
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
             return;
@@ -293,68 +453,92 @@
         lastUpdateTimestamp = now;
 
         try {
-             // Get database instance
             const db = await dbPromise;
-            // Try to fetch fresh data
+
+            // Initialize daily status and fetch stations
             const response = (await axios.post('/api/initialize-daily-status')).data;
             isWalkingBusDay = response.isWalkingBusDay;
             const stations = (await axios.get('/api/stations')).data;
 
-            // Store successful response in IndexedDB
-            const transaction = db.transaction(['stationsData'], 'readwrite');
-            const store = transaction.objectStore('stationsData');
-            await store.put({
-                timestamp: new Date().toISOString(),
-                stations: stations,
-                isWalkingBusDay: isWalkingBusDay,
-                lastKnownTime: document.getElementById('current-time').textContent // Store current time
+            // Render stations directly
+            await renderStations(stations, isWalkingBusDay);
+
+            // Store new states in IndexedDB
+            const transaction = db.transaction(['participantStates'], 'readwrite');
+            const store = transaction.objectStore('participantStates');
+            
+            stations.forEach(station => {
+                station.participants.forEach(participant => {
+                    store.put({
+                        id: participant.id,
+                        today_status: participant.today_status
+                    });
+                });
             });
 
-            // Update connection status to connected
-            renderStations(stations, isWalkingBusDay);
             updateConnectionStatus('connected');
+
         } catch (error) {
-            console.log('Loading cached data...');
-            try {
-                const db = await dbPromise;
-                const transaction = db.transaction(['stationsData'], 'readonly');
-                const store = transaction.objectStore('stationsData');
-                const request = store.getAll();
-                
-                request.onsuccess = (event) => {
-                    const cachedData = event.target.result;
-                    if (cachedData && cachedData.length > 0) {
-                        const latestData = cachedData.reduce((latest, current) => 
-                            latest.timestamp > current.timestamp ? latest : current
-                        );
-                        
-                        isWalkingBusDay = latestData.isWalkingBusDay;
-                        renderStations(latestData.stations, latestData.isWalkingBusDay);
-                        
-                        // Restore last known time
-                        if (latestData.lastKnownTime) {
-                            document.getElementById('current-time').textContent = latestData.lastKnownTime;
-                        }
-                        
+            console.error('Error loading stations:', error);
+
+            // Handle different types of errors
+            if (error.response) {
+                // Server responded with error status
+                const statusCode = error.response.status;
+                switch (statusCode) {
+                    case 401:
+                        window.location.href = '/login';
+                        break;
+                    case 503:
                         updateConnectionStatus('disconnected');
+                        break;
+                    default:
+                        // Try to load from IndexedDB as fallback
+                        const db = await dbPromise;
+                        const tx = db.transaction(['stationsData'], 'readonly');
+                        const store = tx.objectStore('stationsData');
+                        const cachedData = await store.get('latest');
+
+                        if (cachedData) {
+                            renderStations(cachedData.stations, cachedData.isWalkingBusDay);
+                        }
+                }
+            } else if (error.request) {
+                // Network error
+                updateConnectionStatus('disconnected');
+
+                // Try to load cached data
+                try {
+                    const db = await dbPromise;
+                    const tx = db.transaction(['stationsData'], 'readonly');
+                    const store = tx.objectStore('stationsData');
+                    const cachedData = await store.get('latest');
+
+                    if (cachedData) {
+                        renderStations(cachedData.stations, cachedData.isWalkingBusDay);
                     }
-                };
-            } catch (dbError) {
-                console.error('IndexedDB error:', dbError);
+                } catch (dbError) {
+                    console.error('Error accessing cached data:', dbError);
+                }
             }
+
+            // Show error alert to user
+            const connectionAlert = document.getElementById('connection-alert');
+            connectionAlert.classList.remove('d-none');
         }
     }
 
 
-    function renderStations(stations, isWalkingBusDay) {
-        // Show/hide walking bus alert
+
+
+    async function renderStations(stations, isWalkingBusDay) {
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
 
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
-        stations.forEach(station => {
+        for (const station of stations) {
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
             stationDiv.innerHTML = createStationHeader(station, isWalkingBusDay);
@@ -363,10 +547,9 @@
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
-            station.participants.forEach(participant => {
-                const item = createParticipantItem(participant, isWalkingBusDay);
+            for (const participant of station.participants) {
+                const item = await createParticipantItem(participant, isWalkingBusDay);
                 const nameSpan = createNameSpan(participant, isWalkingBusDay);
-
                 const buttonContainer = document.createElement('div');
                 buttonContainer.classList.add('d-flex', 'align-items-center');
 
@@ -382,12 +565,13 @@
                 buttonContainer.append(statusButton, calendarButton);
                 item.append(nameSpan, buttonContainer);
                 list.appendChild(item);
-            });
+            }
 
             stationDiv.appendChild(list);
             stationsContainer.appendChild(stationDiv);
-        });
+        }
     }
+
 
 
     function createStationHeader(station, isWalkingBusDay) {
@@ -405,7 +589,7 @@
             </div>`;
     }
 
-    function createParticipantItem(participant, isWalkingBusDay) {
+    async function createParticipantItem(participant, isWalkingBusDay) {
         const item = document.createElement('li');
         item.classList.add(
             'list-group-item',
@@ -413,36 +597,48 @@
             'd-flex',
             'justify-content-between',
             'align-items-center',
-            'participant-item'
-        );
-
-        item.classList.add(
+            'participant-item',
             isWalkingBusDay
                 ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
                 : 'participant-status-disabled'
         );
-
+        
         item.dataset.participantId = participant.id;
         return item;
     }
+
 
     function createNameSpan(participant, isWalkingBusDay) {
         const nameSpan = document.createElement('span');
         nameSpan.classList.add('text-truncate', 'me-2', 'participant-name');
 
-        const icon = document.createElement('i');
-        icon.classList.add('fas', 'me-2', 'traffic-light');
+        const iconContainer = document.createElement('span');
+        iconContainer.classList.add('icon-container');
 
+        const currentIcon = document.createElement('i');
+        currentIcon.classList.add('fas', 'traffic-light', 'current-icon');
+
+        const nextIcon = document.createElement('i');
+        nextIcon.classList.add('fas', 'traffic-light', 'next-icon');
+
+        // Rest of the icon class assignments remain the same
         if (!isWalkingBusDay) {
-            icon.classList.add('fa-person', 'icon-disabled');  // Changed to icon-disabled
+            currentIcon.classList.add('fa-person', 'icon-disabled');
+            nextIcon.classList.add('fa-person', 'icon-disabled');
         } else {
-            icon.classList.add(
+            currentIcon.classList.add(
                 participant.today_status ? 'fa-walking' : 'fa-person',
                 participant.today_status ? 'icon-active' : 'icon-inactive'
             );
+            nextIcon.classList.add(
+                participant.today_status ? 'fa-person' : 'fa-walking',
+                participant.today_status ? 'icon-inactive' : 'icon-active'
+            );
         }
 
-        nameSpan.appendChild(icon);
+        iconContainer.appendChild(currentIcon);
+        iconContainer.appendChild(nextIcon);
+        nameSpan.appendChild(iconContainer);
         nameSpan.appendChild(document.createTextNode(participant.name));
         return nameSpan;
     }
@@ -499,76 +695,54 @@
             });
     }
 
-    async function getStatusForDay(participantId, date) {
-        console.log('Getting status for:', {
-            date: date.toISOString(),
-            localDate: date.toLocaleString(),
-            dayOfWeek: date.getDay(),
-            weekday: WEEKDAY_MAPPING[date.getDay()]
-        });
-        try {
-            const response = await axios.get(`/api/calendar-status/${participantId}`);
-            const dateStr = date.toISOString().split('T')[0];
-            const entry = response.data.find(e => e.date === dateStr);
-
-            if (entry) {
-                return entry.status;
-            }
-
-            const dayNumber = date.getDay();
-            const weekday = WEEKDAY_MAPPING[dayNumber];
-
-            if (weekday) {
-                const defaultStatusResponse = await axios.get(`/api/participant/${participantId}/weekday-status/${weekday}`);
-                return defaultStatusResponse.data.status;
-            }
-
-            return false;
-        } catch (error) {
-            console.error('Error fetching calendar status:', error);
-            return false;
-        }
-    }
+    // Modify the toggleParticipation function to track local changes
+    // Example of how the animation is triggered in the existing code
 
     async function toggleParticipation(participantId, button) {
-        const listItem = button.closest('.participant-item');
-        const currentStatus = listItem.classList.contains('participant-status-active');
-        const newStatus = !currentStatus;
-        
-        // Immediately update UI
-        updateParticipantUI(button, newStatus);
+        const originalButtonContent = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        button.disabled = true;
 
         try {
-            await axios.patch(`/api/participation/${participantId}`);
+            const response = await axios.patch(`/api/participation/${participantId}`);
+            const newStatus = response.data.status_today;
+            const listItem = button.closest('.participant-item');
             
-            if (document.getElementById('calendarModal').style.display === 'block') {
-                await renderCalendar();
-            }
+            // Direct user interaction - animate the change
+            await animateParticipantStatusChange(listItem, newStatus);
+            
+            button.disabled = false;
+            button.classList.remove('btn-outline-success', 'btn-outline-danger');
+            button.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
+            button.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+        
+            // Update station statistics
+            const stationList = listItem.closest('.participants-list');
+            const stationId = stationList.dataset.stationId;
+            updateStationStats(stationId);
         } catch (error) {
+            // Error handling
             console.error('Error toggling participation:', error);
-            // Revert UI on error
-            updateParticipantUI(button, currentStatus);
+
+            // Restore original button state
+            button.disabled = false;
+            button.innerHTML = originalButtonContent;
+
+            // Show warning indicator
+            const warningIcon = document.createElement('i');
+            warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+            warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+
+            const buttonContainer = button.parentElement;
+
+            // Append the warning icon before the button
+            buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
+
+            // Remove warning after 5 seconds
+            setTimeout(() => {
+                warningIcon.remove();
+            }, 5000);
         }
-    }
-
-    function updateParticipantUI(button, status) {
-        const listItem = button.closest('.participant-item');
-        listItem.classList.toggle('participant-status-active', status);
-        listItem.classList.toggle('participant-status-inactive', !status);
-        button.classList.toggle('btn-outline-danger', status);
-        button.classList.toggle('btn-outline-success', !status);
-        button.innerHTML = status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-
-        const trafficLightIcon = listItem.querySelector('.text-truncate > i');
-        if (trafficLightIcon) {
-            trafficLightIcon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-            trafficLightIcon.classList.add(status ? 'fa-walking' : 'fa-person');
-            trafficLightIcon.classList.add(status ? 'icon-active' : 'icon-inactive');
-        }
-
-        const stationList = button.closest('.participants-list');
-        const stationId = stationList.dataset.stationId;
-        updateStationStats(stationId);
     }
 
 
@@ -576,6 +750,7 @@
         currentParticipantId = participantId;
         const modal = document.getElementById('calendarModal');
 
+        // Setup modal content first
         const calendarButton = event.target;
         const participantItem = calendarButton.closest('.participant-item');
         const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
@@ -589,9 +764,69 @@
             <div id="calendar"></div>
         `;
 
+        try {
+            // Try online first
+            const response = await fetch(`/api/calendar-data/${participantId}`);
+            if (response.ok) {
+                const calendarData = await response.json();
+                // Store in IndexedDB for offline use
+                const db = await dbPromise;
+                const tx = db.transaction('calendarData', 'readwrite');
+                const store = tx.objectStore('calendarData');
+                
+                for (const day of calendarData) {
+                    await store.put({
+                        participantId,
+                        date: day.date,
+                        status: day.status,
+                        is_schedule_day: day.is_schedule_day,
+                        is_past: day.is_past,
+                        is_today: day.is_today
+                    });
+                }
+                await renderCalendar(calendarData);
+            } else {
+                throw new Error('Network response was not ok');
+            }
+           } catch (error) {
+               // Offline path - enhance data transformation
+               const db = await dbPromise;
+               const tx = db.transaction('calendarData', 'readonly');
+               const store = tx.objectStore('calendarData');
+               const range = IDBKeyRange.bound([participantId, ""], [participantId, "\uffff"]);
+               
+               const offlineData = await new Promise((resolve, reject) => {
+                   const request = store.getAll(range);
+                   request.onsuccess = () => resolve(request.result);
+                   request.onerror = () => reject(request.error);
+               });
+
+               // Get current participant's status for today
+               const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+               const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
+               const today = new Date().toISOString().split('T')[0];
+
+               // Transform offline data with special handling for today
+               const transformedData = offlineData.map(item => {
+                   const isToday = item.date === today;
+                   return {
+                       date: item.date,
+                       // Use current status for today, stored status for other days
+                       status: isToday ? currentStatus : item.status,
+                       // Ensure weekdays (including today) are always schedule days
+                       is_schedule_day: new Date(item.date).getDay() !== 0 && new Date(item.date).getDay() !== 6,
+                       is_past: new Date(item.date) < new Date(),
+                       is_today: isToday
+                   };
+               });
+
+               await renderCalendar(transformedData);
+           }
+
         modal.style.display = 'block';
-        await renderCalendar();
     }
+
+
 
     async function initializeDailyStatus() {
         try {
@@ -602,140 +837,226 @@
         }
     }
 
-    async function renderCalendar() {
+    async function renderCalendar(calendarData) {
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
 
+        // Add weekday header row first
+        const weekdayHeader = document.createElement('div');
+        weekdayHeader.className = 'week';
+        const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        
+        weekdays.forEach(day => {
+            const dayHeader = document.createElement('div');
+            dayHeader.className = 'calendar-day-header';
+            dayHeader.textContent = day;
+            weekdayHeader.appendChild(dayHeader);
+        });
+        calendar.appendChild(weekdayHeader);
+
+        // Get the current participant's element from the main view to ensure state consistency
+        const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
+        const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
+
+        const today = new Date();
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay() + 1);
+
+        // Generate calendar days with synchronized status
+        for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
+            const weekDiv = document.createElement('div');
+            weekDiv.className = 'week';
+
+            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                const currentDate = new Date(startOfWeek);
+                currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
+                const dateStr = currentDate.toISOString().split('T')[0];
+                const isToday = dateStr === today.toISOString().split('T')[0];
+
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'calendar-day';
+                dayDiv.textContent = currentDate.getDate();
+
+                // Find matching data for this date
+                const dayData = calendarData.find(d => d.date === dateStr) || {
+                    date: dateStr,
+                    // For today, use the status from the main view
+                    status: isToday ? currentStatus : false,
+                    // Always calculate is_schedule_day based on the actual date
+                    is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
+                    is_past: currentDate < today,
+                    is_today: isToday
+                };
+
+                if (!dayData.is_schedule_day || dayData.is_past) {
+                    dayDiv.classList.add('day-gray');
+                } else {
+                    dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
+                    dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
+                }
+
+                if (dayData.is_today) {
+                    dayDiv.classList.add('day-today');
+                }
+
+                weekDiv.appendChild(dayDiv);
+            }
+            calendar.appendChild(weekDiv);
+        }
+    }
+
+
+    async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
+        const newStatus = !dayDiv.classList.contains('day-green');
+        const originalContent = dayDiv.textContent;
+        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
         try {
-            const calendarData = await fetch(`/api/calendar-data/${currentParticipantId}`).then(r => r.json());
-
-            const weekdayHeader = document.createElement('div');
-            weekdayHeader.className = 'week';
-            ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
-                const dayHeader = document.createElement('div');
-                dayHeader.className = 'calendar-day-header';
-                dayHeader.textContent = day;
-                weekdayHeader.appendChild(dayHeader);
+            const response = await axios.post('/api/calendar-status', {
+                participant_id: participantId,
+                date: dateString,
+                status: newStatus
             });
-            calendar.appendChild(weekdayHeader);
+            
+            // Success - update calendar UI
+            dayDiv.textContent = originalContent;
+            dayDiv.classList.toggle('day-green');
+            dayDiv.classList.toggle('day-red');
+            
+            // Update IndexedDB
+            const db = await dbPromise;
+            const tx = db.transaction('calendarData', 'readwrite');
+            const store = tx.objectStore('calendarData');
+            await store.put({
+                participantId,
+                date: dateString,
+                status: newStatus
+            });
 
-            for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
-                const weekDiv = document.createElement('div');
-                weekDiv.className = 'week';
-
-                const weekData = calendarData.slice(weekIndex * 7, (weekIndex + 1) * 7);
-                weekData.forEach(dayData => {
-                    const dayDiv = document.createElement('div');
-                    dayDiv.className = 'calendar-day';
-                    dayDiv.textContent = new Date(dayData.date).getDate();
-
-                    if (!dayData.is_schedule_day || dayData.is_past) {
-                        dayDiv.classList.add('day-gray');
-                    } else {
-                        dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
-                        dayDiv.onclick = () => toggleDayStatus(currentParticipantId, dayData.date, dayDiv);
-                    }
-
-                    if (dayData.is_today) {
-                        dayDiv.classList.add('day-today');
-                    }
-
-                    weekDiv.appendChild(dayDiv);
-                });
-
-                calendar.appendChild(weekDiv);
+            // If the changed date is today, update main page UI with animation
+            const today = new Date().toISOString().split('T')[0];
+            if (dateString === today) {
+             const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
+             if (participantItem) {
+                 await animateParticipantStatusChange(participantItem, newStatus);
+                 
+                 // Update button
+                 const statusButton = participantItem.querySelector('.status-button');
+                 statusButton.classList.remove('btn-outline-success', 'btn-outline-danger');
+                 statusButton.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
+                 statusButton.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+                 
+                 // Update station statistics
+                 const stationList = participantItem.closest('.participants-list');
+                 const stationId = stationList.dataset.stationId;
+                 updateStationStats(stationId);
+             }
             }
         } catch (error) {
-            console.error('Calendar rendering error:', error);
+            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i>';
+            dayDiv.title = 'Änderung konnte nicht gespeichert werden';
+            
+            setTimeout(() => {
+                dayDiv.textContent = originalContent;
+            }, 3000);
         }
     }
 
-    async function toggleDayStatus(participantId, dateString, dayDiv) {
-        const serverDate = await initializeDailyStatus();
-        const clickedDate = dateString;
 
-        dayDiv.classList.toggle('day-green');
-        dayDiv.classList.toggle('day-red');
 
-        const newStatus = dayDiv.classList.contains('day-green');
-
-        await axios.post('/api/calendar-status', {
-            participant_id: participantId,
-            date: clickedDate,
-            status: newStatus
-        });
-
-        if (serverDate === clickedDate) {
-            const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-            if (participantItem) {
-                const statusButton = participantItem.querySelector('button');
-                if (statusButton) {
-                    updateParticipantUI(statusButton, newStatus);
-                }
-            }
-        }
-    }
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    let isReconnecting = false;
 
     // Modify initializeSSE to handle mobile focus better
     function initializeSSE() {
         console.log('Starting SSE connection...');
+        
         if (globalEventSource) {
             globalEventSource.close();
         }
         
-        globalEventSource = new EventSource('/stream');
-        
-        let reconnectAttempts = 0;
-        const maxReconnectAttempts = 5;
         let connectionAlertTimeout;
-        const alertDelay = 10000; // 10 seconds delay
+        const alertDelay = 10000;
         
-        globalEventSource.onmessage = (event) => {
-            console.log('Received SSE update:', event.data);
-            const data = JSON.parse(event.data);
-            if (data.time) {
-                document.getElementById('current-time').textContent = data.time;
-            }
-            loadStations();
-            updateConnectionStatus('connected');
-            reconnectAttempts = 0;
-            if (connectionAlertTimeout) {
-                clearTimeout(connectionAlertTimeout);
-                connectionAlertTimeout = null;
-            }
-        };
-
-        globalEventSource.addEventListener('error', (event) => {
-            console.error('SSE connection error:', event);
-            updateConnectionStatus('disconnected');
+        try {
+            globalEventSource = new EventSource('/stream');
             
-            if (reconnectAttempts < maxReconnectAttempts) {
-                reconnectAttempts++;
-                setTimeout(() => {
-                    console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                    globalEventSource.close();
-                    initializeSSE();
-                }, 5000 * reconnectAttempts);
-            }
-        });
+            globalEventSource.onmessage = function(event) {
+                (async () => {
+                    console.log('Received SSE update:', event.data);
+                    const data = JSON.parse(event.data);
+                    if (data.time) {
+                        document.getElementById('current-time').textContent = data.time;
+                    }
 
-        // Add mobile-specific event listeners
-        document.addEventListener('focus', handlePageFocus);
-        document.addEventListener('resume', handlePageFocus);
-        
-        function handlePageFocus() {
-            loadStations();
-            if (connectionAlertTimeout) {
-                clearTimeout(connectionAlertTimeout);
-                connectionAlertTimeout = null;
+                    // Get previous states before updating
+                    const db = await dbPromise;
+                    const previousStates = await getPreviousStates(db);
+
+                    await loadStations(previousStates);
+                    updateConnectionStatus('connected');
+                    reconnectAttempts = 0;
+                    isReconnecting = false;
+                    if (connectionAlertTimeout) {
+                        clearTimeout(connectionAlertTimeout);
+                        connectionAlertTimeout = null;
+                    }
+                })();
+            };
+
+            globalEventSource.addEventListener('error', (event) => {
+                console.error('SSE connection error:', event);
+                updateConnectionStatus('disconnected');
+                
+                if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
+                    isReconnecting = true;
+                    reconnectAttempts++;
+                    
+                    setTimeout(() => {
+                        console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                        isReconnecting = false;
+                        globalEventSource.close();
+                        initializeSSE();
+                    }, 5000 * reconnectAttempts);
+                } else if (reconnectAttempts >= maxReconnectAttempts) {
+                    const connectionAlert = document.getElementById('connection-alert');
+                    connectionAlert.innerHTML = `
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Die Verbindung zum Server wurde unterbrochen.
+                    `;
+                    connectionAlert.classList.remove('d-none');
+                    globalEventSource.close();
+                }
+            });
+
+            // Mobile-specific event listeners
+            document.addEventListener('focus', handlePageFocus);
+            document.addEventListener('resume', handlePageFocus);
+            
+            function handlePageFocus() {
+                if (!isReconnecting) {
+                    loadStations();
+                }
+                if (connectionAlertTimeout) {
+                    clearTimeout(connectionAlertTimeout);
+                    connectionAlertTimeout = null;
+                }
             }
+        } catch (error) {
+            console.error('SSE initialization failed:', error);
+            updateConnectionStatus('disconnected');
         }
 
         return globalEventSource;
     }
 
+
+
     // Add visibility change handling for mobile users
     document.addEventListener('visibilitychange', () => {
+        isPageVisible = !document.hidden;
+        
         if (!document.hidden) {
             // Clear any existing alert immediately
             const connectionAlert = document.getElementById('connection-alert');
@@ -749,6 +1070,7 @@
                 eventSource.close();
             }
             initializeSSE();
+            
         }
     });
 
@@ -764,6 +1086,25 @@
         
         connectionIndicator.classList.remove('connected', 'disconnected');
         connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
+    }
+
+    // Helper function to get previous states
+    async function getPreviousStates(db) {
+        return new Promise((resolve) => {
+            const transaction = db.transaction(['participantStates'], 'readonly');
+            const store = transaction.objectStore('participantStates');
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                const states = {};
+                request.result.forEach(item => {
+                    states[item.id] = item;
+                });
+                resolve(states);
+            };
+            
+            request.onerror = () => resolve({});
+        });
     }
 </script>
 
