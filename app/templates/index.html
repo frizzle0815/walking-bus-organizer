@@ -309,6 +309,77 @@
         border-radius: 50%; /* Optional: round the icon */
     }
 
+
+    /* Compact view */
+    .compact-view .participants-list {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 4px;
+        padding: 4px;
+    }
+
+    .compact-view .participant-item {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 1fr auto; /* 1fr for name, auto for buttons */
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+    }
+
+    /* Adjust spacing for compact items */
+    .compact-view .participant-name {
+        font-size: 0.8rem;
+        min-width: 0; /* Enables text truncation */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    
+    .compact-view .button-container {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0; /* Prevents buttons from shrinking */
+    }
+
+/* Ensure equal width columns in the grid */
+    .compact-view .participants-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, 1fr) ensures equal columns */
+        gap: 4px;
+        padding: 4px;
+    }
+
+    .compact-view .status-button {
+        padding: 0.1rem 0.6rem;
+    }
+
+    .compact-view .calendar-btn {
+        padding: 0.1rem 0.3rem;
+    }
+
+    /* Variable Größenkontrolle */
+    :root {
+        --base-scale: 1;
+        --min-scale: 0.8;
+        --max-scale: 1.4;
+        --scale-step: 0.1;
+    }
+
+    .station-card {
+        font-size: calc(1rem * var(--base-scale));
+    }
+
+    .participant-item {
+        padding: calc(0.5rem * var(--base-scale));
+    }
+
+    .status-button {
+        font-size: calc(0.8rem * var(--base-scale));
+        padding: calc(0.2rem * var(--base-scale)) calc(0.8rem * var(--base-scale));
+    }
+
 </style>
 
 <script>
@@ -354,6 +425,10 @@
         await loadStations();
         initializeSSE();
         console.log('SSE initialization completed');
+
+        // Initialize view toggle
+        initializeViewToggle();
+        initializeSizeControls();
 
         // Setup modal handling
         const modal = document.getElementById('calendarModal');
@@ -607,6 +682,67 @@
         return item;
     }
 
+    function initializeSizeControls() {
+        const decreaseBtn = document.getElementById('decreaseSize');
+        const increaseBtn = document.getElementById('increaseSize');
+        
+        // Load saved scale
+        const savedScale = localStorage.getItem('cardScale') || 1;
+        document.documentElement.style.setProperty('--base-scale', savedScale);
+        
+        function adjustSize(increment) {
+            const currentScale = parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--base-scale'));
+            const newScale = Math.min(Math.max(
+                currentScale + increment,
+                parseFloat(getComputedStyle(document.documentElement)
+                    .getPropertyValue('--min-scale'))),
+                parseFloat(getComputedStyle(document.documentElement)
+                    .getPropertyValue('--max-scale'))
+            );
+            
+            document.documentElement.style.setProperty('--base-scale', newScale);
+            localStorage.setItem('cardScale', newScale);
+            
+            // Update button states
+            decreaseBtn.disabled = newScale <= parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--min-scale'));
+            increaseBtn.disabled = newScale >= parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--max-scale'));
+        }
+        
+        decreaseBtn.onclick = () => adjustSize(-parseFloat(getComputedStyle(document.documentElement)
+            .getPropertyValue('--scale-step')));
+        increaseBtn.onclick = () => adjustSize(parseFloat(getComputedStyle(document.documentElement)
+            .getPropertyValue('--scale-step')));
+    }
+
+
+    function initializeViewToggle() {
+        const viewToggle = document.getElementById('viewToggle');
+        const stationsContainer = document.getElementById('stations');
+        
+        // Load saved preference
+        const isCompactView = localStorage.getItem('compactView') === 'true';
+        if (isCompactView) {
+            stationsContainer.classList.add('compact-view');
+            viewToggle.innerHTML = '<i class="fas fa-expand"></i>';
+        }
+        
+        viewToggle.addEventListener('click', () => {
+            stationsContainer.classList.toggle('compact-view');
+            const isNowCompact = stationsContainer.classList.contains('compact-view');
+            
+            // Update button icon
+            viewToggle.innerHTML = isNowCompact ? 
+                '<i class="fas fa-expand"></i>' : 
+                '<i class="fas fa-compress"></i>';
+                
+            // Save preference
+            localStorage.setItem('compactView', isNowCompact);
+        });
+    }
+
 
     function createNameSpan(participant, isWalkingBusDay) {
         const nameSpan = document.createElement('span');
@@ -858,9 +994,10 @@
         const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
         const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
 
-        const today = new Date();
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay() + 1);
+        // Use the first date from calendar data as reference point
+        const firstDate = new Date(calendarData[0].date);
+        const startOfWeek = new Date(firstDate);
+        startOfWeek.setDate(firstDate.getDate() - firstDate.getDay() + 1);
 
         // Generate calendar days with synchronized status
         for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
@@ -871,7 +1008,6 @@
                 const currentDate = new Date(startOfWeek);
                 currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
                 const dateStr = currentDate.toISOString().split('T')[0];
-                const isToday = dateStr === today.toISOString().split('T')[0];
 
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'calendar-day';
@@ -880,12 +1016,10 @@
                 // Find matching data for this date
                 const dayData = calendarData.find(d => d.date === dateStr) || {
                     date: dateStr,
-                    // For today, use the status from the main view
-                    status: isToday ? currentStatus : false,
-                    // Always calculate is_schedule_day based on the actual date
+                    status: false,
                     is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
-                    is_past: currentDate < today,
-                    is_today: isToday
+                    is_past: false,
+                    is_today: false
                 };
 
                 if (!dayData.is_schedule_day || dayData.is_past) {
@@ -895,6 +1029,7 @@
                     dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
                 }
 
+                // Use the server-provided is_today flag
                 if (dayData.is_today) {
                     dayDiv.classList.add('day-today');
                 }
@@ -904,6 +1039,7 @@
             calendar.appendChild(weekDiv);
         }
     }
+
 
 
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
