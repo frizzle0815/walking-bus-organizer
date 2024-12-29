@@ -519,7 +519,7 @@
         function createNewStation() {
             const newStation = {
                 name: 'Neue Station',
-                position: document.querySelectorAll('.station-card').length
+                position: 0 
             };
 
             fetch('/api/stations', {
@@ -530,12 +530,18 @@
             .then(response => response.json())
             .then(station => {
                 createStationCard(station).then(card => {
-                    stationsContainer.appendChild(card);
+                    // Insert at the beginning of the container
+                    stationsContainer.insertBefore(card, stationsContainer.firstChild);
+                    
+                    // Update positions of all stations
+                    updateStationOrder();
+                    
+                    // Reinitialize sortable
                     initializeSortable();
-                    alert("Neue Station wurde erfolgreich erstellt!");
                 });
             });
         }
+
 
         function updateStation(stationId, data) {
             fetch(`/api/stations/${stationId}`, {

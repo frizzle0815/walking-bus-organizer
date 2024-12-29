@@ -65,9 +65,17 @@ def get_stations():
 @bp.route("/api/stations", methods=["POST"])
 def create_station():
     data = request.get_json()
-    new_station = Station(name=data['name'], position=data['position'])
+    
+    # First update positions of existing stations to make room
+    existing_stations = Station.query.filter(Station.position >= 0).order_by(Station.position).all()
+    for station in existing_stations:
+        station.position += 1
+    
+    # Create new station at position 0
+    new_station = Station(name=data['name'], position=0)
     db.session.add(new_station)
     db.session.commit()
+    
     app.logger.info(f"Neue Haltestelle erstellt: {new_station.name} (ID: {new_station.id})")
     return jsonify({
         "id": new_station.id,
@@ -125,14 +133,24 @@ def update_stations_order():
         if not isinstance(data, list):
             return jsonify({"error": "Invalid data format. Expected a list."}), 400
 
+        # Validate all station IDs exist before updating
+        station_ids = [station_data['id'] for station_data in data]
+        stations = Station.query.filter(Station.id.in_(station_ids)).all()
+        
+        # Create a mapping of id to station for efficient updates
+        station_map = {station.id: station for station in stations}
+        
+        # Update positions
         for station_data in data:
-            station = Station.query.get(station_data['id'])
-            if station:
-                station.position = station_data['position']
+            station_id = station_data['id']
+            if station_id in station_map:
+                station_map[station_id].position = station_data['position']
         
         db.session.commit()
         return jsonify({"success": True}), 200
     except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating station order: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
