@@ -858,9 +858,10 @@
         const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
         const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
 
-        const today = new Date();
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay() + 1);
+        // Use the first date from calendar data as reference point
+        const firstDate = new Date(calendarData[0].date);
+        const startOfWeek = new Date(firstDate);
+        startOfWeek.setDate(firstDate.getDate() - firstDate.getDay() + 1);
 
         // Generate calendar days with synchronized status
         for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
@@ -871,7 +872,6 @@
                 const currentDate = new Date(startOfWeek);
                 currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
                 const dateStr = currentDate.toISOString().split('T')[0];
-                const isToday = dateStr === today.toISOString().split('T')[0];
 
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'calendar-day';
@@ -880,12 +880,10 @@
                 // Find matching data for this date
                 const dayData = calendarData.find(d => d.date === dateStr) || {
                     date: dateStr,
-                    // For today, use the status from the main view
-                    status: isToday ? currentStatus : false,
-                    // Always calculate is_schedule_day based on the actual date
+                    status: false,
                     is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
-                    is_past: currentDate < today,
-                    is_today: isToday
+                    is_past: false,
+                    is_today: false
                 };
 
                 if (!dayData.is_schedule_day || dayData.is_past) {
@@ -895,6 +893,7 @@
                     dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
                 }
 
+                // Use the server-provided is_today flag
                 if (dayData.is_today) {
                     dayDiv.classList.add('day-today');
                 }
