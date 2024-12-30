@@ -42,26 +42,28 @@
               <li class="nav-item">
                   <a class="nav-link" href="/admin">Teilnehmer</a>
               </li>
-              <li>
-                  <button id="viewToggle" class="btn btn-sm btn-outline-secondary">
-                   <i class="fas fa-compress"></i>
-                  </button>
-              </li>
-              <li>
-                   <div class="size-controls">
-                    <button id="decreaseSize" class="btn btn-sm btn-outline-secondary">
-                        <i class="fas fa-minus"></i>
-                    </button>
-                    <button id="increaseSize" class="btn btn-sm btn-outline-secondary">
-                        <i class="fas fa-plus"></i>
-                    </button>
-                   </div>
-              </li>
               <li class="nav-item" id="install-app-item" style="display: none;">
                   <a class="nav-link" href="#" id="install-app">
                       <i class="fas fa-download me-2"></i>Als App installieren
                   </a>
               </li>
+              <li class="nav-item">
+               <hr class="nav-divider">
+           </li>
+           <li class="nav-item" id="size-control-container">
+               <div class="size-controls d-flex align-items-center px-3">
+                   <i class="fas fa-text-height me-2"></i>
+                   <div class="slider-container">
+                       <div class="size-indicator"></div>
+                       <input type="range" 
+                              class="form-range custom-range" 
+                              id="fontSizeSlider" 
+                              min="0.8" 
+                              max="1.4" 
+                              step="0.05">
+                   </div>
+               </div>
+           </li>
           </ul>
       </div>
    </div>
@@ -70,52 +72,140 @@
      {% block content %}{% endblock %}
  </div>
  <style>
-      body {
-          padding-top: 60px;
-      }
-      .navbar-center {
-          position: absolute;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 1; /* Ensures the centered content stays above other elements */
-          display: flex;
-          align-items: center;
-      }
-      
-      @media (max-width: 991.98px) {  /* Bootstrap's lg breakpoint */
-          .navbar-brand {
-              margin-right: 0;  /* Removes default margin to help with centering */
-          }
-      }
-      .connection-indicator {
-          font-size: 0.7rem;
-          transition: all 0.3s ease;
-          position: relative;
-          top: -1px;  /* Fine-tune vertical alignment */
-      }
+    body {
+        padding-top: 60px;
+    }
+    .navbar-center {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1; /* Ensures the centered content stays above other elements */
+        display: flex;
+        align-items: center;
+    }
+    
+    @media (max-width: 991.98px) {  /* Bootstrap's lg breakpoint */
+        .navbar-brand {
+            margin-right: 0;  /* Removes default margin to help with centering */
+        }
+    }
+    .connection-indicator {
+        font-size: 0.7rem;
+        transition: all 0.3s ease;
+        position: relative;
+        top: -1px;  /* Fine-tune vertical alignment */
+    }
 
-      .connection-indicator.connected {
-          color: #6ed686;  /* Matching the .participant-status-active background color */
-          text-shadow: 0 0 10px rgba(212, 237, 218, 0.4);
-          animation: glow 2s infinite;
-      }
+    .connection-indicator.connected {
+        color: #6ed686;  /* Matching the .participant-status-active background color */
+        text-shadow: 0 0 10px rgba(212, 237, 218, 0.4);
+        animation: glow 2s infinite;
+    }
 
-      .connection-indicator.disconnected {
-          color: #dc3545;  /* Bootstrap red */
-          animation: none;
-      }
+    .connection-indicator.disconnected {
+        color: #dc3545;  /* Bootstrap red */
+        animation: none;
+    }
 
-      @keyframes glow {
-          0% {
-              text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
-          }
-          50% {
-              text-shadow: 0 0 15px rgba(0, 253, 59, 0.6);  /* Brighter green for more visible glow */
-          }
-          100% {
-              text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
-          }
-      }
+    @keyframes glow {
+        0% {
+            text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
+        }
+        50% {
+            text-shadow: 0 0 15px rgba(0, 253, 59, 0.6);  /* Brighter green for more visible glow */
+        }
+        100% {
+            text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
+        }
+    }
+
+    /* Size Slider */
+    .size-controls {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-radius: 4px;
+        padding: 8px 12px;
+        width: 100%;
+    }
+
+    .form-range {
+        height: 4px;
+    }
+
+    .form-range::-webkit-slider-thumb {
+        background: #6c757d;
+    }
+
+    .form-range::-moz-range-thumb {
+        background: #6c757d;
+    }
+
+    .nav-divider {
+        height: 1.5em;
+        width: 1px;
+        background-color: #dee2e6;
+        margin: 0 0.5rem;
+    }
+
+    .slider-container {
+        position: relative;
+        width: 100%; /* Changed from fixed width */
+        min-width: 100px; /* Ensures minimum usable width */
+        max-width: 100%; /* Prevents overflow */
+    }
+
+    .size-indicator {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 8px;
+        background: linear-gradient(to right, 
+            rgba(108, 117, 125, 0.1) 0%,
+            rgba(108, 117, 125, 0.3) 100%);
+        clip-path: polygon(0 0, 100% 50%, 0 100%);
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    .custom-range {
+        position: relative;
+        z-index: 1;
+        height: 8px;
+        padding: 0;
+        background-color: transparent;
+    }
+
+    .custom-range::-webkit-slider-thumb {
+        background-color: #6c757d;
+        border: 2px solid #fff;
+        height: 16px;
+        width: 16px;
+        margin-top: -4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .custom-range::-moz-range-thumb {
+        background-color: #6c757d;
+        border: 2px solid #fff;
+        height: 16px;
+        width: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .custom-range::-webkit-slider-runnable-track {
+        background-color: rgba(108, 117, 125, 0.2);
+        height: 8px;
+        border-radius: 4px;
+    }
+
+    .custom-range::-moz-range-track {
+        background-color: rgba(108, 117, 125, 0.2);
+        height: 8px;
+        border-radius: 4px;
+    }
+
+
+
   </style>
   <script>
       let deferredPrompt;

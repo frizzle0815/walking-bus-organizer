@@ -1,0 +1,509 @@
+/* Global Styles */
+/* Variable Größenkontrolle */
+:root {
+ --base-scale: 1;
+ --min-scale: 0.8;
+ --max-scale: 1.4;
+ --scale-step: 0.1;
+}
+
+/* Global text selection prevention */
+*:not(input, textarea) {
+ user-select: none;
+ -webkit-user-select: none;
+ -moz-user-select: none;
+ -ms-user-select: none;
+}
+
+/* Global form styles */
+.form-check {
+ display: flex;
+ align-items: center;
+ margin-bottom: 0;
+}
+
+.form-check-label {
+ font-size: 0.8rem;
+ margin-left: 4px;
+}
+
+.form-check-input {
+ width: 1rem;
+ height: 1rem;
+}
+
+.form-check-input:disabled {
+ background-color: #e9ecef;
+ border-color: #ced4da;
+}
+
+.form-check-input:disabled + .form-check-label {
+ color: #6c757d;
+}
+
+.form-control {
+ padding: 0.25rem 0.5rem;
+ min-height: 32px;
+}
+
+/* Index Page Specific (.index-*) */
+/* General Styles */
+.content-container {
+ max-width: 600px;
+}
+
+.station-card {
+ background-color: #414141;
+ border-radius: 8px;
+ margin-bottom: 12px;
+ box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.station-header {
+ padding: 8px 12px;
+ border-bottom: 1px solid #555;
+ background-color: #414141;
+ border-radius: 8px 8px 0 0;
+ color: white;
+}
+
+/* Base styles */
+.participants-list {
+ perspective: 400px;
+ background-color: #fff;
+ border-radius: 0 0 8px 8px;
+ padding: 4px;
+}
+
+.participant-item {
+ border: none !important;
+ margin: 2px 0;
+ border-radius: 4px !important;
+ font-size: 0.9rem;
+ transform-style: preserve-3d;
+ perspective: 1000px;
+}
+
+.participant-name {
+ font-weight: bold;
+ display: flex;
+ align-items: center;
+ line-height: 1; /* Ensures text aligns with icon */
+}
+
+/* Calendar styles */
+.modal {
+ display: none;
+ position: fixed;
+ z-index: 1000;
+ left: 0;
+ top: 0;
+ width: 100%;
+ height: 100%;
+ background-color: rgba(0,0,0,0.4);
+}
+
+.modal-content {
+ background-color: #fefefe;
+ margin: 15% auto;
+ padding: 20px;
+ border: 1px solid #888;
+ width: 80%;
+ max-width: 500px;
+ border-radius: 8px;
+}
+
+.calendar-day {
+ display: inline-flex;
+ width: 40px;
+ height: 40px;
+ margin: 2px;
+ justify-content: center;  /* Center horizontally */
+ align-items: center;     /* Center vertically */
+ border-radius: 50%;
+ cursor: pointer;
+}
+
+.calendar-btn {
+ margin-left: 5px;
+ padding: 0.2rem 0.5rem;
+ font-size: 0.8rem;
+ border-radius: 50%;
+ border: 1px solid #ddd;
+ background-color: white;  /* Changed from transparent */
+ color: #666;
+ box-shadow: 0 1px 3px rgba(0,0,0,0.1);  /* Adding subtle shadow */
+}
+
+.calendar-day-header {
+ display: inline-block;
+ width: 40px;
+ height: 30px;
+ margin: 2px;
+ text-align: center;
+ line-height: 30px;
+ font-weight: bold;
+ font-size: 0.9rem;
+ color: #666;
+}
+
+.day-green { background-color: #a9e6b7; }
+.day-red { background-color: #f8bfc3 }
+.day-gray {
+    background-color: #e9ecef;
+    cursor: not-allowed;
+}
+
+.day-today {
+ border: 2px solid #0d6efd;  /* Bootstrap primary blue */
+}
+
+.close {
+ color: #aaa;
+ float: right;
+ font-size: 28px;
+ font-weight: bold;
+ cursor: pointer;
+}
+
+.week {
+ display: flex;
+ justify-content: space-between;
+ margin-bottom: 10px;
+}
+
+
+/* Participant status styles */
+.participant-status-active {
+ background-color: #a9e6b7;
+}
+
+.participant-status-inactive {
+ background-color: #f8bfc3;
+}
+
+.participant-status-disabled {
+ background-color: #e9ecef;
+}
+
+/* Status animations */
+/* Animation for transitioning from active to inactive */
+@keyframes fadeSlideActiveToInactive {
+ 0% {
+     background-color: #a9e6b7; /* Active color */
+     transform: translateX(0);
+     opacity: 0.5;
+ }
+ 100% {
+     background-color: #f8bfc3; /* Inactive color */
+     transform: translateX(10px);
+     opacity: 1;
+ }
+}
+
+/* Animation for transitioning from inactive to active */
+@keyframes fadeSlideInactiveToActive {
+ 0% {
+     background-color: #f8bfc3; /* Inactive color */
+     transform: translateX(0);
+     opacity: 0.5;
+ }
+ 100% {
+     background-color: #a9e6b7; /* Active color */
+     transform: translateX(10px);
+     opacity: 1;
+ }
+}
+
+.participant-item.active-to-inactive {
+ animation: fadeSlideActiveToInactive 0.5s ease-in-out;
+}
+
+.participant-item.inactive-to-active {
+ animation: fadeSlideInactiveToActive 0.5s ease-in-out;
+}
+
+/* Compact view styles */
+.compact-view .participants-list {
+ display: grid;
+ grid-template-columns: repeat(2, 1fr);
+ gap: 4px;
+ padding: 4px;
+}
+
+.compact-view .participant-item {
+ margin: 0;
+ display: grid;
+ grid-template-columns: 1fr auto; /* 1fr for name, auto for buttons */
+ align-items: center;
+ gap: 4px;
+ width: 100%;
+}
+
+/* Adjust spacing for compact items */
+.compact-view .participant-name {
+ font-size: calc(0.9rem * var(--base-scale));
+ min-width: 0; /* Enables text truncation */
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+
+
+.compact-view .button-container {
+ display: flex;
+ gap: 2px;
+ flex-shrink: 0; /* Prevents buttons from shrinking */
+}
+
+/* Ensure equal width columns in the grid */
+.compact-view .participants-list {
+ display: grid;
+ grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, 1fr) ensures equal columns */
+ gap: 4px;
+ padding: 4px;
+}
+
+.compact-view .status-button {
+ padding: 0.1rem 0.6rem;
+}
+
+.compact-view .calendar-btn {
+ padding: 0.1rem 0.3rem;
+}
+
+.compact-view .icon-container {
+ margin-right: 0.1rem;  /* Reduced spacing for compact view */
+}
+
+/* Ensure icon size stays consistent */
+.compact-view .fa-walking,
+.compact-view .fa-person {
+ font-size: calc(0.8rem * var(--base-scale)); /* Fixed size regardless of view */
+}
+
+/* Button Styles */
+.btn-outline-secondary {
+ background-color: #e9ecef;
+ border-color: #e9ecef;
+ color: #6c757d;
+}
+
+.btn-outline-secondary:disabled {
+ cursor: not-allowed;
+}
+
+.status-button {
+ font-size: 0.8rem;
+ padding: 0.2rem 0.8rem;
+ background-color: white;  /* Adding white background */
+ box-shadow: 0 1px 3px rgba(0,0,0,0.1);  /* Adding subtle shadow */
+}
+
+/* Override Bootstrap's background colors for outline buttons */
+.btn-outline-success, 
+.btn-outline-danger {
+ background-color: white !important;
+}
+
+.btn-outline-success:hover,
+.btn-outline-danger:hover {
+ background-color: white !important;
+ opacity: 0.8;
+}
+
+.status-button:disabled {
+ opacity: 0.7;
+ cursor: wait;
+}
+
+@keyframes warningPulse {
+ 0% { opacity: 1; }
+ 50% { opacity: 0.5; }
+ 100% { opacity: 1; }
+}
+
+.fa-exclamation-triangle {
+ animation: warningPulse 2s infinite;
+}
+
+
+.status-button-disabled {
+ cursor: not-allowed;
+}
+
+/* Icon Styles */
+.icon-active {
+ color: #28a745;
+}
+
+.icon-inactive {
+ color: #dc3545;
+}
+
+.icon-disabled {
+ color: #6c757d;  /* Bootstrap's secondary gray color */
+}
+
+/* Traffic Light Icons */
+.icon-container {
+ position: relative;
+ display: inline-block;
+ width: 1em;    /* Width of one icon */
+ height: 1em;   /* Height of one icon */
+ margin-right: 0.5rem;
+}
+
+.traffic-light {
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ width: 1.2em; /* Slightly wider to accommodate icon */
+ height: 1.2em; /* Match width for perfect square */
+ margin-right: 0.5rem;
+}
+
+.traffic-light.next-icon {
+ opacity: 0;  /* Initially hidden */
+}
+
+.status-changing .traffic-light.current-icon {
+ animation: iconTransition 1s linear;
+}
+
+.status-changing .traffic-light.next-icon {
+ animation: iconTransition 1s linear reverse;
+}
+
+/* Add this to your existing style section */
+@keyframes highlightChange {
+ 0% { transform: scale(1); }
+ 50% { transform: scale(1.05); background-color: #fff3cd; }
+ 100% { transform: scale(1); }
+}
+
+.highlight-change {
+ animation: highlightChange 1.5s ease-in-out;
+}
+
+.warning-icon {
+ color: #dc3545; /* Bootstrap's danger color */
+ background-color: #fff; /* White background for contrast */
+ padding: 2px; /* Padding for better visibility */
+ margin-right: 8px; /* Space between icon and button */
+ border-radius: 50%; /* Optional: round the icon */
+}
+
+
+
+
+
+.station-card {
+ font-size: calc(1rem * var(--base-scale));
+}
+
+.participant-item {
+ padding: calc(0.5rem * var(--base-scale));
+}
+
+.status-button {
+ font-size: calc(0.8rem * var(--base-scale));
+ padding: calc(0.2rem * var(--base-scale)) calc(0.8rem * var(--base-scale));
+}
+
+.participant-name {
+ font-size: calc(0.9rem * var(--base-scale));
+}
+
+
+.calendar-btn {
+ font-size: calc(0.8rem * var(--base-scale));
+}
+
+.fa-calendar-alt, .fa-times, .fa-check {
+ font-size: calc(1rem * var(--base-scale));
+}
+
+
+/* Admin Page Specific (.admin-*) */
+
+/* General Styles */
+.drag-handle {
+  cursor: move;
+  font-size: 2.3rem;
+  color: #666;
+  user-select: none;
+  touch-action: none;
+}
+
+.station-card {
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.station-card.dragging {
+ box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+ background-color: #f0f0f0;
+}
+
+
+
+.btn {
+  padding: 0.25rem 0.5rem;
+  min-height: 32px;
+}
+
+
+/* Card Styles */
+.card-header {
+  background-color: #414141 !important; /* Dark gray */
+  color: #fff; /* White text */
+  padding: 0.5rem !important;
+}
+
+.card-header .station-name {
+  background-color: #6f6f70;
+  color: #fff;
+  border: 1px solid #6c757d;
+}
+
+.card-header .station-name::placeholder {
+  color: #adb5bd;
+}
+
+.card-body.participants-container {
+  background-color: #414141;
+  padding: 0.5rem !important;
+}
+
+.participant-card {
+  background-color: #969696;  /* Darker shade of light gray */
+  padding: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+
+.participant-card .d-flex {
+  align-items: center;
+}
+
+.days-container {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5rem; /* Ensure there's space between the input line and checkboxes */
+}
+
+
+.card-footer {
+  background-color: #414141 !important;
+  padding: 0.5rem !important;
+
+}
+
+/* Button Styles */
+.add-participant {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
+  color: white !important;
+
+}

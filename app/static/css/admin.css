@@ -1,0 +1,123 @@
+/* Prevent text selection for app like experience */
+*:not(input, textarea) {
+ user-select: none; /* Prevent text selection */
+ -webkit-user-select: none; /* For Safari */
+ -moz-user-select: none; /* For Firefox */
+ -ms-user-select: none; /* For IE10+/Edge */
+}
+
+/* General Styles */
+.drag-handle {
+  cursor: move;
+  font-size: 2.3rem;
+  color: #666;
+  user-select: none;
+  touch-action: none;
+}
+
+.station-card {
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.station-card.dragging {
+ box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+ background-color: #f0f0f0;
+}
+
+.form-check-label {
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+
+.form-check-input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.form-check {
+  margin-bottom: 0;
+}
+
+.form-check-input:disabled {
+  background-color: #e9ecef;
+  border-color: #ced4da;
+}
+
+.form-check-input:disabled + .form-check-label {
+  color: #6c757d;
+}
+
+.btn {
+  padding: 0.25rem 0.5rem;
+  min-height: 32px;
+}
+
+.form-control {
+  padding: 0.25rem 0.5rem;
+  min-height: 32px;
+}
+
+/* Card Styles */
+.card-header {
+  background-color: #414141 !important; /* Dark gray */
+  color: #fff; /* White text */
+  padding: 0.5rem !important;
+}
+
+.card-header .station-name {
+  background-color: #6f6f70;
+  color: #fff;
+  border: 1px solid #6c757d;
+}
+
+.card-header .station-name::placeholder {
+  color: #adb5bd;
+}
+
+.card-body.participants-container {
+  background-color: #414141;
+  padding: 0.5rem !important;
+}
+
+.participant-card {
+  background-color: #969696;  /* Darker shade of light gray */
+  padding: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+
+.participant-card .d-flex {
+  align-items: center;
+}
+
+.days-container {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5rem; /* Ensure there's space between the input line and checkboxes */
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.form-check-label {
+  margin-left: 4px; /* Ensure the label is close to the checkbox */
+  font-size: 0.8rem;
+}
+
+.card-footer {
+  background-color: #414141 !important;
+  padding: 0.5rem !important;
+
+}
+
+/* Button Styles */
+.add-participant {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
+  color: white !important;
+
+}
