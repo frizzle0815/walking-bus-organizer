@@ -50,25 +50,23 @@
               <li class="nav-item">
                <hr class="nav-divider">
            </li>
-           <li class="nav-item" id="size-control-container">
-               <div class="size-controls d-flex align-items-center px-3">
-                   <i class="fas fa-text-height me-2"></i>
-                   <div class="slider-container">
-                       <div class="size-indicator"></div>
-                       <input type="range" 
-                              class="form-range custom-range" 
-                              id="fontSizeSlider" 
-                              min="0.8" 
-                              max="1.4" 
-                              step="0.05">
-                   </div>
-               </div>
-           </li>
-           <li class="nav-item ms-2">
-            <button id="darkModeToggle" class="btn btn-sm btn-outline-secondary">
-                <i class="fas fa-moon"></i>
-            </button>
-           </li>
+           <li class="nav-item flex-grow-1" id="size-control-container">
+            <div class="size-controls d-flex align-items-center px-3">
+                <i class="fas fa-text-height me-2"></i>
+                <div class="slider-container flex-grow-1">
+                    <div class="size-indicator"></div>
+                    <input type="range" 
+                           class="form-range custom-range" 
+                           id="fontSizeSlider" 
+                           min="0.8" 
+                           max="1.4" 
+                           step="0.05">
+                </div>
+                <button id="darkModeToggle" class="btn btn-sm btn-outline-secondary ms-3">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+           </li> 
           </ul>
       </div>
    </div>
