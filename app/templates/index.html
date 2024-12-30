@@ -309,6 +309,100 @@
         border-radius: 50%; /* Optional: round the icon */
     }
 
+
+    /* Compact view */
+    .compact-view .participants-list {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 4px;
+        padding: 4px;
+    }
+
+    .compact-view .participant-item {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 1fr auto; /* 1fr for name, auto for buttons */
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+    }
+
+    /* Adjust spacing for compact items */
+    .compact-view .participant-name {
+        font-size: calc(0.9rem * var(--base-scale));
+        min-width: 0; /* Enables text truncation */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    
+    .compact-view .button-container {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0; /* Prevents buttons from shrinking */
+    }
+
+/* Ensure equal width columns in the grid */
+    .compact-view .participants-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, 1fr) ensures equal columns */
+        gap: 4px;
+        padding: 4px;
+    }
+
+    .compact-view .status-button {
+        padding: 0.1rem 0.6rem;
+    }
+
+    .compact-view .calendar-btn {
+        padding: 0.1rem 0.3rem;
+    }
+
+    .compact-view .icon-container {
+        margin-right: 0.1rem;  /* Reduced spacing for compact view */
+    }
+
+    /* Ensure icon size stays consistent */
+    .compact-view .fa-walking,
+    .compact-view .fa-person {
+        font-size: calc(0.8rem * var(--base-scale)); /* Fixed size regardless of view */
+    }
+
+    /* Variable Größenkontrolle */
+    :root {
+        --base-scale: 1;
+        --min-scale: 0.8;
+        --max-scale: 1.4;
+        --scale-step: 0.1;
+    }
+
+    .station-card {
+        font-size: calc(1rem * var(--base-scale));
+    }
+
+    .participant-item {
+        padding: calc(0.5rem * var(--base-scale));
+    }
+
+    .status-button {
+        font-size: calc(0.8rem * var(--base-scale));
+        padding: calc(0.2rem * var(--base-scale)) calc(0.8rem * var(--base-scale));
+    }
+
+    .participant-name {
+        font-size: calc(0.9rem * var(--base-scale));
+    }
+
+
+    .calendar-btn {
+        font-size: calc(0.8rem * var(--base-scale));
+    }
+
+    .fa-calendar-alt, .fa-times, .fa-check {
+        font-size: calc(0.8rem * var(--base-scale));
+    }
+
 </style>
 
 <script>
@@ -354,6 +448,10 @@
         await loadStations();
         initializeSSE();
         console.log('SSE initialization completed');
+
+        // Initialize view toggle
+        console.log('Initializing size controls...');
+        initializeSizeControls();
 
         // Setup modal handling
         const modal = document.getElementById('calendarModal');
@@ -605,6 +703,72 @@
         
         item.dataset.participantId = participant.id;
         return item;
+    }
+
+    function initializeSizeControls() {
+        const slider = document.getElementById('fontSizeSlider');
+        const stationsContainer = document.getElementById('stations');
+        const COMPACT_THRESHOLD = 1.0; // Threshold for switching to compact view
+        
+        // Add debug logging
+        console.log('Found slider:', slider);
+        console.log('Found stations container:', stationsContainer);
+        
+        // Load saved scale
+        const savedScale = localStorage.getItem('cardScale') || 1;
+        document.documentElement.style.setProperty('--base-scale', savedScale);
+        slider.value = savedScale;
+        
+        // Initial layout check
+        checkLayoutMode(savedScale);
+        
+        // Add both 'input' and 'change' events for better response
+        ['input', 'change'].forEach(eventType => {
+            slider.addEventListener(eventType, (e) => {
+                console.log('Slider value changed:', e.target.value); // Debug log
+                const newScale = parseFloat(e.target.value);
+                document.documentElement.style.setProperty('--base-scale', newScale);
+                localStorage.setItem('cardScale', newScale);
+                
+                // Check if we need to switch layout
+                checkLayoutMode(newScale);
+            });
+        });
+        
+        function checkLayoutMode(scale) {
+            console.log('Checking layout mode. Scale:', scale); // Debug log
+            if (scale <= COMPACT_THRESHOLD) {
+                stationsContainer.classList.add('compact-view');
+            } else {
+                stationsContainer.classList.remove('compact-view');
+            }
+        }
+    }
+
+
+    function initializeViewToggle() {
+        const viewToggle = document.getElementById('viewToggle');
+        const stationsContainer = document.getElementById('stations');
+        
+        // Load saved preference
+        const isCompactView = localStorage.getItem('compactView') === 'true';
+        if (isCompactView) {
+            stationsContainer.classList.add('compact-view');
+            viewToggle.innerHTML = '<i class="fas fa-expand"></i>';
+        }
+        
+        viewToggle.addEventListener('click', () => {
+            stationsContainer.classList.toggle('compact-view');
+            const isNowCompact = stationsContainer.classList.contains('compact-view');
+            
+            // Update button icon
+            viewToggle.innerHTML = isNowCompact ? 
+                '<i class="fas fa-expand"></i>' : 
+                '<i class="fas fa-compress"></i>';
+                
+            // Save preference
+            localStorage.setItem('compactView', isNowCompact);
+        });
     }
 
 
@@ -903,6 +1067,7 @@
             calendar.appendChild(weekDiv);
         }
     }
+
 
 
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {

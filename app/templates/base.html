@@ -47,6 +47,26 @@
                       <i class="fas fa-download me-2"></i>Als App installieren
                   </a>
               </li>
+              <li class="nav-item">
+               <hr class="nav-divider">
+           </li>
+           <li class="nav-item flex-grow-1" id="size-control-container">
+            <div class="size-controls d-flex align-items-center px-3">
+                <i class="fas fa-text-height me-2"></i>
+                <div class="slider-container flex-grow-1">
+                    <div class="size-indicator"></div>
+                    <input type="range" 
+                           class="form-range custom-range" 
+                           id="fontSizeSlider" 
+                           min="0.8" 
+                           max="1.4" 
+                           step="0.05">
+                </div>
+                <button id="darkModeToggle" class="btn btn-sm btn-outline-secondary ms-3">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+           </li> 
           </ul>
       </div>
    </div>
@@ -55,52 +75,219 @@
      {% block content %}{% endblock %}
  </div>
  <style>
-      body {
-          padding-top: 60px;
-      }
-      .navbar-center {
-          position: absolute;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 1; /* Ensures the centered content stays above other elements */
-          display: flex;
-          align-items: center;
-      }
-      
-      @media (max-width: 991.98px) {  /* Bootstrap's lg breakpoint */
-          .navbar-brand {
-              margin-right: 0;  /* Removes default margin to help with centering */
-          }
-      }
-      .connection-indicator {
-          font-size: 0.7rem;
-          transition: all 0.3s ease;
-          position: relative;
-          top: -1px;  /* Fine-tune vertical alignment */
-      }
+    body {
+        padding-top: 60px;
+    }
+    .navbar-center {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1; /* Ensures the centered content stays above other elements */
+        display: flex;
+        align-items: center;
+    }
+    
+    @media (max-width: 991.98px) {  /* Bootstrap's lg breakpoint */
+        .navbar-brand {
+            margin-right: 0;  /* Removes default margin to help with centering */
+        }
+    }
+    .connection-indicator {
+        font-size: 0.7rem;
+        transition: all 0.3s ease;
+        position: relative;
+        top: -1px;  /* Fine-tune vertical alignment */
+    }
 
-      .connection-indicator.connected {
-          color: #6ed686;  /* Matching the .participant-status-active background color */
-          text-shadow: 0 0 10px rgba(212, 237, 218, 0.4);
-          animation: glow 2s infinite;
-      }
+    .connection-indicator.connected {
+        color: #6ed686;  /* Matching the .participant-status-active background color */
+        text-shadow: 0 0 10px rgba(212, 237, 218, 0.4);
+        animation: glow 2s infinite;
+    }
 
-      .connection-indicator.disconnected {
-          color: #dc3545;  /* Bootstrap red */
-          animation: none;
-      }
+    .connection-indicator.disconnected {
+        color: #dc3545;  /* Bootstrap red */
+        animation: none;
+    }
 
-      @keyframes glow {
-          0% {
-              text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
-          }
-          50% {
-              text-shadow: 0 0 15px rgba(0, 253, 59, 0.6);  /* Brighter green for more visible glow */
-          }
-          100% {
-              text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
-          }
-      }
+    @keyframes glow {
+        0% {
+            text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
+        }
+        50% {
+            text-shadow: 0 0 15px rgba(0, 253, 59, 0.6);  /* Brighter green for more visible glow */
+        }
+        100% {
+            text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
+        }
+    }
+
+    /* Size Slider */
+    .size-controls {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-radius: 4px;
+        padding: 8px 12px;
+        width: 100%;
+    }
+
+    .form-range {
+        height: 4px;
+    }
+
+    .form-range::-webkit-slider-thumb {
+        background: #6c757d;
+    }
+
+    .form-range::-moz-range-thumb {
+        background: #6c757d;
+    }
+
+    .nav-divider {
+        height: 1.5em;
+        width: 1px;
+        background-color: #dee2e6;
+        margin: 0 0.5rem;
+    }
+
+    .slider-container {
+        position: relative;
+        width: 100%; /* Changed from fixed width */
+        min-width: 100px; /* Ensures minimum usable width */
+        max-width: 100%; /* Prevents overflow */
+    }
+
+    .size-indicator {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 8px;
+        background: linear-gradient(to right, 
+            rgba(108, 117, 125, 0.1) 0%,
+            rgba(108, 117, 125, 0.3) 100%);
+        clip-path: polygon(0 0, 100% 50%, 0 100%);
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    .custom-range {
+        position: relative;
+        z-index: 1;
+        height: 8px;
+        padding: 0;
+        background-color: transparent;
+    }
+
+    .custom-range::-webkit-slider-thumb {
+        background-color: #6c757d;
+        border: 2px solid #fff;
+        height: 16px;
+        width: 16px;
+        margin-top: -4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .custom-range::-moz-range-thumb {
+        background-color: #6c757d;
+        border: 2px solid #fff;
+        height: 16px;
+        width: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .custom-range::-webkit-slider-runnable-track {
+        background-color: rgba(108, 117, 125, 0.2);
+        height: 8px;
+        border-radius: 4px;
+    }
+
+    .custom-range::-moz-range-track {
+        background-color: rgba(108, 117, 125, 0.2);
+        height: 8px;
+        border-radius: 4px;
+    }
+
+    :root {
+        --bg-color: #ffffff;
+        --text-color: #212529;
+        --card-bg: #414141;
+        --card-text: #ffffff;
+        --nav-bg: #f8f9fa;
+        --nav-text: #212529;
+        --nav-link: rgba(0, 0, 0, 0.65);
+        --nav-link-hover: rgba(0, 0, 0, 0.8);
+    }
+
+    [data-theme="dark"] {
+        --bg-color: #212529;
+        --text-color: #f8f9fa;
+        --card-bg: #2c2c2c;
+        --card-text: #ffffff;
+        --nav-bg: #343a40;
+        --nav-text: #f8f9fa;
+        --nav-link: rgba(255, 255, 255, 0.85);
+        --nav-link-hover: rgba(255, 255, 255, 1);
+    }
+
+    body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .navbar {
+       background-color: var(--nav-bg) !important;
+       color: var(--nav-text);
+   }
+
+    .station-card {
+        background-color: var(--card-bg);
+        color: var(--card-text);
+    }
+
+    /* Adjust other elements that need dark mode styling */
+    .modal-content {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+    }
+
+    #darkModeToggle {
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+    }
+
+    .navbar-brand,
+    .nav-link,
+    .navbar-text,
+    #current-time {
+        color: var(--nav-text) !important;
+    }
+
+    .nav-link:hover {
+        color: var(--nav-link-hover) !important;
+    }
+
+    /* Style for the dark mode toggle in dark mode */
+    [data-theme="dark"] #darkModeToggle {
+        border-color: var(--nav-text);
+        color: var(--nav-text);
+    }
+
+    [data-theme="dark"] .navbar-toggler {
+        background-color: var(--nav-text);
+    }
+
+    [data-theme="dark"] .navbar-toggler-icon {
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%280, 0, 0, 0.75%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+    }
+
+
+
   </style>
   <script>
       let deferredPrompt;
@@ -165,6 +352,59 @@
           console.error('EventSource failed:', error);
           eventSource.close();
       };
+
+      // Add to your existing script section
+      document.addEventListener('DOMContentLoaded', () => {
+          const darkModeToggle = document.getElementById('darkModeToggle');
+          const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+          const navbar = document.querySelector('.navbar-collapse');
+          
+          document.addEventListener('click', (event) => {
+              // Check if navbar is expanded and click is outside navbar
+              if (navbar.classList.contains('show') && 
+                  !navbar.contains(event.target) && 
+                  !event.target.classList.contains('navbar-toggler')) {
+                  // Get the Bootstrap navbar toggler and click it
+                  document.querySelector('.navbar-toggler').click();
+              }
+          });
+
+          // Initialize dark mode based on system preference or stored setting
+          const storedTheme = localStorage.getItem('theme');
+          if (storedTheme) {
+              document.documentElement.setAttribute('data-theme', storedTheme);
+              updateDarkModeIcon(storedTheme === 'dark');
+          } else if (prefersDarkScheme.matches) {
+              document.documentElement.setAttribute('data-theme', 'dark');
+              updateDarkModeIcon(true);
+          }
+          
+          // Handle button clicks
+          darkModeToggle.addEventListener('click', () => {
+              const currentTheme = document.documentElement.getAttribute('data-theme');
+              const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+              
+              document.documentElement.setAttribute('data-theme', newTheme);
+              localStorage.setItem('theme', newTheme);
+              updateDarkModeIcon(newTheme === 'dark');
+          });
+          
+          // Listen for system theme changes
+          prefersDarkScheme.addEventListener('change', (e) => {
+              if (!localStorage.getItem('theme')) {
+                  const newTheme = e.matches ? 'dark' : 'light';
+                  document.documentElement.setAttribute('data-theme', newTheme);
+                  updateDarkModeIcon(e.matches);
+              }
+          });
+          
+          function updateDarkModeIcon(isDark) {
+              const icon = darkModeToggle.querySelector('i');
+              icon.classList.remove('fa-sun', 'fa-moon');
+              icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
+          }
+      });
+
   </script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
