@@ -124,7 +124,6 @@
 
     /* Size Slider */
     .size-controls {
-        background-color: rgba(0, 0, 0, 0.05);
         border-radius: 4px;
         padding: 8px 12px;
         width: 100%;
@@ -143,10 +142,11 @@
     }
 
     .nav-divider {
-        height: 1.5em;
-        width: 1px;
+        width: 100%;        /* Full width */
+        height: 1px;        /* Thin line */
         background-color: #dee2e6;
-        margin: 0 0.5rem;
+        margin: 0.5rem 0;   /* Vertical spacing */
+        border: none;       /* Remove default hr border */
     }
 
     .slider-container {
@@ -155,6 +155,7 @@
         min-width: 100px; /* Ensures minimum usable width */
         max-width: 100%; /* Prevents overflow */
     }
+
 
     .size-indicator {
         position: absolute;
@@ -165,44 +166,44 @@
         background: linear-gradient(to right, 
             rgba(108, 117, 125, 0.1) 0%,
             rgba(108, 117, 125, 0.3) 100%);
-        clip-path: polygon(0 0, 100% 50%, 0 100%);
+        clip-path: polygon(100% 0, 0 50%, 100% 100%);  /* Creates triangular shape */
         z-index: 0;
         pointer-events: none;
     }
 
-    .custom-range {
-        position: relative;
-        z-index: 1;
-        height: 8px;
-        padding: 0;
-        background-color: transparent;
-    }
-
     .custom-range::-webkit-slider-thumb {
+        position: relative;
+        z-index: 2;
         background-color: #6c757d;
         border: 2px solid #fff;
         height: 16px;
         width: 16px;
-        margin-top: -4px;
+        border-radius: 50%;
         box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        margin-top: -8x;  /* This centers the thumb vertically */
     }
 
     .custom-range::-moz-range-thumb {
+        position: relative;
+        z-index: 2;
         background-color: #6c757d;
         border: 2px solid #fff;
         height: 16px;
         width: 16px;
+        border-radius: 50%;
         box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        margin-top: -8px;  /* This centers the thumb vertically */
     }
 
+    /* Style the track */
     .custom-range::-webkit-slider-runnable-track {
-        background-color: rgba(108, 117, 125, 0.2);
+        background-color: transparent;
         height: 8px;
         border-radius: 4px;
     }
 
     .custom-range::-moz-range-track {
-        background-color: rgba(108, 117, 125, 0.2);
+        background-color: transparent;
         height: 8px;
         border-radius: 4px;
     }
@@ -212,6 +213,7 @@
         --text-color: #212529;
         --card-bg: #414141;
         --card-text: #ffffff;
+        --participants-bg: #ffffff;
         --nav-bg: #f8f9fa;
         --nav-text: #212529;
         --nav-link: rgba(0, 0, 0, 0.65);
@@ -223,6 +225,7 @@
         --text-color: #f8f9fa;
         --card-bg: #2c2c2c;
         --card-text: #ffffff;
+        --participants-bg: #343a40;
         --nav-bg: #343a40;
         --nav-text: #f8f9fa;
         --nav-link: rgba(255, 255, 255, 0.85);
@@ -259,6 +262,9 @@
         align-items: center;
         justify-content: center;
         border-radius: 50%;
+        aspect-ratio: 1/1;  /* Ensures perfect circle */
+        min-width: 38px;    /* Prevents button from being squeezed */
+        min-height: 38px;   /* Prevents button from being squeezed */
     }
 
     .navbar-brand,
