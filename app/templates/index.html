@@ -526,43 +526,39 @@
     async function animateParticipantStatusChange(participantItem, newStatus, delay = 0) {
         const participantId = participantItem.dataset.participantId;
         
-        // Initialize queue if it doesn't exist; prevent animation conflicts
+        // Immediately update classes to reflect new state
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+        
+        // Update icon immediately
+        const icon = participantItem.querySelector('.traffic-light');
+        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+        icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
+        icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
+        
+        // Initialize queue if it doesn't exist
         if (!animationQueue.has(participantId)) {
             animationQueue.set(participantId, Promise.resolve());
         }
 
-        // Add new animation to queue
+        // Add animation to queue
         const animation = animationQueue.get(participantId).then(async () => {
             return new Promise((resolve) => {
                 setTimeout(() => {
-                    const isCurrentlyActive = participantItem.classList.contains('participant-status-active');
-                    
-                    // Clear existing animation classes first
-                    participantItem.classList.remove('active-to-inactive', 'inactive-to-active');
-                    
-                    // Force browser reflow to ensure animation triggers
+                    // Force browser reflow
                     void participantItem.offsetWidth;
                     
-                    // Apply new animation
-                    if (isCurrentlyActive && !newStatus) {
-                        participantItem.classList.add('active-to-inactive');
-                    } else if (!isCurrentlyActive && newStatus) {
-                        participantItem.classList.add('inactive-to-active');
-                    }
-
-                    // Update icon at animation midpoint
-                    setTimeout(() => {
-                        const icon = participantItem.querySelector('.traffic-light');
-                        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-                        icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
-                        icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
-                    }, 250);
-
+                    // Add animation class
+                    participantItem.classList.add(
+                        newStatus ? 'inactive-to-active' : 'active-to-inactive'
+                    );
+                    
                     // Cleanup after animation
                     setTimeout(() => {
-                        participantItem.classList.remove('active-to-inactive', 'inactive-to-active');
-                        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-                        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+                        participantItem.classList.remove(
+                            'active-to-inactive', 
+                            'inactive-to-active'
+                        );
                         resolve();
                     }, 500);
                 }, delay);
@@ -572,6 +568,7 @@
         animationQueue.set(participantId, animation);
         return animation;
     }
+
 
 
     async function loadStations() { 
