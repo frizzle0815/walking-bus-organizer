@@ -943,18 +943,27 @@
     // Example of how the animation is triggered in the existing code
 
     async function toggleParticipation(participantId, button) {
+        // Get current state from UI classes before making the change
+        const listItem = button.closest('.participant-item');
+        const currentUIState = listItem.classList.contains('participant-status-active');
+        
+        // Disable button during operation
         const originalButtonContent = button.innerHTML;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         button.disabled = true;
 
         try {
-            const response = await axios.patch(`/api/participation/${participantId}`);
-            const newStatus = response.data.status_today;
-            const listItem = button.closest('.participant-item');
+            // Send current UI state to help server make correct toggle
+            const response = await axios.patch(`/api/participation/${participantId}`, {
+                current_state: currentUIState
+            });
             
-            // Direct user interaction - animate the change
+            const newStatus = response.data.status_today;
+            
+            // Animate the change
             await animateParticipantStatusChange(listItem, newStatus);
             
+            // Update button appearance
             button.disabled = false;
             button.classList.remove('btn-outline-success', 'btn-outline-danger');
             button.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
@@ -964,30 +973,26 @@
             const stationList = listItem.closest('.participants-list');
             const stationId = stationList.dataset.stationId;
             updateStationStats(stationId);
+            
         } catch (error) {
-            // Error handling
             console.error('Error toggling participation:', error);
-
-            // Restore original button state
             button.disabled = false;
             button.innerHTML = originalButtonContent;
-
+            
             // Show warning indicator
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-
+            
             const buttonContainer = button.parentElement;
-
-            // Append the warning icon before the button
             buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
-
-            // Remove warning after 5 seconds
+            
             setTimeout(() => {
                 warningIcon.remove();
             }, 5000);
         }
     }
+
 
 
     async function openCalendar(participantId) {
