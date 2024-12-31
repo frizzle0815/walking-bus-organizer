@@ -31,7 +31,15 @@
         background-color: #414141;
         border-radius: 8px;
         margin-bottom: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .station-card:first-child {
+        margin-bottom: 24px; /* More space between summary and first station */
+    }
+
+    .station-card:first-child .station-header {
+        border-radius: 8px; /* Round all corners */
     }
 
     .station-header {
@@ -403,6 +411,11 @@
         font-size: calc(0.8rem * var(--base-scale));
     }
 
+    .summary-header {
+        border-radius: 8px !important; /* Override the station-header border-radius */
+        border-bottom: none; /* Remove the border that separates header from content */
+    }
+
 </style>
 
 <script>
@@ -651,8 +664,38 @@
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
 
+        const response = await axios.post('/api/initialize-daily-status');
+        const serverDate = new Date(response.data.currentDate);
+
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
+
+        // Create and add summary card first
+        const summaryCard = document.createElement('div');
+        summaryCard.classList.add('station-card');
+        
+        // Calculate total stats
+        const totalParticipants = stations.reduce((sum, station) => 
+            sum + station.participants.length, 0);
+        const confirmedParticipants = isWalkingBusDay ? 
+            stations.reduce((sum, station) => 
+                sum + station.participants.filter(p => p.today_status).length, 0) : 0;
+
+        // Create summary card content
+        summaryCard.innerHTML = `
+           <div class="station-header summary-header">
+               <h5 class="d-flex justify-content-between align-items-center mb-0">
+                   <span>
+                       ${formatServerDate(serverDate)}
+                   </span>
+                   <span class="badge bg-light text-dark" id="stats-total">
+                       ${confirmedParticipants} / ${totalParticipants}
+                   </span>
+               </h5>
+           </div>
+       `;
+        
+        stationsContainer.appendChild(summaryCard);
 
         for (const station of stations) {
             const stationDiv = document.createElement('div');
@@ -688,7 +731,15 @@
         }
     }
 
-
+    function formatServerDate(date) {
+        const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+        const dayName = days[date.getDay()];
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        
+        return `${dayName}, ${day}.${month}.${year}`;
+    }
 
     function createStationHeader(station, isWalkingBusDay) {
         return `
@@ -866,9 +917,20 @@
                 return response.json();
             })
             .then(data => {
+                // Update individual station stats
                 const statsElement = document.getElementById(`stats-station-${stationId}`);
                 if (statsElement) {
                     statsElement.textContent = `${data.active} / ${data.total}`;
+                }
+                
+                // Update total stats
+                return fetch('/api/stations/stats/total');
+            })
+            .then(response => response.json())
+            .then(totalData => {
+                const totalStats = document.getElementById('stats-total');
+                if (totalStats) {
+                    totalStats.textContent = `${totalData.active} / ${totalData.total}`;
                 }
             })
             .catch(error => {

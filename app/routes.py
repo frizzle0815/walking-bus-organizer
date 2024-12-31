@@ -126,6 +126,29 @@ def get_station_stats(station_id):
         return jsonify({"error": str(e)}), 500
 
 
+@bp.route("/api/stations/stats/total")
+def get_stations_total_stats():
+    try:
+        # Get all stations
+        stations = Station.query.all()
+        # Sum up all participants across stations
+        total = sum(len(station.participants) for station in stations)
+        
+        today = get_current_date()
+        is_active_day = is_walking_bus_day(today)
+        
+        # Sum up active participants across all stations
+        active = sum(sum(1 for p in station.participants if p.status_today) 
+                    for station in stations) if is_active_day else 0
+        
+        return jsonify({
+            "total": total,
+            "active": active
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @bp.route("/api/stations/order", methods=["PUT"])
 def update_stations_order():
     try:
@@ -322,9 +345,6 @@ def update_schedule():
 
 @bp.route("/api/calendar-status", methods=["POST"])
 def update_calendar_status():
-    client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
     data = request.get_json()
     participant_id = data['participant_id']
     
