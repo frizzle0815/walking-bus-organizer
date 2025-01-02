@@ -114,7 +114,7 @@ def get_station_stats(station_id):
         today = get_current_date()
         
         # Use a different variable name to avoid conflict with function name
-        is_active_day = is_walking_bus_day(today)
+        is_active_day = check_walking_bus_day(today)
         
         active = sum(1 for p in station.participants if p.status_today) if is_active_day else 0
         
@@ -135,7 +135,7 @@ def get_stations_total_stats():
         total = sum(len(station.participants) for station in stations)
         
         today = get_current_date()
-        is_active_day = is_walking_bus_day(today)
+        is_active_day = check_walking_bus_day(today)
         
         # Sum up active participants across all stations
         active = sum(sum(1 for p in station.participants if p.status_today) 
@@ -300,7 +300,7 @@ def initialize_daily_status():
         CalendarStatus.query.filter(CalendarStatus.date < today).delete()
         db.session.commit()
 
-        walking_bus_day = is_walking_bus_day(today)
+        walking_bus_day = check_walking_bus_day(today)
         return jsonify({
             "success": True,
             "currentDate": today.isoformat(),
@@ -397,12 +397,16 @@ def get_calendar_status(participant_id):
 def get_calendar_data(participant_id):
     try:
         participant = Participant.query.get_or_404(participant_id)
-        schedule = WalkingBusSchedule.query.first()
         today = get_current_date()
         
+        # Calculate dates for next 28 days starting from beginning of current week
         week_start = today - timedelta(days=today.weekday())
         dates_to_check = [week_start + timedelta(days=x) for x in range(28)]
         
+        if not dates_to_check:
+            return jsonify({'error': 'No dates generated'}), 400
+
+        # Get existing calendar entries for the participant
         calendar_entries = CalendarStatus.query.filter(
             CalendarStatus.participant_id == participant_id,
             CalendarStatus.date.in_(dates_to_check)
@@ -411,18 +415,22 @@ def get_calendar_data(participant_id):
         calendar_data = []
         for date in dates_to_check:
             weekday = WEEKDAY_MAPPING[date.weekday()]
-            is_schedule_day = getattr(schedule, weekday, False)
             default_status = getattr(participant, weekday, False)
             
+            # Find existing calendar entry if any
             calendar_entry = next(
                 (entry for entry in calendar_entries if entry.date == date),
                 None
             )
             
+            # Get walking bus status from central function
+            is_active, reason = check_walking_bus_day(date, include_reason=True)
+            
             calendar_data.append({
                 'date': date.isoformat(),
                 'weekday': weekday,
-                'is_schedule_day': is_schedule_day,
+                'is_schedule_day': is_active,  # Using result from check_walking_bus_day
+                'reason': reason,
                 'is_past': date < today,
                 'status': calendar_entry.status if calendar_entry else default_status,
                 'is_today': date == today
@@ -431,6 +439,7 @@ def get_calendar_data(participant_id):
         return jsonify(calendar_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 
 @bp.route("/api/update-future-entries", methods=["PUT"])
@@ -547,9 +556,24 @@ def manifest():
     return send_from_directory('static', 'manifest.json')
 
 
-def is_walking_bus_day(date):
+def check_walking_bus_day(date, include_reason=False):
+    """
+    Central function to determine if Walking Bus operates on a given date
+    Args:
+        date: The date to check
+        include_reason: If True, returns tuple (is_active, reason), otherwise just boolean
+    Returns: 
+        bool or (bool, str) depending on include_reason parameter
+    """
+    # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
-        return False
+        return (False, "No schedule configured") if include_reason else False
+    
+    # Check weekday schedule
     weekday = date.weekday()
-    return getattr(schedule, WEEKDAY_MAPPING[weekday], False)
+    if not getattr(schedule, WEEKDAY_MAPPING[weekday], False):
+        return (False, "Not scheduled on this weekday") if include_reason else False
+    
+    # Base case: Walking Bus is active
+    return (True, "Active") if include_reason else True

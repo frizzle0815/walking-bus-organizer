@@ -1084,6 +1084,11 @@
     }
 
     async function renderCalendar(calendarData) {
+         if (!calendarData || !calendarData.length) {
+            console.error('No calendar data available');
+            return;
+        }
+        
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
 
