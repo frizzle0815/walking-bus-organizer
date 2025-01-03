@@ -60,3 +60,8 @@ class WalkingBusOverride(db.Model):
     is_active = db.Column(db.Boolean, nullable=False)
     reason = db.Column(db.String(200), nullable=False)
 
+
+class DailyNote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    note = db.Column(db.String(200), nullable=False)

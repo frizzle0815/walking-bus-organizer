@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
 from flask import current_app as app
-from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride
+from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
@@ -327,6 +327,9 @@ def initialize_daily_status():
         app.logger.info(f"Deleted {deleted_count} past calendar entries")
         db.session.commit()
 
+        # Get the daily note for today
+        daily_note = DailyNote.query.filter_by(date=today).first()
+
         app.logger.info("Checking walking bus day status")
         walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
@@ -336,7 +339,8 @@ def initialize_daily_status():
             "currentDate": today.isoformat(),
             "isWalkingBusDay": walking_bus_day,
             "reason": reason,
-            "reason_type": reason_type
+            "reason_type": reason_type,
+            "note": daily_note.note if daily_note else None
         }
         app.logger.info(f"Returning response: {response}")
         return jsonify(response)
@@ -660,6 +664,9 @@ def get_year_calendar():
     while current_date <= end_date:
         is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
         
+        # Get note for this date
+        daily_note = DailyNote.query.filter_by(date=current_date).first()
+
         # Map reason types to display text
         display_reason = {
             "NO_SCHEDULE": "Keine Planung",
@@ -674,7 +681,8 @@ def get_year_calendar():
             'date': current_date.isoformat(),
             'is_active': is_active,
             'reason': display_reason,
-            'reason_type': reason_type  # Include for potential styling
+            'reason_type': reason_type,
+            'note': daily_note.note if daily_note else None
         })
         current_date += timedelta(days=1)
     
@@ -723,5 +731,30 @@ def toggle_walking_bus_override():
         "reason_type": reason_type
     })
 
+
+@bp.route("/api/daily-note", methods=["POST"])
+def update_daily_note():
+    data = request.get_json()
+    date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    note = data.get('note', '').strip()
+    
+    daily_note = DailyNote.query.filter_by(date=date).first()
+    
+    if note:
+        if daily_note:
+            daily_note.note = note
+        else:
+            daily_note = DailyNote(date=date, note=note)
+            db.session.add(daily_note)
+    else:
+        if daily_note:
+            db.session.delete(daily_note)
+    
+    db.session.commit()
+    
+    return jsonify({
+        "date": date.isoformat(),
+        "note": note if note else None
+    })
 
 

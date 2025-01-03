@@ -219,10 +219,21 @@
         line-height: 1.4;
     }
 }
+
+.day-note {
+    font-size: 0.6rem;
+    color: #856404;
+    background-color: #fff3cd;
+    padding: 1px 2px;
+    border-radius: 2px;
+    margin-top: 2px;
+    word-wrap: break-word;
+    max-width: 100%;
+}
 </style>
 
 <script>
-async function showReasonPrompt(isCurrentlyActive, isOverride) {
+async function showReasonPrompt(isCurrentlyActive, isOverride, day, dayElement) {
     return new Promise((resolve) => {
         const modal = document.createElement('div');
         
@@ -239,26 +250,41 @@ async function showReasonPrompt(isCurrentlyActive, isOverride) {
         }
 
         modal.innerHTML = `
-            <div class="modal fade" 
-                 id="reasonModal" 
-                 role="dialog"
-                 aria-labelledby="modalTitle"
-                 aria-modal="true">
+            <div class="modal fade" id="reasonModal" role="dialog" aria-labelledby="modalTitle" aria-modal="true">
                 <div class="modal-dialog">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h5 class="modal-title" id="modalTitle">Walking Bus Status ändern</h5>
+                            <h5 class="modal-title" id="modalTitle">Tag bearbeiten</h5>
                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body">
-                            ${needsReason ? `
-                                <input type="text" class="form-control" id="reasonInput" 
-                                       placeholder="Grund eingeben" required>
-                            ` : ''}
+                            <div class="mb-3">
+                                <h6>Walking Bus Status</h6>
+                                ${needsReason ? `
+                                    <input type="text" class="form-control mb-2" id="reasonInput" 
+                                           placeholder="Grund eingeben" required>
+                                ` : ''}
+                                <button type="button" class="btn btn-primary" id="toggleWalkingBus">
+                                    ${buttonText}
+                                </button>
+                            </div>
+                            <div class="mt-4">
+                                <h6>Tagesanmerkung</h6>
+                                <input type="text" class="form-control mb-2" id="noteInput" 
+                                       placeholder="Anmerkung für diesen Tag"
+                                       value="${day.note || ''}">
+                                <button type="button" class="btn btn-warning" id="saveNote">
+                                    Anmerkung speichern
+                                </button>
+                                ${day.note ? `
+                                    <button type="button" class="btn btn-outline-danger ms-2" id="deleteNote">
+                                        Anmerkung löschen
+                                    </button>
+                                ` : ''}
+                            </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
-                            <button type="button" class="btn btn-primary" id="confirmReason">${buttonText}</button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
                         </div>
                     </div>
                 </div>
@@ -271,6 +297,76 @@ async function showReasonPrompt(isCurrentlyActive, isOverride) {
         const reasonInput = document.getElementById('reasonInput');
         const modalDom = document.getElementById('reasonModal');
         
+        document.getElementById('toggleWalkingBus').addEventListener('click', async () => {
+            if (needsReason) {
+                const reason = reasonInput.value.trim();
+                if (!reason) {
+                    reasonInput.classList.add('is-invalid');
+                    return;
+                }
+            }
+            modalElement.hide();
+            setInert(false);
+            resolve(reasonInput ? reasonInput.value.trim() : '');
+        });
+
+        document.getElementById('saveNote').addEventListener('click', async () => {
+            const noteText = document.getElementById('noteInput').value.trim();
+            try {
+                const response = await fetch('/api/daily-note', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date: day.date.toISOString().split('T')[0],
+                        note: noteText
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const result = await response.json();
+                day.note = result.note;
+                
+                // Update visual representation
+                updateDayDisplay(dayElement, day);
+                
+            } catch (error) {
+                console.error('Error saving note:', error);
+                alert('Fehler beim Speichern der Anmerkung');
+            }
+        });
+
+        if (document.getElementById('deleteNote')) {
+            document.getElementById('deleteNote').addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/api/daily-note', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            date: day.date.toISOString().split('T')[0],
+                            note: ''
+                        })
+                    });
+                    
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    
+                    day.note = null;
+                    document.getElementById('noteInput').value = '';
+                    
+                    // Update visual representation
+                    updateDayDisplay(dayElement, day);
+                    
+                } catch (error) {
+                    console.error('Error deleting note:', error);
+                    alert('Fehler beim Löschen der Anmerkung');
+                }
+            });
+        }
+
         // Set up focus trap
         const focusableElements = modalDom.querySelectorAll(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -313,23 +409,6 @@ async function showReasonPrompt(isCurrentlyActive, isOverride) {
         } else {
             firstFocusable.focus();
         }
-        
-        document.getElementById('confirmReason').addEventListener('click', () => {
-            if (needsReason) {
-                const reason = reasonInput.value.trim();
-                if (reason) {
-                    modalElement.hide();
-                    setInert(false);
-                    resolve(reason);
-                } else {
-                    reasonInput.classList.add('is-invalid');
-                }
-            } else {
-                modalElement.hide();
-                setInert(false);
-                resolve('');
-            }
-        });
         
         document.getElementById('reasonModal').addEventListener('hidden.bs.modal', () => {
             setInert(false);
@@ -410,7 +489,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             dayElement.addEventListener('click', async () => {
                 try {
                     const isOverride = day.reason_type === 'MANUAL_OVERRIDE';
-                    const reason = await showReasonPrompt(day.is_active, isOverride);
+                    const reason = await showReasonPrompt(day.is_active, isOverride, day, dayElement);
                     
                     if (reason === null) {
                         return; // User cancelled
@@ -481,10 +560,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else if (!day.is_active) {
                 dayReason.textContent = day.reason;
             }
-            
+                        
             // Assemble the day element
             dayElement.appendChild(dayNumber);
             dayElement.appendChild(dayReason);
+
+            if (day.note) {
+                const dayNote = document.createElement('div');
+                dayNote.className = 'day-note';
+                dayNote.textContent = day.note;
+                dayElement.appendChild(dayNote);
+            }
+
             grid.appendChild(dayElement);
         });
         
@@ -492,5 +579,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         container.appendChild(monthContainer);
     });
 });
+
+function updateDayDisplay(dayElement, dayData) {
+    // Update note display
+    let noteDiv = dayElement.querySelector('.day-note');
+    if (dayData.note) {
+        if (!noteDiv) {
+            noteDiv = document.createElement('div');
+            noteDiv.className = 'day-note';
+            dayElement.appendChild(noteDiv);
+        }
+        noteDiv.textContent = dayData.note;
+    } else if (noteDiv) {
+        noteDiv.remove();
+    }
+}
 </script>
 {% endblock %}

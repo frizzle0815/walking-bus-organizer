@@ -453,6 +453,12 @@
                     <span id="walkingbus-reason"></span>
                 </div>
             </div>
+            <div id="note-alert" class="alert alert-warning d-none" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-sticky-note me-2"></i>
+                    <span id="walkingbus-note"></span>
+                </div>
+            </div>
         `;
 
         const stationsDiv = document.getElementById('stations');
@@ -615,6 +621,8 @@
     async function renderStations(stations, isWalkingBusDay) {
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         const walkingbusReason = document.getElementById('walkingbus-reason');
+        const noteAlert = document.getElementById('note-alert');
+        const walkingbusNote = document.getElementById('walkingbus-note');
 
         // Get status with reason from server
         const response = await axios.post('/api/initialize-daily-status');
@@ -624,6 +632,12 @@
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
         if (!isWalkingBusDay && response.data.reason) {
             walkingbusReason.textContent = response.data.reason;
+        }
+
+        // Show/hide note alert and set note
+        noteAlert.classList.toggle('d-none', !response.data.note);
+        if (response.data.note) {
+            walkingbusNote.textContent = response.data.note;
         }
 
         const stationsContainer = document.getElementById('stations');
