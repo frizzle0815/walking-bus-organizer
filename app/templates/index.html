@@ -447,8 +447,15 @@
                 Die Verbindung zum Server wurde unterbrochen. Die angezeigten Daten sind möglicherweise nicht aktuell.
             </div>
             <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
-                <i class="fas fa-info-circle me-2"></i>
-                Heute findet kein Walking Bus statt.
+                <div class="d-flex flex-column">
+                    <div>
+                        <i class="fas fa-info-circle me-2"></i>
+                        Heute findet kein Walking Bus statt:
+                    </div>
+                    <div class="ps-4">
+                        <span id="walkingbus-reason"></span>
+                    </div>
+                </div>
             </div>
         `;
 
@@ -659,10 +666,17 @@
 
     async function renderStations(stations, isWalkingBusDay) {
         const walkingbusAlert = document.getElementById('walkingbus-alert');
-        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+        const walkingbusReason = document.getElementById('walkingbus-reason');
 
+        // Get status with reason from server
         const response = await axios.post('/api/initialize-daily-status');
         const serverDate = new Date(response.data.currentDate);
+
+        // Show/hide alert and set reason
+        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+        if (!isWalkingBusDay && response.data.reason) {
+            walkingbusReason.textContent = response.data.reason;
+        }
 
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';

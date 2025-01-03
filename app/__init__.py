@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 import pytz
 import logging
+from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
 db = SQLAlchemy()
@@ -55,11 +56,30 @@ class RequestFormatter(logging.Formatter):
 def create_app():
     app = Flask(__name__)
 
-    # Configure the logger
-    handler = logging.StreamHandler()
-    handler.setFormatter(RequestFormatter())
-    app.logger.addHandler(handler)
-    app.logger.setLevel(logging.INFO)
+    # Configure logging
+    if not app.debug:
+        # Create logs directory if it doesn't exist
+        if not os.path.exists('logs'):
+            os.mkdir('logs')
+            
+        # Set up file handler
+        file_handler = RotatingFileHandler('logs/walking_bus.log', maxBytes=10240, backupCount=10)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+        ))
+        file_handler.setLevel(logging.INFO)
+        
+        # Set up console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        
+        # Add handlers to app logger
+        app.logger.addHandler(file_handler)
+        app.logger.addHandler(console_handler)
+        app.logger.setLevel(logging.INFO)
+        app.logger.info('Walking Bus startup')
 
     # Get DATABASE_URL from environment, fallback to localhost for local development
     database_url = os.getenv('DATABASE_URL', 'postgresql://walkingbus:password@localhost:5432/walkingbus')

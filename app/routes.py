@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
 from flask import current_app as app
-from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
+from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday
+from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
@@ -295,18 +296,32 @@ def get_participant_weekday_status(participant_id, weekday):
 def initialize_daily_status():
     try:
         today = get_current_date()
+        app.logger.info(f"Initializing daily status for {today}")
+
+        # Update holiday cache first
+        holiday_service = HolidayService()
+        holiday_service.update_holiday_cache()
 
         # Delete all calendar entries from past dates
-        CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        deleted_count = CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        app.logger.info(f"Deleted {deleted_count} past calendar entries")
         db.session.commit()
 
-        walking_bus_day = check_walking_bus_day(today)
-        return jsonify({
+        app.logger.info("Checking walking bus day status")
+        walking_bus_day, reason = check_walking_bus_day(today, include_reason=True)
+        app.logger.info(f"Walking bus day status: {walking_bus_day}")
+
+        response = {
             "success": True,
             "currentDate": today.isoformat(),
-            "isWalkingBusDay": walking_bus_day
-        })
+            "isWalkingBusDay": walking_bus_day,
+            "reason": reason
+        }
+        app.logger.info(f"Returning response: {response}")
+        return jsonify(response)
     except Exception as e:
+        app.logger.error(f"Error in initialize_daily_status: {str(e)}")
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
@@ -396,6 +411,7 @@ def get_calendar_status(participant_id):
 @bp.route("/api/calendar-data/<int:participant_id>", methods=["GET"])
 def get_calendar_data(participant_id):
     try:
+        app.logger.info(f"Fetching calendar data for participant {participant_id}")
         participant = Participant.query.get_or_404(participant_id)
         today = get_current_date()
         
@@ -403,14 +419,15 @@ def get_calendar_data(participant_id):
         week_start = today - timedelta(days=today.weekday())
         dates_to_check = [week_start + timedelta(days=x) for x in range(28)]
         
-        if not dates_to_check:
-            return jsonify({'error': 'No dates generated'}), 400
+        app.logger.info(f"Checking dates from {dates_to_check[0]} to {dates_to_check[-1]}")
 
         # Get existing calendar entries for the participant
         calendar_entries = CalendarStatus.query.filter(
             CalendarStatus.participant_id == participant_id,
             CalendarStatus.date.in_(dates_to_check)
         ).all()
+        
+        app.logger.info(f"Found {len(calendar_entries)} existing calendar entries")
         
         calendar_data = []
         for date in dates_to_check:
@@ -426,18 +443,23 @@ def get_calendar_data(participant_id):
             # Get walking bus status from central function
             is_active, reason = check_walking_bus_day(date, include_reason=True)
             
-            calendar_data.append({
+            entry_data = {
                 'date': date.isoformat(),
                 'weekday': weekday,
-                'is_schedule_day': is_active,  # Using result from check_walking_bus_day
+                'is_schedule_day': is_active,
                 'reason': reason,
                 'is_past': date < today,
                 'status': calendar_entry.status if calendar_entry else default_status,
                 'is_today': date == today
-            })
+            }
+            calendar_data.append(entry_data)
+            app.logger.debug(f"Processed date {date}: {entry_data}")
         
+        app.logger.info(f"Successfully compiled calendar data with {len(calendar_data)} entries")
         return jsonify(calendar_data)
+        
     except Exception as e:
+        app.logger.error(f"Error in get_calendar_data: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -568,12 +590,34 @@ def check_walking_bus_day(date, include_reason=False):
     # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
-        return (False, "No schedule configured") if include_reason else False
+        return (False, "Grund: Keine Planung angelegt") if include_reason else False
     
     # Check weekday schedule
     weekday = date.weekday()
+    weekday_names = ['Montags', 'Dienstags', 'Mittwochs', 'Donnerstags', 'Freitags', 'Samstags', 'Sonntags']
+    
     if not getattr(schedule, WEEKDAY_MAPPING[weekday], False):
-        return (False, "Not scheduled on this weekday") if include_reason else False
+        # Different messages for weekdays (0-4) and weekends (5-6)
+        if weekday < 5:
+            reason = f"Grund: {weekday_names[weekday]} findet kein Walking Bus statt."
+        else:
+            reason = "Grund: Wochenende"
+        return (False, reason) if include_reason else False
+    
+    # Check for school holidays
+    holiday = SchoolHoliday.query\
+        .filter(SchoolHoliday.start_date <= date)\
+        .filter(SchoolHoliday.end_date >= date)\
+        .first()
+
+    if holiday:
+        return (False, f"Grund: {holiday.name}") if include_reason else False
     
     # Base case: Walking Bus is active
     return (True, "Active") if include_reason else True
+
+
+def update_holiday_cache():
+    service = HolidayService()
+    service.update_holiday_cache()
+
