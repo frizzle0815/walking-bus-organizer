@@ -595,16 +595,16 @@ def check_walking_bus_day(date, include_reason=False):
     # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
-        return (False, "Grund: Keine Planung angelegt", "NO_SCHEDULE") if include_reason else False
+        return (False, "Achtung: Keine Planung angelegt!", "NO_SCHEDULE") if include_reason else False
     
     # Check weekday schedule
     weekday = date.weekday()
     weekday_names = ['Montags', 'Dienstags', 'Mittwochs', 'Donnerstags', 'Freitags', 'Samstags', 'Sonntags']
     if not getattr(schedule, WEEKDAY_MAPPING[weekday], False):
         if weekday < 5:
-            return (False, f"Grund: {weekday_names[weekday]} findet kein Walking Bus statt.", "INACTIVE_WEEKDAY") if include_reason else False
+            return (False, f"{weekday_names[weekday]} findet kein Walking Bus statt.", "INACTIVE_WEEKDAY") if include_reason else False
         else:
-            return (False, "Grund: Wochenende", "WEEKEND") if include_reason else False
+            return (False, "Am Wochenende findet kein Walking Bus statt.", "WEEKEND") if include_reason else False
     
     # Check for school holidays
     holiday = SchoolHoliday.query\
@@ -613,7 +613,7 @@ def check_walking_bus_day(date, include_reason=False):
         .first()
 
     if holiday:
-        return (False, f"Grund: {holiday.name}", "HOLIDAY") if include_reason else False
+        return (False, f"Es sind {holiday.name}.", "HOLIDAY") if include_reason else False
     
     # Base case: Walking Bus is active
     return (True, "Active", "ACTIVE") if include_reason else True
@@ -642,7 +642,7 @@ def get_year_calendar():
             "NO_SCHEDULE": "Keine Planung",
             "INACTIVE_WEEKDAY": "Kein Bus",
             "WEEKEND": "Wochenende",
-            "HOLIDAY": reason.replace("Grund: ", ""),  # Keep full holiday name
+            "HOLIDAY": reason.replace("Es sind ", ""),  # Keep full holiday name
             "ACTIVE": ""
         }.get(reason_type, "")
         
