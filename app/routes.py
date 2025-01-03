@@ -11,7 +11,6 @@ import time
 # Create Blueprint
 bp = Blueprint("main", __name__)
 
-
 # Frontend Routes
 @bp.route('/')
 def index():
@@ -21,6 +20,11 @@ def index():
 @bp.route("/admin")
 def admin():
     return render_template("admin.html")
+
+
+@bp.route("/calendar")
+def calendar_view():
+    return render_template("calendar.html")
 
 
 # Station Routes
@@ -308,14 +312,15 @@ def initialize_daily_status():
         db.session.commit()
 
         app.logger.info("Checking walking bus day status")
-        walking_bus_day, reason = check_walking_bus_day(today, include_reason=True)
+        walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
         response = {
             "success": True,
             "currentDate": today.isoformat(),
             "isWalkingBusDay": walking_bus_day,
-            "reason": reason
+            "reason": reason,
+            "reason_type": reason_type
         }
         app.logger.info(f"Returning response: {response}")
         return jsonify(response)
@@ -583,26 +588,23 @@ def check_walking_bus_day(date, include_reason=False):
     Central function to determine if Walking Bus operates on a given date
     Args:
         date: The date to check
-        include_reason: If True, returns tuple (is_active, reason), otherwise just boolean
+        include_reason: If True, returns tuple (is_active, reason, reason_type), otherwise just boolean
     Returns: 
-        bool or (bool, str) depending on include_reason parameter
+        bool or (bool, str, str) depending on include_reason parameter
     """
     # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
-        return (False, "Grund: Keine Planung angelegt") if include_reason else False
+        return (False, "Grund: Keine Planung angelegt", "NO_SCHEDULE") if include_reason else False
     
     # Check weekday schedule
     weekday = date.weekday()
     weekday_names = ['Montags', 'Dienstags', 'Mittwochs', 'Donnerstags', 'Freitags', 'Samstags', 'Sonntags']
-    
     if not getattr(schedule, WEEKDAY_MAPPING[weekday], False):
-        # Different messages for weekdays (0-4) and weekends (5-6)
         if weekday < 5:
-            reason = f"Grund: {weekday_names[weekday]} findet kein Walking Bus statt."
+            return (False, f"Grund: {weekday_names[weekday]} findet kein Walking Bus statt.", "INACTIVE_WEEKDAY") if include_reason else False
         else:
-            reason = "Grund: Wochenende"
-        return (False, reason) if include_reason else False
+            return (False, "Grund: Wochenende", "WEEKEND") if include_reason else False
     
     # Check for school holidays
     holiday = SchoolHoliday.query\
@@ -611,13 +613,46 @@ def check_walking_bus_day(date, include_reason=False):
         .first()
 
     if holiday:
-        return (False, f"Grund: {holiday.name}") if include_reason else False
+        return (False, f"Grund: {holiday.name}", "HOLIDAY") if include_reason else False
     
     # Base case: Walking Bus is active
-    return (True, "Active") if include_reason else True
+    return (True, "Active", "ACTIVE") if include_reason else True
 
 
 def update_holiday_cache():
     service = HolidayService()
     service.update_holiday_cache()
+
+
+@bp.route("/api/calendar/year", methods=["GET"])
+def get_year_calendar():
+    current_date = get_current_date()
+    # Set start date to first day of current month
+    start_date = current_date.replace(day=1)
+    end_date = current_date + timedelta(days=365)
+    
+    calendar_data = []
+    current_date = start_date
+    
+    while current_date <= end_date:
+        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
+        
+        # Map reason types to display text
+        display_reason = {
+            "NO_SCHEDULE": "Keine Planung",
+            "INACTIVE_WEEKDAY": "Kein Bus",
+            "WEEKEND": "Wochenende",
+            "HOLIDAY": reason.replace("Grund: ", ""),  # Keep full holiday name
+            "ACTIVE": ""
+        }.get(reason_type, "")
+        
+        calendar_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'reason': display_reason,
+            'reason_type': reason_type  # Include for potential styling
+        })
+        current_date += timedelta(days=1)
+    
+    return jsonify(calendar_data)
 
