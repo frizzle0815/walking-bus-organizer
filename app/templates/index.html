@@ -424,6 +424,7 @@
     const UPDATE_THRESHOLD = 1000; // Minimum time (ms) between updates
     let globalEventSource = null;
     const animationQueue = new Map(); // Store queues for each participant
+    let isStatusUpdateInProgress = false;
     let isPageVisible = !document.hidden;
     let isWalkingBusDay = false;
     const WEEKDAY_MAPPING = {
@@ -523,54 +524,6 @@
         });
         return dbPromise;
     }
-
-
-    async function animateParticipantStatusChange(participantItem, newStatus, delay = 0) {
-        const participantId = participantItem.dataset.participantId;
-        
-        // Immediately update classes to reflect new state
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
-        
-        // Update icon immediately
-        const icon = participantItem.querySelector('.traffic-light');
-        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-        icon.classList.add(newStatus ? 'fa-walking' : 'fa-person');
-        icon.classList.add(newStatus ? 'icon-active' : 'icon-inactive');
-        
-        // Initialize queue if it doesn't exist
-        if (!animationQueue.has(participantId)) {
-            animationQueue.set(participantId, Promise.resolve());
-        }
-
-        // Add animation to queue
-        const animation = animationQueue.get(participantId).then(async () => {
-            return new Promise((resolve) => {
-                setTimeout(() => {
-                    // Force browser reflow
-                    void participantItem.offsetWidth;
-                    
-                    // Add animation class
-                    participantItem.classList.add(
-                        newStatus ? 'inactive-to-active' : 'active-to-inactive'
-                    );
-                    
-                    // Cleanup after animation
-                    setTimeout(() => {
-                        participantItem.classList.remove(
-                            'active-to-inactive', 
-                            'inactive-to-active'
-                        );
-                        resolve();
-                    }, 500);
-                }, delay);
-            });
-        });
-
-        animationQueue.set(participantId, animation);
-        return animation;
-    }
-
 
 
     async function loadStations() { 
@@ -945,47 +898,30 @@
             });
     }
 
-    // Modify the toggleParticipation function to track local changes
-    // Example of how the animation is triggered in the existing code
-
     async function toggleParticipation(participantId, button) {
-        // Get current state from UI classes before making the change
-        const listItem = button.closest('.participant-item');
-        const currentUIState = listItem.classList.contains('participant-status-active');
+        if (isStatusUpdateInProgress) return;
         
-        // Disable button during operation
+        isStatusUpdateInProgress = true;
+        const allStatusButtons = document.querySelectorAll('.status-button');
+        allStatusButtons.forEach(btn => btn.disabled = true);
+        
         const originalButtonContent = button.innerHTML;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        button.disabled = true;
-
-        try {
-            // Send current UI state to help server make correct toggle
-            const response = await axios.patch(`/api/participation/${participantId}`, {
-                current_state: currentUIState
-            });
-            
-            const newStatus = response.data.status_today;
-            
-            // Animate the change
-            await animateParticipantStatusChange(listItem, newStatus);
-            
-            // Update button appearance
-            button.disabled = false;
-            button.classList.remove('btn-outline-success', 'btn-outline-danger');
-            button.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
-            button.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
         
-            // Update station statistics
-            const stationList = listItem.closest('.participants-list');
-            const stationId = stationList.dataset.stationId;
-            updateStationStats(stationId);
+        try {
+            const response = await axios.patch(`/api/participation/${participantId}`);
+            await loadStations();
             
+            const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+            if (participantItem) {
+                await animateStatusChange(participantItem, response.data.status_today);
+            }
         } catch (error) {
-            console.error('Error toggling participation:', error);
+            console.error('Error updating status:', error);
             button.disabled = false;
             button.innerHTML = originalButtonContent;
             
-            // Show warning indicator
+            // Add warning indicator
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
@@ -993,11 +929,17 @@
             const buttonContainer = button.parentElement;
             buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
             
+            // Remove warning after 5 seconds
             setTimeout(() => {
                 warningIcon.remove();
             }, 5000);
+        } finally {
+            isStatusUpdateInProgress = false;
+            allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
+
+
 
 
 
@@ -1005,10 +947,9 @@
         currentParticipantId = participantId;
         const modal = document.getElementById('calendarModal');
 
-        // Setup modal content first
-        const calendarButton = event.target;
-        const participantItem = calendarButton.closest('.participant-item');
-        const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
+        // Get participant name directly using the participant ID
+       const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+       const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
 
         const modalContent = modal.querySelector('.modal-content');
         modalContent.innerHTML = `
@@ -1167,59 +1108,68 @@
 
 
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
-        const newStatus = !dayDiv.classList.contains('day-green');
+        if (isStatusUpdateInProgress) return;
+        
+        isStatusUpdateInProgress = true;
+        const allStatusButtons = document.querySelectorAll('.status-button, .calendar-day');
+        allStatusButtons.forEach(btn => btn.disabled = true);
+        
         const originalContent = dayDiv.textContent;
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            const response = await axios.post('/api/calendar-status', {
+            await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
-                status: newStatus
+                status: !dayDiv.classList.contains('day-green')
             });
             
-            // Success - update calendar UI
-            dayDiv.textContent = originalContent;
-            dayDiv.classList.toggle('day-green');
-            dayDiv.classList.toggle('day-red');
+            await loadStations();
             
-            // Update IndexedDB
-            const db = await dbPromise;
-            const tx = db.transaction('calendarData', 'readwrite');
-            const store = tx.objectStore('calendarData');
-            await store.put({
-                participantId,
-                date: dateString,
-                status: newStatus
-            });
-
-            // If the changed date is today, update main page UI with animation
+            // Instead of reopening the calendar, just update its content
+            const calendarData = await axios.get(`/api/calendar-data/${participantId}`);
+            await renderCalendar(calendarData.data);
+            
+            // Animate if it's today's change
             const today = new Date().toISOString().split('T')[0];
             if (dateString === today) {
-             const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-             if (participantItem) {
-                 await animateParticipantStatusChange(participantItem, newStatus);
-                 
-                 // Update button
-                 const statusButton = participantItem.querySelector('.status-button');
-                 statusButton.classList.remove('btn-outline-success', 'btn-outline-danger');
-                 statusButton.classList.add(newStatus ? 'btn-outline-danger' : 'btn-outline-success');
-                 statusButton.innerHTML = newStatus ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-                 
-                 // Update station statistics
-                 const stationList = participantItem.closest('.participants-list');
-                 const stationId = stationList.dataset.stationId;
-                 updateStationStats(stationId);
-             }
+                const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+                if (participantItem) {
+                    await animateStatusChange(participantItem, !dayDiv.classList.contains('day-green'));
+                }
             }
         } catch (error) {
-            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning"></i>';
-            dayDiv.title = 'Änderung konnte nicht gespeichert werden';
+            console.error('Error updating calendar status:', error);
+            dayDiv.textContent = originalContent;
             
+            // Add warning indicator
+            const warningIcon = document.createElement('i');
+            warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+            warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+            
+            dayDiv.appendChild(warningIcon);
+            
+            // Remove warning after 5 seconds
             setTimeout(() => {
+                warningIcon.remove();
                 dayDiv.textContent = originalContent;
-            }, 3000);
+            }, 5000);
+        } finally {
+            isStatusUpdateInProgress = false;
+            allStatusButtons.forEach(btn => btn.disabled = false);
         }
+    }
+
+
+    async function animateStatusChange(element, newStatus) {
+        return new Promise(resolve => {
+            const animationClass = newStatus ? 'inactive-to-active' : 'active-to-inactive';
+            element.addEventListener('animationend', () => {
+                element.classList.remove(animationClass);
+                resolve();
+            }, {once: true});
+            element.classList.add(animationClass);
+        });
     }
 
 

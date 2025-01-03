@@ -704,46 +704,40 @@
         }
 
         function updateParticipantOrder(evt) {
-            // Get participant ID from the dragged element
-            const participantId = evt.item.querySelector('.participant-card').dataset.participantId;
-            
-            // Get new station ID from the target container
             const newStationId = evt.to.closest('.station-card').dataset.stationId;
+            const participantsContainer = evt.to;
             
-            // Calculate new position
-            const newPosition = Array.from(evt.to.children).indexOf(evt.item);
-
-            console.log('Updating participant order:', {
-                participantId,
-                newStationId,
-                newPosition
+            // Update positions for ALL participants in the container
+            const participants = Array.from(participantsContainer.children);
+            const updates = participants.map((participantElement, index) => {
+                const participantCard = participantElement.querySelector('.participant-card');
+                const participantId = participantCard.dataset.participantId;
+                return {
+                    participantId,
+                    position: index,
+                    stationId: newStationId
+                };
             });
 
-            // Only proceed if we have valid IDs
-            if (!participantId || !newStationId) {
-                console.error('Missing required IDs:', { participantId, newStationId });
-                return;
-            }
-
-            fetch(`/api/stations/${newStationId}/participants/${participantId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    position: newPosition
+            // Send all position updates to server
+            updates.forEach(update => {
+                fetch(`/api/stations/${update.stationId}/participants/${update.participantId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        position: update.position
+                    })
                 })
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => console.log('Participant order updated:', data))
-            .catch(error => {
-                console.error('Update failed:', error);
-                // Optionally revert the UI change here
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .catch(error => console.error('Update failed:', error));
             });
         }
+
 
     });
 </script>

@@ -35,8 +35,11 @@ def get_stations():
     result = []
     
     for station in stations:
+        # Order participants by position
+        ordered_participants = sorted(station.participants, key=lambda p: p.position)
         participants = []
-        for p in station.participants:
+        
+        for p in ordered_participants:
             calendar_entry = CalendarStatus.query.filter_by(
                 participant_id=p.id,
                 date=today
@@ -65,6 +68,8 @@ def get_stations():
             "participants": participants
         })
     return jsonify(result)
+
+
 
 
 @bp.route("/api/stations", methods=["POST"])
@@ -230,6 +235,16 @@ def update_participant(station_id, participant_id):
     data = request.get_json()
     old_name = participant.name
     
+    # Handle position updates
+    if 'position' in data:
+        # Get all participants in the same station
+        station_participants = Participant.query.filter_by(station_id=station_id).all()
+        # Update positions to ensure uniqueness
+        for p in station_participants:
+            if p.id != participant_id and p.position >= data['position']:
+                p.position += 1
+    
+    # Update participant fields
     for field in ['name', 'station_id', 'position', 'monday', 'tuesday', 'wednesday', 
                  'thursday', 'friday', 'saturday', 'sunday']:
         if field in data:
@@ -238,6 +253,7 @@ def update_participant(station_id, participant_id):
     db.session.commit()
     app.logger.info(f"Teilnehmer aktualisiert von '{old_name}' zu '{participant.name}', '{participant.station_id}', '{participant.position}' (ID: {participant_id})")
     return jsonify({"success": True})
+
 
 
 @bp.route("/api/participants/<int:participant_id>", methods=["DELETE"])
@@ -446,7 +462,7 @@ def get_calendar_data(participant_id):
             )
             
             # Get walking bus status from central function
-            is_active, reason = check_walking_bus_day(date, include_reason=True)
+            is_active, reason, reason_type = check_walking_bus_day(date, include_reason=True)
             
             entry_data = {
                 'date': date.isoformat(),
