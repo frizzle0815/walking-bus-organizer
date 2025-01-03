@@ -53,6 +53,30 @@
     border-radius: 4px;
     font-size: 0.9rem;
     position: relative;
+    padding: 2px;
+    min-width: 0; /* Allows shrinking below content size */
+}
+
+.calendar-day.manual-override {
+    position: relative;
+    border: 2px dashed #666;  /* Dashed border indicates manual intervention */
+}
+
+.calendar-day.manual-override::before {
+    content: '✎';  /* Pencil icon to indicate manual edit */
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.calendar-day.manual-override.day-active {
+    background: linear-gradient(135deg, #a9e6b7 85%, #7ac889 100%);  /* Gradient for active override */
+}
+
+.calendar-day.manual-override.day-inactive {
+    background: linear-gradient(135deg, #e9ecef 85%, #ced4da 100%);  /* Gradient for inactive override */
 }
 
 .day-active {
@@ -119,11 +143,6 @@
     }
 }
 
-.calendar-day {
-    padding: 2px;
-    min-width: 0; /* Allows shrinking below content size */
-}
-
 .day-number {
     font-size: 0.8rem;
 }
@@ -185,6 +204,75 @@
 </style>
 
 <script>
+async function showReasonPrompt(isCurrentlyActive, isOverride) {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        
+        // Determine button text based on current state and override status
+        let buttonText;
+        let needsReason = false;
+        
+        if (isCurrentlyActive) {
+            buttonText = isOverride ? "Walking Bus findet doch statt" : "Walking Bus absagen";
+            needsReason = !isOverride; // Need reason when canceling a regular active day
+        } else {
+            buttonText = isOverride ? "Walking Bus findet doch statt" : "Walking Bus findet doch statt";
+            needsReason = !isOverride; // Need reason when activating a regular inactive day
+        }
+
+        modal.innerHTML = `
+            <div class="modal fade" id="reasonModal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Walking Bus Status ändern</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            ${needsReason ? `
+                                <input type="text" class="form-control" id="reasonInput" 
+                                       placeholder="Grund eingeben" required>
+                            ` : ''}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                            <button type="button" class="btn btn-primary" id="confirmReason">${buttonText}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const modalElement = new bootstrap.Modal(document.getElementById('reasonModal'));
+        const reasonInput = document.getElementById('reasonInput');
+        
+        document.getElementById('confirmReason').addEventListener('click', () => {
+            if (needsReason) {
+                const reason = reasonInput.value.trim();
+                if (reason) {
+                    modalElement.hide();
+                    resolve(reason);
+                } else {
+                    reasonInput.classList.add('is-invalid');
+                }
+            } else {
+                modalElement.hide();
+                resolve(''); // Empty reason for override removal
+            }
+        });
+        
+        document.getElementById('reasonModal').addEventListener('hidden.bs.modal', () => {
+            resolve(null);
+            modal.remove();
+        });
+        
+        modalElement.show();
+    });
+}
+
+
 document.addEventListener('DOMContentLoaded', async () => {
     const container = document.getElementById('calendar-container');
     const response = await fetch('/api/calendar/year');
@@ -235,21 +323,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         days.forEach(day => {
             const dayElement = document.createElement('div');
             const isToday = day.date.toDateString() === new Date().toDateString();
-            dayElement.className = `calendar-day ${day.is_active ? 'day-active' : 'day-inactive'}`;
-            if (isToday) {
-                dayElement.classList.add('today');
+
+            // Build class list - this is the correct way to handle multiple classes
+            const classList = ['calendar-day'];
+            if (day.is_active) {
+                classList.push('day-active');
+            } else {
+                classList.push('day-inactive');
             }
-            
-            // Add click handler for the day
+            if (day.reason_type === 'MANUAL_OVERRIDE') {
+                classList.push('manual-override');
+            }
+            if (isToday) {
+                classList.push('today');
+            }
+            dayElement.className = classList.join(' ');
+
+            // Click handler for day interactions
             dayElement.addEventListener('click', async () => {
                 try {
+                    const isOverride = day.reason_type === 'MANUAL_OVERRIDE';
+                    const reason = await showReasonPrompt(day.is_active, isOverride);
+                    
+                    if (reason === null) {
+                        return; // User cancelled
+                    }
+                    
                     const response = await fetch('/api/walking-bus-override', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            date: day.date.toISOString().split('T')[0]
+                            date: day.date.toISOString().split('T')[0],
+                            reason: reason
                         })
                     });
                     
@@ -259,33 +366,56 @@ document.addEventListener('DOMContentLoaded', async () => {
                     
                     const result = await response.json();
                     
-                    // Update the visual state of the day
-                    dayElement.className = `calendar-day ${result.is_active ? 'day-active' : 'day-inactive'}`;
+                    // Update visual state with all necessary classes
+                    const newClassList = ['calendar-day'];
+                    if (result.is_active) {
+                        newClassList.push('day-active');
+                    } else {
+                        newClassList.push('day-inactive');
+                    }
+                    if (result.reason_type === 'MANUAL_OVERRIDE') {
+                        newClassList.push('manual-override');
+                    }
                     if (isToday) {
-                        dayElement.classList.add('today');
+                        newClassList.push('today');
+                    }
+                    dayElement.className = newClassList.join(' ');
+                    
+                    // Update reason display
+                    const reasonElement = dayElement.querySelector('.day-reason');
+                    if (result.is_active && result.reason_type === 'MANUAL_OVERRIDE') {
+                        reasonElement.textContent = `${result.original_reason} → ${result.reason}`;
+                    } else {
+                        reasonElement.textContent = result.reason || '';
                     }
                     
-                    // Update the reason text
-                    const reasonElement = dayElement.querySelector('.day-reason');
-                    reasonElement.textContent = result.is_active ? '' : result.reason;
-                    
-                    // Update the local data
+                    // Update local data
                     day.is_active = result.is_active;
                     day.reason = result.reason;
+                    day.reason_type = result.reason_type;
+                    day.original_reason = result.original_reason;
+                    
                 } catch (error) {
                     console.error('Error toggling walking bus state:', error);
                     alert('Fehler beim Ändern des Status');
                 }
             });
-            
+
+            // Create day number element
             const dayNumber = document.createElement('div');
             dayNumber.className = 'day-number';
             dayNumber.textContent = day.date.getDate();
             
+            // Create reason display element
             const dayReason = document.createElement('div');
             dayReason.className = 'day-reason';
-            dayReason.textContent = day.is_active ? '' : day.reason;
+            if (day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+                dayReason.textContent = `${day.original_reason} → ${day.reason}`;
+            } else if (!day.is_active) {
+                dayReason.textContent = day.reason;
+            }
             
+            // Assemble the day element
             dayElement.appendChild(dayNumber);
             dayElement.appendChild(dayReason);
             grid.appendChild(dayElement);

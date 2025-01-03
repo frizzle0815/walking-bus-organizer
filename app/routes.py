@@ -612,7 +612,7 @@ def check_walking_bus_day(date, include_reason=False):
     override = WalkingBusOverride.query.filter_by(date=date).first()
     if override:
         return (override.is_active, 
-                "Manuell aktiviert" if override.is_active else "Manuell deaktiviert",
+                override.reason,  # Use the stored reason
                 "MANUAL_OVERRIDE") if include_reason else override.is_active
 
     # Get base schedule
@@ -666,6 +666,7 @@ def get_year_calendar():
             "INACTIVE_WEEKDAY": "Kein Bus",
             "WEEKEND": "Wochenende",
             "HOLIDAY": reason.replace("Es sind ", ""),  # Keep full holiday name
+            "MANUAL_OVERRIDE": reason, 
             "ACTIVE": ""
         }.get(reason_type, "")
         
@@ -684,26 +685,43 @@ def get_year_calendar():
 def toggle_walking_bus_override():
     data = request.get_json()
     date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    reason = data.get('reason')
     
-    # Check if override already exists
+    # Get original state
+    original_state, original_reason, original_type = check_walking_bus_day(date, include_reason=True)
+    
+    # Check for existing override
     override = WalkingBusOverride.query.filter_by(date=date).first()
     
     if override:
-        # Remove override to restore original state
+        # Removing override - restore original state
         db.session.delete(override)
+        new_state = original_state
+        display_reason = original_reason
+        reason_type = original_type
     else:
-        # Create new override with opposite of current state
-        current_state = check_walking_bus_day(date)
-        override = WalkingBusOverride(date=date, is_active=not current_state)
+        # Creating new override
+        if not reason:
+            return jsonify({"error": "Begründung angeben"}), 400
+            
+        override = WalkingBusOverride(
+            date=date, 
+            is_active=not original_state,
+            reason=reason
+        )
         db.session.add(override)
+        new_state = not original_state
+        display_reason = reason
+        reason_type = "MANUAL_OVERRIDE"
     
     db.session.commit()
     
-    # Return new state
-    new_state = check_walking_bus_day(date, include_reason=True)
     return jsonify({
-        "is_active": new_state[0],
-        "reason": new_state[1],
-        "reason_type": new_state[2]
+        "is_active": new_state,
+        "reason": display_reason,
+        "original_reason": original_reason,
+        "reason_type": reason_type
     })
+
+
 
