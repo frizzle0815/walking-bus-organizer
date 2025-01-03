@@ -1,5 +1,7 @@
 import os
 from app import create_app, db
+# Import all models through the models package
+from app import models  # This will import all models defined in __init__.py
 from flask_migrate import upgrade, init, migrate, stamp
 from sqlalchemy import text
 from alembic.util.exc import CommandError
@@ -7,49 +9,39 @@ from alembic.util.exc import CommandError
 app = create_app()
 app.app_context().push()
 
-def check_alembic_version():
-    """Check if alembic_version table exists and has data"""
+def check_db_structure():
+    """Check if all expected tables exist and have correct structure"""
     try:
         with db.engine.connect() as conn:
-            result = conn.execute(text("SELECT version_num FROM alembic_version"))
-            return result.scalar()
-    except Exception:
-        return None
+            # Get all existing tables from database
+            inspector = db.inspect(db.engine)
+            existing_tables = set(inspector.get_table_names())
+            
+            # Get all tables defined in models
+            model_tables = set(db.Model.metadata.tables.keys())
+            
+            # Compare existing tables with model tables
+            return existing_tables.issuperset(model_tables)
+    except Exception as e:
+        print(f"Error checking database structure: {e}")
+        return False
 
-# Get current version if it exists
-current_version = check_alembic_version()
-
-if current_version:
-    print(f"Found existing database with version: {current_version}")
+def handle_migrations():
+    """Initialize and handle database migrations"""
     if not os.path.exists('migrations'):
-        print("Recreating migrations structure...")
+        print("Creating new migrations directory...")
         init()
         
-        # Create an empty migration matching current DB state
-        with open(f'migrations/versions/{current_version}_initial_migration.py', 'w') as f:
-            f.write(f"""
-from alembic import op
-import sqlalchemy as sa
+    # Check if we need new migrations
+    with app.app_context():
+        if not check_db_structure():
+            print("Database structure needs updating, creating migration...")
+            migrate()
+            
+    print("Applying any pending migrations...")
+    upgrade()
 
-# revision identifiers
-revision = '{current_version}'
-down_revision = None
-branch_labels = None
-depends_on = None
-
-def upgrade():
-    pass
-
-def downgrade():
-    pass
-""")
-else:
-    print("Fresh database detected, initializing migrations...")
-    init()
-    migrate()
-
-print("Applying any pending migrations...")
-upgrade()
-
-print("Starting Flask app...")
-app.run(host="0.0.0.0", port=8000)
+if __name__ == "__main__":
+    handle_migrations()
+    print("Starting Flask app...")
+    app.run(host="0.0.0.0", port=8000)
