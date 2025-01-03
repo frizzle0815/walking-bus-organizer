@@ -10,7 +10,7 @@ class HolidayService:
         self.base_url = "https://openholidaysapi.org/"
         self.country = os.getenv('HOLIDAY_COUNTRY', 'DE')
         self.subdivision = os.getenv('HOLIDAY_SUBDIVISION', 'NW')
-    
+
     def update_holiday_cache(self):
         """
         Updates holiday cache for next 12 months and cleans up old entries
@@ -44,7 +44,7 @@ class HolidayService:
         start_date = today.strftime('%Y-%m-%d')
         end_date = (today + timedelta(days=365)).strftime('%Y-%m-%d')
         
-        # Construct API URL with correct parameters
+        # First: Get School Holidays
         url = f"{self.base_url}/SchoolHolidays"
         params = {
             'countryIsoCode': self.country,
@@ -54,13 +54,13 @@ class HolidayService:
             'subdivisionCode': f'{self.country}-{self.subdivision}'
         }
         
-        current_app.logger.info(f"Requesting holidays with params: {params}")
+        current_app.logger.info(f"Requesting school holidays with params: {params}")
         
         try:
             response = requests.get(url, params=params)
             response.raise_for_status()
             holidays = response.json()
-            current_app.logger.info(f"Retrieved {len(holidays)} holidays")
+            current_app.logger.info(f"Retrieved {len(holidays)} school holidays")
             
             for holiday in holidays:
                 start = datetime.strptime(holiday['startDate'], '%Y-%m-%d').date()
@@ -75,15 +75,46 @@ class HolidayService:
                         last_update=first_of_month
                     )
                     db.session.add(new_holiday)
-                    current_app.logger.info(f"Added holiday: {name} ({start} to {end})")
-        
+                    current_app.logger.info(f"Added school holiday: {name} ({start} to {end})")
+            
+            # Second: Get Public Holidays
+            url = f"{self.base_url}/PublicHolidays"
+            current_app.logger.info(f"Requesting public holidays with params: {params}")
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            public_holidays = response.json()
+            current_app.logger.info(f"Retrieved {len(public_holidays)} public holidays")
+            
+            for holiday in public_holidays:
+                start = datetime.strptime(holiday['startDate'], '%Y-%m-%d').date()
+                end = datetime.strptime(holiday['endDate'], '%Y-%m-%d').date()
+                name = next((n['text'] for n in holiday['name'] if n['language'] == 'DE'), 'Unbekannter Feiertag')
+                
+                # Check for overlap with existing holidays
+                existing_holiday = SchoolHoliday.query\
+                    .filter(SchoolHoliday.start_date <= end)\
+                    .filter(SchoolHoliday.end_date >= start)\
+                    .first()
+                
+                if not existing_holiday and end >= today:
+                    new_holiday = SchoolHoliday(
+                        start_date=start,
+                        end_date=end,
+                        name=name,
+                        last_update=first_of_month
+                    )
+                    db.session.add(new_holiday)
+                    current_app.logger.info(f"Added public holiday: {name} ({start} to {end})")
+            
             db.session.commit()
-            current_app.logger.info("Successfully committed holiday updates to database")
+            current_app.logger.info("Successfully committed all holiday updates to database")
             
         except Exception as e:
             current_app.logger.error(f"Error updating holiday cache: {str(e)}")
             db.session.rollback()
             raise
+
   
     def is_school_holiday(self, date):
         """

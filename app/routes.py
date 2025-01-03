@@ -615,6 +615,15 @@ def check_walking_bus_day(date, include_reason=False):
                 override.reason,  # Use the stored reason
                 "MANUAL_OVERRIDE") if include_reason else override.is_active
 
+    # Check for school holidays
+    holiday = SchoolHoliday.query\
+        .filter(SchoolHoliday.start_date <= date)\
+        .filter(SchoolHoliday.end_date >= date)\
+        .first()
+
+    if holiday:
+        return (False, f"Es sind {holiday.name}.", "HOLIDAY") if include_reason else False
+
     # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
@@ -628,16 +637,7 @@ def check_walking_bus_day(date, include_reason=False):
             return (False, f"{weekday_names[weekday]} findet kein Walking Bus statt.", "INACTIVE_WEEKDAY") if include_reason else False
         else:
             return (False, "Am Wochenende findet kein Walking Bus statt.", "WEEKEND") if include_reason else False
-    
-    # Check for school holidays
-    holiday = SchoolHoliday.query\
-        .filter(SchoolHoliday.start_date <= date)\
-        .filter(SchoolHoliday.end_date >= date)\
-        .first()
-
-    if holiday:
-        return (False, f"Es sind {holiday.name}.", "HOLIDAY") if include_reason else False
-    
+  
     # Base case: Walking Bus is active
     return (True, "Active", "ACTIVE") if include_reason else True
 
