@@ -371,6 +371,17 @@
           const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
           const navbar = document.querySelector('.navbar-collapse');
           
+          // Size control visibility logic
+          const sizeControlContainer = document.getElementById('size-control-container');
+          const currentPath = window.location.pathname;
+          
+          // Show size control only on index.html
+          if (currentPath === '/') {
+              sizeControlContainer.style.display = 'block';
+          } else {
+              sizeControlContainer.style.display = 'none';
+          }
+
           document.addEventListener('click', (event) => {
               // Check if navbar is expanded and click is outside navbar
               if (navbar.classList.contains('show') && 

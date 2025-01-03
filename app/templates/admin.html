@@ -257,14 +257,6 @@
      // Add a passive touchstart event listener to improve scrolling performance
      document.addEventListener('touchstart', function() {}, { passive: true });
 
-     // Size control only on index.html
-     const sizeControlContainer = document.getElementById('size-control-container');
-     if (window.location.pathname === '/') {
-         sizeControlContainer.style.display = 'block';
-     } else {
-         sizeControlContainer.style.display = 'none';
-     }
-
      // Load initial stations
      await initializeSchedule();
      await loadStations();
