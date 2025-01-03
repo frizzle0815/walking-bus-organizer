@@ -52,3 +52,9 @@ class SchoolHoliday(db.Model):
     end_date = db.Column(db.Date, nullable=False)
     name = db.Column(db.String(200), nullable=False)
     last_update = db.Column(db.Date, nullable=False)
+
+
+class WalkingBusOverride(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False)

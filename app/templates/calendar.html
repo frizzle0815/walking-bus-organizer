@@ -82,6 +82,25 @@
     .calendar-day {
         padding: 1px;
         aspect-ratio: 1;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .calendar-day:hover {
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .calendar-day:active {
+        transform: scale(0.95);
+    }
+
+    .calendar-day.day-active {
+        background-color: #a9e6b7;
+    }
+
+    .calendar-day.day-inactive {
+        background-color: #e9ecef;
     }
 
     .day-number {
@@ -220,6 +239,44 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (isToday) {
                 dayElement.classList.add('today');
             }
+            
+            // Add click handler for the day
+            dayElement.addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/api/walking-bus-override', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            date: day.date.toISOString().split('T')[0]
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    
+                    const result = await response.json();
+                    
+                    // Update the visual state of the day
+                    dayElement.className = `calendar-day ${result.is_active ? 'day-active' : 'day-inactive'}`;
+                    if (isToday) {
+                        dayElement.classList.add('today');
+                    }
+                    
+                    // Update the reason text
+                    const reasonElement = dayElement.querySelector('.day-reason');
+                    reasonElement.textContent = result.is_active ? '' : result.reason;
+                    
+                    // Update the local data
+                    day.is_active = result.is_active;
+                    day.reason = result.reason;
+                } catch (error) {
+                    console.error('Error toggling walking bus state:', error);
+                    alert('Fehler beim Ändern des Status');
+                }
+            });
             
             const dayNumber = document.createElement('div');
             dayNumber.className = 'day-number';

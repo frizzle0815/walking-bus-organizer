@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
 from flask import current_app as app
-from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday
+from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
@@ -608,6 +608,13 @@ def check_walking_bus_day(date, include_reason=False):
     Returns: 
         bool or (bool, str, str) depending on include_reason parameter
     """
+    # Check for manual override first
+    override = WalkingBusOverride.query.filter_by(date=date).first()
+    if override:
+        return (override.is_active, 
+                "Manuell aktiviert" if override.is_active else "Manuell deaktiviert",
+                "MANUAL_OVERRIDE") if include_reason else override.is_active
+
     # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
@@ -671,4 +678,32 @@ def get_year_calendar():
         current_date += timedelta(days=1)
     
     return jsonify(calendar_data)
+
+
+@bp.route("/api/walking-bus-override", methods=["POST"])
+def toggle_walking_bus_override():
+    data = request.get_json()
+    date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    
+    # Check if override already exists
+    override = WalkingBusOverride.query.filter_by(date=date).first()
+    
+    if override:
+        # Remove override to restore original state
+        db.session.delete(override)
+    else:
+        # Create new override with opposite of current state
+        current_state = check_walking_bus_day(date)
+        override = WalkingBusOverride(date=date, is_active=not current_state)
+        db.session.add(override)
+    
+    db.session.commit()
+    
+    # Return new state
+    new_state = check_walking_bus_day(date, include_reason=True)
+    return jsonify({
+        "is_active": new_state[0],
+        "reason": new_state[1],
+        "reason_type": new_state[2]
+    })
 
