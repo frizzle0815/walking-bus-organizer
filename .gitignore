@@ -2,4 +2,6 @@ migrations/*
 venv/*
 .vscode/*
 app/__pycache__/*
+app/services/__pycache__/*
 howtos.txt
+logs/*

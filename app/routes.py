@@ -2,14 +2,14 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
 from flask import current_app as app
-from .models import Station, Participant, CalendarStatus, db, WalkingBusSchedule
+from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday
+from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
-
 
 # Frontend Routes
 @bp.route('/')
@@ -20,6 +20,11 @@ def index():
 @bp.route("/admin")
 def admin():
     return render_template("admin.html")
+
+
+@bp.route("/calendar")
+def calendar_view():
+    return render_template("calendar.html")
 
 
 # Station Routes
@@ -114,7 +119,7 @@ def get_station_stats(station_id):
         today = get_current_date()
         
         # Use a different variable name to avoid conflict with function name
-        is_active_day = is_walking_bus_day(today)
+        is_active_day = check_walking_bus_day(today)
         
         active = sum(1 for p in station.participants if p.status_today) if is_active_day else 0
         
@@ -135,7 +140,7 @@ def get_stations_total_stats():
         total = sum(len(station.participants) for station in stations)
         
         today = get_current_date()
-        is_active_day = is_walking_bus_day(today)
+        is_active_day = check_walking_bus_day(today)
         
         # Sum up active participants across all stations
         active = sum(sum(1 for p in station.participants if p.status_today) 
@@ -295,18 +300,33 @@ def get_participant_weekday_status(participant_id, weekday):
 def initialize_daily_status():
     try:
         today = get_current_date()
+        app.logger.info(f"Initializing daily status for {today}")
+
+        # Update holiday cache first
+        holiday_service = HolidayService()
+        holiday_service.update_holiday_cache()
 
         # Delete all calendar entries from past dates
-        CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        deleted_count = CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        app.logger.info(f"Deleted {deleted_count} past calendar entries")
         db.session.commit()
 
-        walking_bus_day = is_walking_bus_day(today)
-        return jsonify({
+        app.logger.info("Checking walking bus day status")
+        walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
+        app.logger.info(f"Walking bus day status: {walking_bus_day}")
+
+        response = {
             "success": True,
             "currentDate": today.isoformat(),
-            "isWalkingBusDay": walking_bus_day
-        })
+            "isWalkingBusDay": walking_bus_day,
+            "reason": reason,
+            "reason_type": reason_type
+        }
+        app.logger.info(f"Returning response: {response}")
+        return jsonify(response)
     except Exception as e:
+        app.logger.error(f"Error in initialize_daily_status: {str(e)}")
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
@@ -396,41 +416,57 @@ def get_calendar_status(participant_id):
 @bp.route("/api/calendar-data/<int:participant_id>", methods=["GET"])
 def get_calendar_data(participant_id):
     try:
+        app.logger.info(f"Fetching calendar data for participant {participant_id}")
         participant = Participant.query.get_or_404(participant_id)
-        schedule = WalkingBusSchedule.query.first()
         today = get_current_date()
         
+        # Calculate dates for next 28 days starting from beginning of current week
         week_start = today - timedelta(days=today.weekday())
         dates_to_check = [week_start + timedelta(days=x) for x in range(28)]
         
+        app.logger.info(f"Checking dates from {dates_to_check[0]} to {dates_to_check[-1]}")
+
+        # Get existing calendar entries for the participant
         calendar_entries = CalendarStatus.query.filter(
             CalendarStatus.participant_id == participant_id,
             CalendarStatus.date.in_(dates_to_check)
         ).all()
         
+        app.logger.info(f"Found {len(calendar_entries)} existing calendar entries")
+        
         calendar_data = []
         for date in dates_to_check:
             weekday = WEEKDAY_MAPPING[date.weekday()]
-            is_schedule_day = getattr(schedule, weekday, False)
             default_status = getattr(participant, weekday, False)
             
+            # Find existing calendar entry if any
             calendar_entry = next(
                 (entry for entry in calendar_entries if entry.date == date),
                 None
             )
             
-            calendar_data.append({
+            # Get walking bus status from central function
+            is_active, reason = check_walking_bus_day(date, include_reason=True)
+            
+            entry_data = {
                 'date': date.isoformat(),
                 'weekday': weekday,
-                'is_schedule_day': is_schedule_day,
+                'is_schedule_day': is_active,
+                'reason': reason,
                 'is_past': date < today,
                 'status': calendar_entry.status if calendar_entry else default_status,
                 'is_today': date == today
-            })
+            }
+            calendar_data.append(entry_data)
+            app.logger.debug(f"Processed date {date}: {entry_data}")
         
+        app.logger.info(f"Successfully compiled calendar data with {len(calendar_data)} entries")
         return jsonify(calendar_data)
+        
     except Exception as e:
+        app.logger.error(f"Error in get_calendar_data: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 
 @bp.route("/api/update-future-entries", methods=["PUT"])
@@ -547,9 +583,76 @@ def manifest():
     return send_from_directory('static', 'manifest.json')
 
 
-def is_walking_bus_day(date):
+def check_walking_bus_day(date, include_reason=False):
+    """
+    Central function to determine if Walking Bus operates on a given date
+    Args:
+        date: The date to check
+        include_reason: If True, returns tuple (is_active, reason, reason_type), otherwise just boolean
+    Returns: 
+        bool or (bool, str, str) depending on include_reason parameter
+    """
+    # Get base schedule
     schedule = WalkingBusSchedule.query.first()
     if not schedule:
-        return False
+        return (False, "Achtung: Keine Planung angelegt!", "NO_SCHEDULE") if include_reason else False
+    
+    # Check weekday schedule
     weekday = date.weekday()
-    return getattr(schedule, WEEKDAY_MAPPING[weekday], False)
+    weekday_names = ['Montags', 'Dienstags', 'Mittwochs', 'Donnerstags', 'Freitags', 'Samstags', 'Sonntags']
+    if not getattr(schedule, WEEKDAY_MAPPING[weekday], False):
+        if weekday < 5:
+            return (False, f"{weekday_names[weekday]} findet kein Walking Bus statt.", "INACTIVE_WEEKDAY") if include_reason else False
+        else:
+            return (False, "Am Wochenende findet kein Walking Bus statt.", "WEEKEND") if include_reason else False
+    
+    # Check for school holidays
+    holiday = SchoolHoliday.query\
+        .filter(SchoolHoliday.start_date <= date)\
+        .filter(SchoolHoliday.end_date >= date)\
+        .first()
+
+    if holiday:
+        return (False, f"Es sind {holiday.name}.", "HOLIDAY") if include_reason else False
+    
+    # Base case: Walking Bus is active
+    return (True, "Active", "ACTIVE") if include_reason else True
+
+
+def update_holiday_cache():
+    service = HolidayService()
+    service.update_holiday_cache()
+
+
+@bp.route("/api/calendar/year", methods=["GET"])
+def get_year_calendar():
+    current_date = get_current_date()
+    # Set start date to first day of current month
+    start_date = current_date.replace(day=1)
+    end_date = current_date + timedelta(days=365)
+    
+    calendar_data = []
+    current_date = start_date
+    
+    while current_date <= end_date:
+        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
+        
+        # Map reason types to display text
+        display_reason = {
+            "NO_SCHEDULE": "Keine Planung",
+            "INACTIVE_WEEKDAY": "Kein Bus",
+            "WEEKEND": "Wochenende",
+            "HOLIDAY": reason.replace("Es sind ", ""),  # Keep full holiday name
+            "ACTIVE": ""
+        }.get(reason_type, "")
+        
+        calendar_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'reason': display_reason,
+            'reason_type': reason_type  # Include for potential styling
+        })
+        current_date += timedelta(days=1)
+    
+    return jsonify(calendar_data)
+

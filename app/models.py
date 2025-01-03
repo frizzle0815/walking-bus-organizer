@@ -1,10 +1,12 @@
 from . import db
 
+
 class Station(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     position = db.Column(db.Integer, nullable=False, default=0)  # Reihenfolge
     participants = db.relationship('Participant', backref='station', lazy=True, order_by='Participant.position')
+
 
 class Participant(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -20,6 +22,8 @@ class Participant(db.Model):
     sunday = db.Column(db.Boolean, default=True)
     status_today = db.Column(db.Boolean, default=True)  # True = gruen (nimmt teil)
     status_initialized_date = db.Column(db.DateTime)
+
+
 class CalendarStatus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     participant_id = db.Column(db.Integer, db.ForeignKey('participant.id'), nullable=False)
@@ -28,6 +32,7 @@ class CalendarStatus(db.Model):
     is_manual_override = db.Column(db.Boolean, default=False)  # Track if manually set
     
     participant = db.relationship('Participant', backref='calendar_entries')
+
 
 class WalkingBusSchedule(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -38,3 +43,12 @@ class WalkingBusSchedule(db.Model):
     friday = db.Column(db.Boolean, default=False)
     saturday = db.Column(db.Boolean, default=False)
     sunday = db.Column(db.Boolean, default=False)
+
+
+class SchoolHoliday(db.Model):
+    __tablename__ = 'school_holidays'
+    id = db.Column(db.Integer, primary_key=True)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    last_update = db.Column(db.Date, nullable=False)

@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid px-2 py-2">
+    <div id="calendar-container">
+        <!-- Calendar will be rendered here -->
+    </div>
+</div>
+
+<style>
+.container-fluid {
+    max-width: 100%;
+    padding: 0.5rem;
+}
+
+.month-container {
+    margin-bottom: 20px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    width: 95%; /* Reduced from 98vw */
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.month-header {
+    background: #414141;
+    color: white;
+    padding: 10px;
+    border-radius: 8px 8px 0 0;
+    text-align: center;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    padding: 5px;
+}
+
+.weekday-header {
+    text-align: center;
+    font-weight: bold;
+    padding: 5px;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    position: relative;
+}
+
+.day-active {
+    background-color: #a9e6b7;
+}
+
+.day-inactive {
+    background-color: #e9ecef;
+}
+
+.day-number {
+    font-weight: bold;
+}
+
+.day-reason {
+    font-size: 0.7rem;
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .calendar-grid {
+        font-size: 0.75rem;
+        gap: 1px;
+        padding: 1px;
+    }
+
+    .calendar-day {
+        padding: 1px;
+        aspect-ratio: 1;
+    }
+
+    .day-number {
+        font-size: 0.7rem;
+    }
+
+    .day-reason {
+        font-size: 0.55rem;
+        line-height: 1;
+        padding: 1px;
+    }
+
+    .weekday-header {
+        font-size: 0.65rem;
+        padding: 1px;
+    }
+}
+
+.calendar-day {
+    padding: 2px;
+    min-width: 0; /* Allows shrinking below content size */
+}
+
+.day-number {
+    font-size: 0.8rem;
+}
+
+.day-reason {
+    font-size: 0.6rem;
+    word-wrap: break-word;
+    hyphens: auto;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    line-height: 1.1;
+}
+
+/* Calculate width based on viewport */
+
+/* Make grid cells responsive */
+.calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+/* Adjust weekday headers */
+.weekday-header {
+    font-size: 0.7rem;
+    padding: 2px;
+}
+
+.today {
+    border: 2px solid #0d6efd;  /* Bootstrap primary blue */
+    position: relative;
+    z-index: 1;
+}
+
+.today::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-radius: 4px;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.25);  /* Subtle glow effect */
+    z-index: -1;
+}
+
+/* Extra small devices */
+@media (max-width: 375px) {
+    .calendar-grid {
+        font-size: 0.7rem;
+    }
+
+    .day-number {
+        font-size: 0.7rem;
+    }
+
+    .day-reason {
+        font-size: 0.5rem;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    const container = document.getElementById('calendar-container');
+    const response = await fetch('/api/calendar/year');
+    const calendarData = await response.json();
+    
+    // Group by months
+    const months = {};
+    calendarData.forEach(day => {
+        const date = new Date(day.date);
+        const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+        if (!months[monthKey]) {
+            months[monthKey] = [];
+        }
+        months[monthKey].push({...day, date: new Date(day.date)});
+    });
+    
+    // Render each month
+    Object.entries(months).forEach(([monthKey, days]) => {
+        const monthContainer = document.createElement('div');
+        monthContainer.className = 'month-container';
+        
+        // Add month header
+        const monthHeader = document.createElement('div');
+        monthHeader.className = 'month-header';
+        monthHeader.textContent = days[0].date.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+        monthContainer.appendChild(monthHeader);
+        
+        // Create calendar grid
+        const grid = document.createElement('div');
+        grid.className = 'calendar-grid';
+        
+        // Add weekday headers
+        ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
+            const dayHeader = document.createElement('div');
+            dayHeader.className = 'weekday-header';
+            dayHeader.textContent = day;
+            grid.appendChild(dayHeader);
+        });
+        
+        // Add empty cells for days before first of month
+        const firstDay = days[0].date;
+        const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // Monday is 0
+        for (let i = 0; i < firstDayOfWeek; i++) {
+            grid.appendChild(document.createElement('div'));
+        }
+        
+        // Add days
+        days.forEach(day => {
+            const dayElement = document.createElement('div');
+            const isToday = day.date.toDateString() === new Date().toDateString();
+            dayElement.className = `calendar-day ${day.is_active ? 'day-active' : 'day-inactive'}`;
+            if (isToday) {
+                dayElement.classList.add('today');
+            }
+            
+            const dayNumber = document.createElement('div');
+            dayNumber.className = 'day-number';
+            dayNumber.textContent = day.date.getDate();
+            
+            const dayReason = document.createElement('div');
+            dayReason.className = 'day-reason';
+            dayReason.textContent = day.is_active ? '' : day.reason;
+            
+            dayElement.appendChild(dayNumber);
+            dayElement.appendChild(dayReason);
+            grid.appendChild(dayElement);
+        });
+        
+        monthContainer.appendChild(grid);
+        container.appendChild(monthContainer);
+    });
+});
+</script>
+{% endblock %}
