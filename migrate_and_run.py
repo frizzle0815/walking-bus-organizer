@@ -36,12 +36,15 @@ def handle_migrations():
     
     if current_version:
         print(f"Found existing database with version: {current_version}")
-        if not os.path.exists('migrations'):
-            print("Recreating migrations structure...")
-            init()
     else:
-        print("Fresh database detected, initializing migrations...")
+        print("Fresh database detected.")
+    
+    # Check if the migrations directory exists
+    if not os.path.exists('migrations'):
+        print("Initializing migrations directory...")
         init()
+    else:
+        print("Migrations directory already exists.")
     
     # Always check for structural changes
     if not check_db_structure():
