@@ -1,4 +1,5 @@
-migrations/*
+migrations/__pycache__/*
+migrations/versions/__pycache__/*
 venv/*
 .vscode/*
 app/__pycache__/*
