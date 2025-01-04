@@ -1,10 +1,11 @@
 import os
 from app import create_app, db
-from flask_migrate import upgrade, init, migrate
+from flask_migrate import upgrade, init
 from sqlalchemy import text
 
 app = create_app()
 app.app_context().push()
+
 
 def check_alembic_version():
     """Check if alembic_version table exists and has data"""
@@ -15,8 +16,10 @@ def check_alembic_version():
     except Exception:
         return None
 
+
 # Get current version if it exists
 current_version = check_alembic_version()
+
 
 if current_version:
     print(f"Found existing database with version: {current_version}")
@@ -30,10 +33,6 @@ if not os.path.exists('migrations'):
 else:
     print("Migrations directory already exists.")
 
-# Always create a migration if the database structure needs updating
-if not current_version or not os.path.exists(f'migrations/versions/{current_version}_initial_migration.py'):
-    print("Creating initial migration script...")
-    migrate()
-
+# Apply any pending migrations
 print("Applying any pending migrations...")
 upgrade()
