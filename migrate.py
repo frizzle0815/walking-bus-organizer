@@ -6,7 +6,6 @@ from sqlalchemy import text
 app = create_app()
 app.app_context().push()
 
-
 def check_alembic_version():
     """Check if alembic_version table exists and has data"""
     try:
@@ -16,37 +15,24 @@ def check_alembic_version():
     except Exception:
         return None
 
-
 # Get current version if it exists
 current_version = check_alembic_version()
 
 if current_version:
     print(f"Found existing database with version: {current_version}")
-    if not os.path.exists('migrations'):
-        print("Recreating migrations structure...")
-        init()
-        
-        # Create an empty migration matching current DB state
-        with open(f'migrations/versions/{current_version}_initial_migration.py', 'w') as f:
-            f.write(f"""
-from alembic import op
-import sqlalchemy as sa
-
-# revision identifiers
-revision = '{current_version}'
-down_revision = None
-branch_labels = None
-depends_on = None
-
-def upgrade():
-    pass
-
-def downgrade():
-    pass
-""")
 else:
-    print("Fresh database detected, initializing migrations...")
+    print("Fresh database detected.")
+
+# Check if the migrations directory exists
+if not os.path.exists('migrations'):
+    print("Initializing migrations directory...")
     init()
+else:
+    print("Migrations directory already exists.")
+
+# Always create a migration if the database structure needs updating
+if not current_version or not os.path.exists(f'migrations/versions/{current_version}_initial_migration.py'):
+    print("Creating initial migration script...")
     migrate()
 
 print("Applying any pending migrations...")
