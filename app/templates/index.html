@@ -544,12 +544,13 @@
             const db = await dbPromise;
 
             // Initialize daily status and fetch stations
-            const response = (await axios.post('/api/initialize-daily-status')).data;
-            isWalkingBusDay = response.isWalkingBusDay;
+            const { data: dailyStatus } = await axios.post('/api/initialize-daily-status');
+            isWalkingBusDay = dailyStatus.isWalkingBusDay;
+
             const stations = (await axios.get('/api/stations')).data;
 
             // Render stations directly
-            await renderStations(stations, isWalkingBusDay);
+            await renderStations(stations, isWalkingBusDay, dailyStatus);
 
             // Store new states in IndexedDB
             const transaction = db.transaction(['participantStates'], 'readwrite');
@@ -562,6 +563,15 @@
                         today_status: participant.today_status
                     });
                 });
+            });
+
+            const stationsTransaction = db.transaction(['stationsData'], 'readwrite');
+            const stationsStore = stationsTransaction.objectStore('stationsData');
+            await stationsStore.put({
+                timestamp: 'latest',
+                stations: stations,
+                isWalkingBusDay: isWalkingBusDay,
+                dailyStatus: dailyStatus
             });
 
             updateConnectionStatus('connected');
@@ -588,7 +598,7 @@
                         const cachedData = await store.get('latest');
 
                         if (cachedData) {
-                            renderStations(cachedData.stations, cachedData.isWalkingBusDay);
+                            renderStations(cachedData.stations, cachedData.isWalkingBusDay, cachedData.dailyStatus);
                         }
                 }
             } else if (error.request) {
@@ -603,7 +613,7 @@
                     const cachedData = await store.get('latest');
 
                     if (cachedData) {
-                        renderStations(cachedData.stations, cachedData.isWalkingBusDay);
+                        renderStations(cachedData.stations, cachedData.isWalkingBusDay, cachedData.dailyStatus);
                     }
                 } catch (dbError) {
                     console.error('Error accessing cached data:', dbError);
@@ -619,26 +629,25 @@
 
 
 
-    async function renderStations(stations, isWalkingBusDay) {
+    async function renderStations(stations, isWalkingBusDay, dailyStatus) {
         const walkingbusAlert = document.getElementById('walkingbus-alert');
         const walkingbusReason = document.getElementById('walkingbus-reason');
         const noteAlert = document.getElementById('note-alert');
         const walkingbusNote = document.getElementById('walkingbus-note');
 
         // Get status with reason from server
-        const response = await axios.post('/api/initialize-daily-status');
-        const serverDate = new Date(response.data.currentDate);
+        const serverDate = new Date(dailyStatus.currentDate);
 
         // Show/hide alert and set reason
         walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-        if (!isWalkingBusDay && response.data.reason) {
-            walkingbusReason.textContent = response.data.reason;
+        if (!isWalkingBusDay && dailyStatus.reason) {
+            walkingbusReason.textContent = dailyStatus.reason;
         }
 
         // Show/hide note alert and set note
-        noteAlert.classList.toggle('d-none', !response.data.note);
-        if (response.data.note) {
-            walkingbusNote.textContent = response.data.note;
+        noteAlert.classList.toggle('d-none', !dailyStatus.note);
+        if (dailyStatus.note) {
+            walkingbusNote.textContent = dailyStatus.note;
         }
 
         const stationsContainer = document.getElementById('stations');
