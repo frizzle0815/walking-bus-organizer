@@ -1,4 +1,5 @@
 from . import db
+from datetime import time
 
 
 class Station(db.Model):
@@ -36,34 +37,38 @@ class CalendarStatus(db.Model):
 
 class WalkingBusSchedule(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    
+    # Default times as Python time objects
+    DEFAULT_START = time(7, 20)  # 07:20
+    DEFAULT_END = time(8, 0)     # 08:00
 
     monday = db.Column(db.Boolean, default=False)
-    monday_start = db.Column(db.Time, nullable=False, default="07:20")
-    monday_end = db.Column(db.Time, nullable=False, default="08:00")
+    monday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    monday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
     
     tuesday = db.Column(db.Boolean, default=False)
-    tuesday_start = db.Column(db.Time, nullable=False, default="07:20")
-    tuesday_end = db.Column(db.Time, nullable=False, default="08:00")
+    tuesday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    tuesday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
     
     wednesday = db.Column(db.Boolean, default=False)
-    wednesday_start = db.Column(db.Time, nullable=False, default="07:20")
-    wednesday_end = db.Column(db.Time, nullable=False, default="08:00")
+    wednesday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    wednesday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
     
     thursday = db.Column(db.Boolean, default=False)
-    thursday_start = db.Column(db.Time, nullable=False, default="07:20")
-    thursday_end = db.Column(db.Time, nullable=False, default="08:00")
+    thursday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    thursday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
     
     friday = db.Column(db.Boolean, default=False)
-    friday_start = db.Column(db.Time, nullable=False, default="07:20")
-    friday_end = db.Column(db.Time, nullable=False, default="08:00")
+    friday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    friday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
     
     saturday = db.Column(db.Boolean, default=False)
-    saturday_start = db.Column(db.Time, nullable=False, default="07:20")
-    saturday_end = db.Column(db.Time, nullable=False, default="08:00")
+    saturday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    saturday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
     
     sunday = db.Column(db.Boolean, default=False)
-    sunday_start = db.Column(db.Time, nullable=False, default="07:20")
-    sunday_end = db.Column(db.Time, nullable=False, default="08:00")
+    sunday_start = db.Column(db.Time, nullable=False, default=DEFAULT_START)
+    sunday_end = db.Column(db.Time, nullable=False, default=DEFAULT_END)
 
 
 class SchoolHoliday(db.Model):
