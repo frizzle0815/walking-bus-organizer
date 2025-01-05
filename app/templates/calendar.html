@@ -52,17 +52,21 @@
 }
 
 .calendar-day {
-    aspect-ratio: 1;
+    aspect-ratio: 0.6;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start; /* Align items to the top */
+    justify-content: flex-start;
     border-radius: 4px;
     font-size: 0.9rem;
     position: relative;
-    padding: 2px;
+    padding: 4px !important; /* Force consistent padding */
     min-width: 0;
-    overflow: hidden; /* Ensure content doesn't overflow */
+    min-height: 40px;
+    height: 100%;
+    box-sizing: border-box;
+    margin: 0; /* Ensure no margins affect size */
+    border: none; /* Reset any border */
 }
 
 .calendar-day.manual-override {
@@ -102,18 +106,32 @@
 
 .day-reason {
     font-size: 0.6rem;
-    word-wrap: break-word;
-    hyphens: auto;
-    overflow-wrap: break-word;
     max-width: 100%;
     line-height: 1.1;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    word-wrap: break-word;         /* Forces long words to break */
+    word-break: break-word;        /* Modern way to break words */
+    overflow-wrap: break-word;     /* Ensures words break at any point if needed */
 }
 
-.day-reason, .day-note {
-    max-height: 2rem; /* Limit the height */
-    overflow: hidden; /* Hide overflow content */
-    text-overflow: ellipsis; /* Add ellipsis for overflow text */
-    white-space: nowrap; /* Prevent text from wrapping */
+.day-note {
+    font-size: 0.6rem;
+    max-width: 100%;
+    line-height: 1.1;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    word-wrap: break-word;         /* Forces long words to break */
+    word-break: break-word;        /* Modern way to break words */
+    overflow-wrap: break-word;     /* Ensures words break at any point if needed */
 }
 
 @media (max-width: 768px) {
@@ -125,7 +143,7 @@
 
     .calendar-day {
         padding: 1px;
-        aspect-ratio: 1;
+        padding: 1px;
         cursor: pointer;
         transition: all 0.2s ease;
     }
@@ -135,12 +153,7 @@
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 
-    .calendar-day:active {
-        transform: scale(0.95);
-    }
-
     .calendar-day.day-active {
-        transform: scale(0.95);
         background-color: #a9e6b7;
     }
 
@@ -157,7 +170,6 @@
         font-size: 0.55rem;
         line-height: 1;
         padding: 1px;
-        max-height: 1.5rem; /* Adjust for smaller screens */
     }
 
     .weekday-header {
