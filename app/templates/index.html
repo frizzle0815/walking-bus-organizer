@@ -237,7 +237,8 @@
 
     .status-button:disabled {
         opacity: 0.7;
-        cursor: wait;
+        cursor: not-allowed;
+        pointer-events: none;
     }
 
     @keyframes warningPulse {
@@ -862,6 +863,7 @@
         if (!isWalkingBusDay) {
             button.classList.add('btn-outline-secondary', 'status-button-disabled');
             button.innerHTML = '<i class="fas fa-times"></i>';
+            button.disabled = true;
         } else {
             button.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
             button.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
