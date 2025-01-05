@@ -316,7 +316,8 @@ def get_participant_weekday_status(participant_id, weekday):
 def initialize_daily_status():
     try:
         today = get_current_date()
-        app.logger.info(f"Initializing daily status for {today}")
+        current_time = get_current_time().time()
+        app.logger.info(f"Initializing daily status for {today} at {current_time}")
 
         # Update holiday cache first
         holiday_service = HolidayService()
@@ -334,6 +335,19 @@ def initialize_daily_status():
         walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
+        # Check schedule end time if walking bus is active
+        if walking_bus_day:
+            schedule = WalkingBusSchedule.query.first()
+            if schedule:
+                weekday = today.weekday()
+                end_time = getattr(schedule, f"{WEEKDAY_MAPPING[weekday]}_end")
+                
+                if end_time and current_time > end_time:
+                    walking_bus_day = False
+                    reason = "Der Walking Bus hat heute bereits stattgefunden."
+                    reason_type = "TIME_PASSED"
+                    app.logger.info(f"Walking bus time passed. End time was {end_time}")
+
         display_reason = reason["full_reason"] if reason_type == "HOLIDAY" else reason
 
         response = {
@@ -350,6 +364,7 @@ def initialize_daily_status():
         app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
 
 
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
