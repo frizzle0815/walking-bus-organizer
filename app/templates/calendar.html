@@ -49,12 +49,13 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start; /* Align items to the top */
     border-radius: 4px;
     font-size: 0.9rem;
     position: relative;
     padding: 2px;
-    min-width: 0; /* Allows shrinking below content size */
+    min-width: 0;
+    overflow: hidden; /* Ensure content doesn't overflow */
 }
 
 .calendar-day.manual-override {
@@ -89,6 +90,7 @@
 
 .day-number {
     font-weight: bold;
+    margin-bottom: 4px; /* Add some space below the date */
 }
 
 .day-reason {
@@ -98,6 +100,13 @@
     overflow-wrap: break-word;
     max-width: 100%;
     line-height: 1.1;
+}
+
+.day-reason, .day-note {
+    max-height: 2rem; /* Limit the height */
+    overflow: hidden; /* Hide overflow content */
+    text-overflow: ellipsis; /* Add ellipsis for overflow text */
+    white-space: nowrap; /* Prevent text from wrapping */
 }
 
 @media (max-width: 768px) {
@@ -124,6 +133,7 @@
     }
 
     .calendar-day.day-active {
+        transform: scale(0.95);
         background-color: #a9e6b7;
     }
 
@@ -133,12 +143,14 @@
 
     .day-number {
         font-size: 0.7rem;
+        margin-bottom: 2px; /* Adjust spacing for smaller screens */
     }
 
-    .day-reason {
+    .day-reason, .day-note {
         font-size: 0.55rem;
         line-height: 1;
         padding: 1px;
+        max-height: 1.5rem; /* Adjust for smaller screens */
     }
 
     .weekday-header {
@@ -419,11 +431,23 @@ async function showReasonPrompt(isCurrentlyActive, isOverride, day, dayElement) 
 }
 
 
-document.addEventListener('DOMContentLoaded', async () => {
-    const container = document.getElementById('calendar-container');
-    const response = await fetch('/api/calendar/year');
-    const calendarData = await response.json();
-    
+async function loadMonthSequentially(year, month) {
+    try {
+        const response = await fetch(`/api/calendar/months/${year}/${month}/1`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Error loading month:', error);
+        // Optionally show user feedback
+        return []; // Return empty array to continue rendering
+    }
+}
+
+
+function renderMonths(calendarData, container) {
     // Group by months
     const months = {};
     calendarData.forEach(day => {
@@ -434,11 +458,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         months[monthKey].push({...day, date: new Date(day.date)});
     });
-    
+
     // Render each month
     Object.entries(months).forEach(([monthKey, days]) => {
+        // Skip if month is already rendered
+        const existingMonth = document.querySelector(`[data-month-key="${monthKey}"]`);
+        if (existingMonth) return;
+
         const monthContainer = document.createElement('div');
         monthContainer.className = 'month-container';
+        monthContainer.setAttribute('data-month-key', monthKey);
         
         // Add month header
         const monthHeader = document.createElement('div');
@@ -578,7 +607,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         monthContainer.appendChild(grid);
         container.appendChild(monthContainer);
     });
+}
+
+async function loadMonthSequentially(year, month) {
+    const response = await fetch(`/api/calendar/months/${year}/${month}/1`);
+    return await response.json();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const container = document.getElementById('calendar-container');
+    const currentDate = new Date();
+    let currentYear = currentDate.getFullYear();
+    let currentMonth = currentDate.getMonth();
+    
+    // Lade 12 Monate sequentiell
+    for (let i = 0; i < 12; i++) {
+        const monthData = await loadMonthSequentially(currentYear, currentMonth);
+        renderMonths(monthData, container);
+        
+        // Berechne nächsten Monat
+        currentMonth++;
+        if (currentMonth > 11) {
+            currentMonth = 0;
+            currentYear++;
+        }
+    }
 });
+
 
 function updateDayDisplay(dayElement, dayData) {
     // Update note display

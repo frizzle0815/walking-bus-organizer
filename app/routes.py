@@ -334,11 +334,13 @@ def initialize_daily_status():
         walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
+        display_reason = reason["full_reason"] if reason_type == "HOLIDAY" else reason
+
         response = {
             "success": True,
             "currentDate": today.isoformat(),
             "isWalkingBusDay": walking_bus_day,
-            "reason": reason,
+            "reason": display_reason,
             "reason_type": reason_type,
             "note": daily_note.note if daily_note else None
         }
@@ -626,7 +628,10 @@ def check_walking_bus_day(date, include_reason=False):
         .first()
 
     if holiday:
-        return (False, f"Es sind {holiday.name}.", "HOLIDAY") if include_reason else False
+        # Return tuple with both display name and full reason
+        short_reason = holiday.name
+        full_reason = f"Es sind {holiday.name}."
+        return (False, {"short_reason": short_reason, "full_reason": full_reason}, "HOLIDAY") if include_reason else False
 
     # Get base schedule
     schedule = WalkingBusSchedule.query.first()
@@ -687,6 +692,46 @@ def get_year_calendar():
         current_date += timedelta(days=1)
     
     return jsonify(calendar_data)
+
+
+@bp.route('/api/calendar/months/<int:year>/<int:month>/<int:count>')
+def get_calendar_months(year, month, count):
+    # Calculate start and end date for exactly one month
+    start_date = datetime(year, month + 1, 1).date()
+    
+    if month == 11:  # December
+        end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+    else:
+        end_date = datetime(year, month + 2, 1).date() - timedelta(days=1)
+    
+    calendar_data = []
+    current_date = start_date
+    
+    while current_date <= end_date:
+        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
+        daily_note = DailyNote.query.filter_by(date=current_date).first()
+        
+        # Map reason types to display text - keeping the original mapping
+        display_reason = {
+            "NO_SCHEDULE": "Keine Planung",
+            "INACTIVE_WEEKDAY": "Kein Bus",
+            "WEEKEND": "Wochenende",
+            "HOLIDAY": reason["short_reason"] if reason_type == "HOLIDAY" else reason,
+            "MANUAL_OVERRIDE": reason,
+            "ACTIVE": ""
+        }.get(reason_type, "")
+        
+        calendar_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'reason': display_reason,
+            'reason_type': reason_type,
+            'note': daily_note.note if daily_note else None
+        })
+        current_date += timedelta(days=1)
+    
+    return jsonify(calendar_data)
+
 
 
 @bp.route("/api/walking-bus-override", methods=["POST"])
