@@ -359,14 +359,43 @@ def get_schedule():
         schedule = WalkingBusSchedule()
         db.session.add(schedule)
         db.session.commit()
+    
     return jsonify({
-        "monday": schedule.monday,
-        "tuesday": schedule.tuesday,
-        "wednesday": schedule.wednesday,
-        "thursday": schedule.thursday,
-        "friday": schedule.friday,
-        "saturday": schedule.saturday,
-        "sunday": schedule.sunday
+        "monday": {
+            "active": schedule.monday,
+            "start": schedule.monday_start.strftime("%H:%M") if schedule.monday_start else None,
+            "end": schedule.monday_end.strftime("%H:%M") if schedule.monday_end else None
+        },
+        "tuesday": {
+            "active": schedule.tuesday,
+            "start": schedule.tuesday_start.strftime("%H:%M") if schedule.tuesday_start else None,
+            "end": schedule.tuesday_end.strftime("%H:%M") if schedule.tuesday_end else None
+        },
+        "wednesday": {
+            "active": schedule.wednesday,
+            "start": schedule.wednesday_start.strftime("%H:%M") if schedule.wednesday_start else None,
+            "end": schedule.wednesday_end.strftime("%H:%M") if schedule.wednesday_end else None
+        },
+        "thursday": {
+            "active": schedule.thursday,
+            "start": schedule.thursday_start.strftime("%H:%M") if schedule.thursday_start else None,
+            "end": schedule.thursday_end.strftime("%H:%M") if schedule.thursday_end else None
+        },
+        "friday": {
+            "active": schedule.friday,
+            "start": schedule.friday_start.strftime("%H:%M") if schedule.friday_start else None,
+            "end": schedule.friday_end.strftime("%H:%M") if schedule.friday_end else None
+        },
+        "saturday": {
+            "active": schedule.saturday,
+            "start": schedule.saturday_start.strftime("%H:%M") if schedule.saturday_start else None,
+            "end": schedule.saturday_end.strftime("%H:%M") if schedule.saturday_end else None
+        },
+        "sunday": {
+            "active": schedule.sunday,
+            "start": schedule.sunday_start.strftime("%H:%M") if schedule.sunday_start else None,
+            "end": schedule.sunday_end.strftime("%H:%M") if schedule.sunday_end else None
+        }
     })
 
 
@@ -379,7 +408,16 @@ def update_schedule():
         db.session.add(schedule)
     
     for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
-        setattr(schedule, day, data.get(day, False))
+        day_data = data.get(day, {})
+        setattr(schedule, day, day_data.get('active', False))
+        
+        start_time = day_data.get('start')
+        end_time = day_data.get('end')
+        
+        if start_time:
+            setattr(schedule, f"{day}_start", datetime.strptime(start_time, "%H:%M").time())
+        if end_time:
+            setattr(schedule, f"{day}_end", datetime.strptime(end_time, "%H:%M").time())
     
     db.session.commit()
     return jsonify({"success": True})
@@ -654,44 +692,6 @@ def check_walking_bus_day(date, include_reason=False):
 def update_holiday_cache():
     service = HolidayService()
     service.update_holiday_cache()
-
-
-@bp.route("/api/calendar/year", methods=["GET"])
-def get_year_calendar():
-    current_date = get_current_date()
-    # Set start date to first day of current month
-    start_date = current_date.replace(day=1)
-    end_date = current_date + timedelta(days=365)
-    
-    calendar_data = []
-    current_date = start_date
-    
-    while current_date <= end_date:
-        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
-        
-        # Get note for this date
-        daily_note = DailyNote.query.filter_by(date=current_date).first()
-
-        # Map reason types to display text
-        display_reason = {
-            "NO_SCHEDULE": "Keine Planung",
-            "INACTIVE_WEEKDAY": "Kein Bus",
-            "WEEKEND": "Wochenende",
-            "HOLIDAY": reason.replace("Es sind ", ""),  # Keep full holiday name
-            "MANUAL_OVERRIDE": reason, 
-            "ACTIVE": ""
-        }.get(reason_type, "")
-        
-        calendar_data.append({
-            'date': current_date.isoformat(),
-            'is_active': is_active,
-            'reason': display_reason,
-            'reason_type': reason_type,
-            'note': daily_note.note if daily_note else None
-        })
-        current_date += timedelta(days=1)
-    
-    return jsonify(calendar_data)
 
 
 @bp.route('/api/calendar/months/<int:year>/<int:month>/<int:count>')

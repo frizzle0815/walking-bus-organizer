@@ -11,38 +11,151 @@
         <div class="card-header bg-primary text-white">
             <h5 class="mb-0">Walking Bus Schedule</h5>
         </div>
-        <div class="card-body">
-            <div class="d-flex justify-content-between">
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-monday" data-day="monday">
-                    <label class="form-check-label" for="schedule-monday">Mo</label>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-tuesday" data-day="tuesday">
-                    <label class="form-check-label" for="schedule-tuesday">Di</label>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-wednesday" data-day="wednesday">
-                    <label class="form-check-label" for="schedule-wednesday">Mi</label>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-thursday" data-day="thursday">
-                    <label class="form-check-label" for="schedule-thursday">Do</label>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-friday" data-day="friday">
-                    <label class="form-check-label" for="schedule-friday">Fr</label>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-saturday" data-day="saturday">
-                    <label class="form-check-label" for="schedule-saturday">Sa</label>
-                </div>
-                <div class="form-check">
-                    <input type="checkbox" class="form-check-input schedule-day" id="schedule-sunday" data-day="sunday">
-                    <label class="form-check-label" for="schedule-sunday">So</label>
-                </div>
-            </div>
-        </div>
+            <div class="card-body">
+             <div class="schedule-container">
+                 <div class="days-row d-flex justify-content-between mb-3">
+                     <!-- Monday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-monday" data-day="monday">
+                             <label class="form-check-label" for="schedule-monday">Mo</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="monday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="monday" 
+                                    id="monday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="monday" 
+                                    id="monday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+         
+                     <!-- Tuesday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-tuesday" data-day="tuesday">
+                             <label class="form-check-label" for="schedule-tuesday">Di</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="tuesday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="tuesday" 
+                                    id="tuesday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="tuesday" 
+                                    id="tuesday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+         
+                     <!-- Wednesday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-wednesday" data-day="wednesday">
+                             <label class="form-check-label" for="schedule-wednesday">Mi</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="wednesday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="wednesday" 
+                                    id="wednesday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="wednesday" 
+                                    id="wednesday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+         
+                     <!-- Thursday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-thursday" data-day="thursday">
+                             <label class="form-check-label" for="schedule-thursday">Do</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="thursday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="thursday" 
+                                    id="thursday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="thursday" 
+                                    id="thursday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+         
+                     <!-- Friday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-friday" data-day="friday">
+                             <label class="form-check-label" for="schedule-friday">Fr</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="friday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="friday" 
+                                    id="friday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="friday" 
+                                    id="friday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+         
+                     <!-- Saturday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-saturday" data-day="saturday">
+                             <label class="form-check-label" for="schedule-saturday">Sa</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="saturday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="saturday" 
+                                    id="saturday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="saturday" 
+                                    id="saturday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+         
+                     <!-- Sunday -->
+                     <div class="day-column text-center">
+                         <div class="form-check">
+                             <input type="checkbox" class="form-check-input schedule-day" id="schedule-sunday" data-day="sunday">
+                             <label class="form-check-label" for="schedule-sunday">So</label>
+                         </div>
+                         <div class="time-inputs mt-2" id="sunday-times">
+                             <input type="time" class="form-control time-input start-time mb-1" 
+                                    data-day="sunday" 
+                                    id="sunday-start"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                             <input type="time" class="form-control time-input end-time" 
+                                    data-day="sunday" 
+                                    id="sunday-end"
+                                    pattern="[0-9]{2}:[0-9]{2}"
+                                    required>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+         </div>
     </div>
     
     <!-- Add Station Button -->
@@ -122,6 +235,62 @@
     </div>
 </div>
 <style>
+.day-column {
+    flex: 1;
+    min-width: 80px;
+    padding: 0 4px;
+}
+
+.time-input {
+    width: 100%;
+    font-size: 0.9rem;
+    /* Ensure minimum width for mobile time inputs */
+    min-width: 85px;
+    /* Add padding for the clock icon */
+    padding-right: 30px !important;
+}
+
+/* Add empty-time class and not(:disabled) check for the red border */
+.time-input.empty-time:required:not(:disabled) {
+    border-color: #dc3545;
+}
+
+/* Keep the valid state handler */
+.time-input:required:valid {
+    border-color: var(--bs-border-color);
+}
+
+/* Keep the asterisk styling */
+.time-input.empty-time:required:not(:disabled)::after {
+    content: "*";
+    color: #dc3545;
+    margin-left: 1px;
+}
+
+/* Specific mobile adjustments */
+@media (max-width: 576px) {
+    .day-column {
+        min-width: 40px;
+        padding: 0 2px;
+    }
+    
+    .time-input {
+        font-size: 0.8rem;
+        min-width: 30px;
+        height: 38px;
+        padding-right: 25px !important;
+    }
+
+    /* Show clock icon only when input has empty-time class and is enabled */
+    .time-input.empty-time:not(:disabled) {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23666666'%3E%3Cpath d='M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 5px center;
+        background-size: 16px;
+    }
+
+}
+
 /* Prevent text selection for app like experience */
 *:not(input, textarea) {
     user-select: none; /* Prevent text selection */
@@ -351,17 +520,37 @@
      const response = await fetch('/api/walking-bus-schedule');
      const schedule = await response.json();
 
-     // Set initial checkbox states
-     Object.entries(schedule).forEach(([day, enabled]) => {
-         document.getElementById(`schedule-${day}`).checked = enabled;
+     // Set initial checkbox and time input states
+     Object.entries(schedule).forEach(([day, dayData]) => {
+         // Set checkbox state
+         const checkbox = document.getElementById(`schedule-${day}`);
+         checkbox.checked = dayData.active;
+         
+         // Set time input values and states
+         const startInput = document.getElementById(`${day}-start`);
+         const endInput = document.getElementById(`${day}-end`);
+         
+         if (startInput && endInput) {
+             startInput.value = dayData.start || '';
+             endInput.value = dayData.end || '';
+             startInput.disabled = !dayData.active;
+             endInput.disabled = !dayData.active;
+         }
      });
 
      // Add event listeners to schedule checkboxes
      document.querySelectorAll('.schedule-day').forEach(checkbox => {
          checkbox.addEventListener('change', async () => {
              const newSchedule = {};
+             
+             // Collect all schedule data including times
              document.querySelectorAll('.schedule-day').forEach(cb => {
-                 newSchedule[cb.dataset.day] = cb.checked;
+                 const day = cb.dataset.day;
+                 newSchedule[day] = {
+                     active: cb.checked,
+                     start: document.getElementById(`${day}-start`).value,
+                     end: document.getElementById(`${day}-end`).value
+                 };
              });
 
              try {
@@ -371,19 +560,31 @@
                      body: JSON.stringify(newSchedule)
                  });
 
-                 // Only update the disabled state of checkboxes, not their checked state
+                 // Update participant checkboxes and time inputs
                  document.querySelectorAll('.participant-card').forEach(participantCard => {
-                     Object.entries(newSchedule).forEach(([day, enabled]) => {
+                     Object.entries(newSchedule).forEach(([day, dayData]) => {
+                         // Update participant day checkboxes
                          const dayCheckbox = participantCard.querySelector(`.${day}`);
                          if (dayCheckbox) {
-                             dayCheckbox.disabled = !enabled;
+                             dayCheckbox.disabled = !dayData.active;
                              const label = dayCheckbox.nextElementSibling;
                              if (label) {
-                                 label.classList.toggle('text-muted', !enabled);
+                                 label.classList.toggle('text-muted', !dayData.active);
                              }
                          }
                      });
                  });
+
+                 // Update time input states
+                 Object.entries(newSchedule).forEach(([day, dayData]) => {
+                     const startInput = document.getElementById(`${day}-start`);
+                     const endInput = document.getElementById(`${day}-end`);
+                     if (startInput && endInput) {
+                         startInput.disabled = !dayData.active;
+                         endInput.disabled = !dayData.active;
+                     }
+                 });
+
              } catch (error) {
                  console.error('Failed to update schedule:', error);
                  checkbox.checked = !checkbox.checked;
@@ -391,6 +592,49 @@
              }
          });
      });
+
+     // Add event listeners to time inputs
+     document.querySelectorAll('.time-input').forEach(timeInput => {
+         // Initial check
+         if (!timeInput.value) {
+             timeInput.classList.add('empty-time');
+         }
+         
+         // Check on input
+         timeInput.addEventListener('input', () => {
+             if (timeInput.value) {
+                 timeInput.classList.remove('empty-time');
+             } else {
+                 timeInput.classList.add('empty-time');
+             }
+         });
+
+         timeInput.addEventListener('change', async () => {
+             const newSchedule = {};
+             
+             // Collect all schedule data
+             document.querySelectorAll('.schedule-day').forEach(cb => {
+                 const day = cb.dataset.day;
+                 newSchedule[day] = {
+                     active: cb.checked,
+                     start: document.getElementById(`${day}-start`).value,
+                     end: document.getElementById(`${day}-end`).value
+                 };
+             });
+
+             try {
+                 await fetch('/api/walking-bus-schedule', {
+                     method: 'PUT',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify(newSchedule)
+                 });
+             } catch (error) {
+                 console.error('Failed to update schedule times:', error);
+                 alert('Failed to update schedule times. Please try again.');
+             }
+         });
+     });
+
 
      async function createStationCard(station) {
          const newStation = stationTemplate.cloneNode(true);

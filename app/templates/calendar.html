@@ -8,6 +8,13 @@
 </div>
 
 <style>
+*:not(input, textarea) {
+    user-select: none; /* Prevent text selection */
+    -webkit-user-select: none; /* For Safari */
+    -moz-user-select: none; /* For Firefox */
+    -ms-user-select: none; /* For IE10+/Edge */
+}
+
 .container-fluid {
     max-width: 100%;
     padding: 0.5rem;

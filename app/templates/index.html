@@ -533,7 +533,7 @@
     }
 
 
-    async function loadStations() { 
+    async function loadStations() {
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
             return;
@@ -543,16 +543,36 @@
         try {
             const db = await dbPromise;
 
-            // Initialize daily status and fetch stations
+            // Schedule validation
+            const scheduleResponse = await axios.get('/api/walking-bus-schedule');
+            const schedule = scheduleResponse.data;
+            
+            const missingTimes = Object.entries(schedule)
+                .filter(([_, dayData]) => dayData.active && (!dayData.start || !dayData.end))
+                .map(([day, _]) => day);
+                
+            if (missingTimes.length > 0) {
+                const alertsContainer = document.getElementById('alerts-container');
+                if (alertsContainer) {
+                    alertsContainer.innerHTML = `
+                        <div class="alert alert-warning" role="alert">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Bitte konfigurieren Sie die Zeiten für folgende Tage: 
+                            ${missingTimes.map(day => day.charAt(0).toUpperCase() + day.slice(1)).join(', ')}
+                        </div>
+                    `;
+                }
+                updateConnectionStatus('connected');
+                return;
+            }
+
+            // Load and render live data
             const { data: dailyStatus } = await axios.post('/api/initialize-daily-status');
             isWalkingBusDay = dailyStatus.isWalkingBusDay;
-
             const stations = (await axios.get('/api/stations')).data;
-
-            // Render stations directly
             await renderStations(stations, isWalkingBusDay, dailyStatus);
 
-            // Store new states in IndexedDB
+            // Cache data in IndexedDB
             const transaction = db.transaction(['participantStates'], 'readwrite');
             const store = transaction.objectStore('participantStates');
             
@@ -578,55 +598,23 @@
 
         } catch (error) {
             console.error('Error loading stations:', error);
+            updateConnectionStatus('disconnected');
 
-            // Handle different types of errors
-            if (error.response) {
-                // Server responded with error status
-                const statusCode = error.response.status;
-                switch (statusCode) {
-                    case 401:
-                        window.location.href = '/login';
-                        break;
-                    case 503:
-                        updateConnectionStatus('disconnected');
-                        break;
-                    default:
-                        // Try to load from IndexedDB as fallback
-                        const db = await dbPromise;
-                        const tx = db.transaction(['stationsData'], 'readonly');
-                        const store = tx.objectStore('stationsData');
-                        const cachedData = await store.get('latest');
+            // Try to load cached data
+            try {
+                const db = await dbPromise;
+                const tx = db.transaction(['stationsData'], 'readonly');
+                const store = tx.objectStore('stationsData');
+                const cachedData = await store.get('latest');
 
-                        if (cachedData) {
-                            renderStations(cachedData.stations, cachedData.isWalkingBusDay, cachedData.dailyStatus);
-                        }
+                if (cachedData) {
+                    await renderStations(cachedData.stations, cachedData.isWalkingBusDay, cachedData.dailyStatus);
                 }
-            } else if (error.request) {
-                // Network error
-                updateConnectionStatus('disconnected');
-
-                // Try to load cached data
-                try {
-                    const db = await dbPromise;
-                    const tx = db.transaction(['stationsData'], 'readonly');
-                    const store = tx.objectStore('stationsData');
-                    const cachedData = await store.get('latest');
-
-                    if (cachedData) {
-                        renderStations(cachedData.stations, cachedData.isWalkingBusDay, cachedData.dailyStatus);
-                    }
-                } catch (dbError) {
-                    console.error('Error accessing cached data:', dbError);
-                }
+            } catch (dbError) {
+                console.error('Error accessing cached data:', dbError);
             }
-
-            // Show error alert to user
-            const connectionAlert = document.getElementById('connection-alert');
-            connectionAlert.classList.remove('d-none');
         }
     }
-
-
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus) {
@@ -1314,13 +1302,16 @@
         const connectionAlert = document.getElementById('connection-alert');
         const connectionIndicator = document.querySelector('.connection-indicator');
         
-        // Only update alert if we're actively showing the page
-        if (!document.hidden) {
+        // Only update alert if element exists and page is visible
+        if (connectionAlert && !document.hidden) {
             connectionAlert.classList.toggle('d-none', status === 'connected');
         }
         
-        connectionIndicator.classList.remove('connected', 'disconnected');
-        connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
+        // Only update indicator if element exists
+        if (connectionIndicator) {
+            connectionIndicator.classList.remove('connected', 'disconnected');
+            connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
+        }
     }
 
     // Helper function to get previous states
