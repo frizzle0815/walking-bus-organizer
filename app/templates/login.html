@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <!-- Logo section above the card -->
+        <div class="col-12 text-center mb-4">
+            <img src="{{ url_for('static', filename='icons/icon-192x192.png') }}" 
+                 alt="Walking Bus Icon" 
+                 class="img-fluid" 
+                 style="max-width: 128px;">
+        </div>
+        
+        <!-- Card section -->
+        <div class="col-md-6 col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title text-center mb-4">Walking Bus</h3>
+                    
+                    {% if error %}
+                    <div class="alert alert-danger" role="alert">
+                        {{ error }}
+                    </div>
+                    {% endif %}
+                    
+                    <form method="POST">
+                        <div class="form-group mb-3">
+                            <input type="password" 
+                                   name="password" 
+                                   class="form-control" 
+                                   placeholder="Passwort"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Anmelden</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

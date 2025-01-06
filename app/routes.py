@@ -2,27 +2,33 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
 from flask import current_app as app
+from flask import redirect, url_for
 from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
+from .auth import require_auth, SECRET_KEY, APP_PASSWORD, is_ip_allowed, record_attempt, get_remaining_lockout_time
+import jwt
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
 
 # Frontend Routes
 @bp.route('/')
+@require_auth
 def index():
     return render_template('index.html')
 
 
 @bp.route("/admin")
+@require_auth
 def admin():
     return render_template("admin.html")
 
 
 @bp.route("/calendar")
+@require_auth
 def calendar_view():
     return render_template("calendar.html")
 
@@ -817,4 +823,41 @@ def update_daily_note():
         "note": note if note else None
     })
 
+
+@bp.route('/login', methods=['GET', 'POST'])
+def login():
+    if APP_PASSWORD is None:
+        return redirect(url_for('main.index'))
+    
+    ip = request.remote_addr
+    error_message = None
+    
+    if not is_ip_allowed():
+        remaining_minutes = get_remaining_lockout_time(ip)
+        if remaining_minutes > 0:
+            error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
+            return render_template('login.html', error=error_message, hide_menu=True)
+            
+    if request.method == 'POST':
+        if request.form['password'] == APP_PASSWORD:
+            token = jwt.encode(
+                {'logged_in': True},
+                SECRET_KEY,
+                algorithm="HS256"
+            )
+            response = redirect(url_for('main.index'))
+            response.set_cookie(
+                'auth_token',
+                token,
+                max_age=31536000,
+                secure=True,
+                httponly=True,
+                samesite='Strict'
+            )
+            return response
+            
+        record_attempt()
+        error_message = "Falsches Passwort"
+        
+    return render_template('login.html', error=error_message, hide_menu=True)
 
