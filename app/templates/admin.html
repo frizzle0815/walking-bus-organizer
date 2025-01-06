@@ -244,10 +244,19 @@
 .time-input {
     width: 100%;
     font-size: 0.9rem;
-    /* Ensure minimum width for mobile time inputs */
     min-width: 85px;
-    /* Add padding for the clock icon */
     padding-right: 30px !important;
+    text-align: center;
+    -webkit-appearance: none;
+    padding-left: 10px !important;
+}
+
+/* Additional iOS specific adjustments for mobile */
+@supports (-webkit-touch-callout: none) {
+    .time-input {
+        min-width: 90px; /* Slightly wider for iOS */
+        font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
+    }
 }
 
 /* Add empty-time class and not(:disabled) check for the red border */
@@ -531,8 +540,14 @@
          const endInput = document.getElementById(`${day}-end`);
          
          if (startInput && endInput) {
-             startInput.value = dayData.start || '';
-             endInput.value = dayData.end || '';
+             // Only set values if the day is active
+             if (dayData.active) {
+                 startInput.value = dayData.start || '';
+                 endInput.value = dayData.end || '';
+             } else {
+                 startInput.value = '';
+                 endInput.value = '';
+             }
              startInput.disabled = !dayData.active;
              endInput.disabled = !dayData.active;
          }
@@ -541,15 +556,56 @@
      // Add event listeners to schedule checkboxes
      document.querySelectorAll('.schedule-day').forEach(checkbox => {
          checkbox.addEventListener('change', async () => {
-             const newSchedule = {};
+             const day = checkbox.dataset.day;
+             const startInput = document.getElementById(`${day}-start`);
+             const endInput = document.getElementById(`${day}-end`);
              
-             // Collect all schedule data including times
+             if (checkbox.checked) {
+                 // Restore saved values and enable inputs
+                 startInput.value = startInput.dataset.savedValue;
+                 endInput.value = endInput.dataset.savedValue;
+                 startInput.disabled = false;
+                 endInput.disabled = false;
+                 
+                 // Remove empty-time class since we're restoring valid values
+                 startInput.classList.remove('empty-time');
+                 endInput.classList.remove('empty-time');
+             } else {
+                 // Clear visible values but keep saved values, disable inputs
+                 startInput.value = '';
+                 endInput.value = '';
+                 startInput.disabled = true;
+                 endInput.disabled = true;
+                 
+                 // Remove empty-time class since disabled fields don't need validation
+                 startInput.classList.remove('empty-time');
+                 endInput.classList.remove('empty-time');
+             }
+
+             // Update all participant checkboxes for this day
+             document.querySelectorAll(`.participant-card .${day}`).forEach(participantCheckbox => {
+                 participantCheckbox.disabled = !checkbox.checked;
+                 // Update the label color
+                 const label = participantCheckbox.nextElementSibling;
+                 if (label) {
+                     if (checkbox.checked) {
+                         label.classList.remove('text-muted');
+                     } else {
+                         label.classList.add('text-muted');
+                     }
+                 }
+             });
+
+             // Rest of the update logic remains the same
+             const newSchedule = {};
              document.querySelectorAll('.schedule-day').forEach(cb => {
-                 const day = cb.dataset.day;
-                 newSchedule[day] = {
+                 const d = cb.dataset.day;
+                 const start = document.getElementById(`${d}-start`);
+                 const end = document.getElementById(`${d}-end`);
+                 newSchedule[d] = {
                      active: cb.checked,
-                     start: document.getElementById(`${day}-start`).value,
-                     end: document.getElementById(`${day}-end`).value
+                     start: start.dataset.savedValue || start.value,
+                     end: end.dataset.savedValue || end.value
                  };
              });
 
@@ -559,35 +615,9 @@
                      headers: { 'Content-Type': 'application/json' },
                      body: JSON.stringify(newSchedule)
                  });
-
-                 // Update participant checkboxes and time inputs
-                 document.querySelectorAll('.participant-card').forEach(participantCard => {
-                     Object.entries(newSchedule).forEach(([day, dayData]) => {
-                         // Update participant day checkboxes
-                         const dayCheckbox = participantCard.querySelector(`.${day}`);
-                         if (dayCheckbox) {
-                             dayCheckbox.disabled = !dayData.active;
-                             const label = dayCheckbox.nextElementSibling;
-                             if (label) {
-                                 label.classList.toggle('text-muted', !dayData.active);
-                             }
-                         }
-                     });
-                 });
-
-                 // Update time input states
-                 Object.entries(newSchedule).forEach(([day, dayData]) => {
-                     const startInput = document.getElementById(`${day}-start`);
-                     const endInput = document.getElementById(`${day}-end`);
-                     if (startInput && endInput) {
-                         startInput.disabled = !dayData.active;
-                         endInput.disabled = !dayData.active;
-                     }
-                 });
-
+                 globalSchedule = newSchedule;
              } catch (error) {
                  console.error('Failed to update schedule:', error);
-                 checkbox.checked = !checkbox.checked;
                  alert('Failed to update schedule. Please try again.');
              }
          });
@@ -726,10 +756,38 @@
 
 
        // Fetch schedule once at startup
-        async function initializeSchedule() {
-            const response = await fetch('/api/walking-bus-schedule');
-            globalSchedule = await response.json();
-        }
+       async function initializeSchedule() {
+           try {
+               const response = await fetch('/api/walking-bus-schedule');
+               const schedule = await response.json();
+               globalSchedule = schedule;
+               
+               Object.entries(schedule).forEach(([day, dayData]) => {
+                   const checkbox = document.getElementById(`schedule-${day}`);
+                   const startInput = document.getElementById(`${day}-start`);
+                   const endInput = document.getElementById(`${day}-end`);
+                   
+                   checkbox.checked = dayData.active;
+                   
+                   // Store the actual values as data attributes
+                   startInput.dataset.savedValue = dayData.start;
+                   endInput.dataset.savedValue = dayData.end;
+                   
+                   if (dayData.active) {
+                       startInput.value = dayData.start;
+                       endInput.value = dayData.end;
+                   } else {
+                       // Clear visible value but keep the saved value
+                       startInput.value = '';
+                       endInput.value = '';
+                       startInput.disabled = true;
+                       endInput.disabled = true;
+                   }
+               });
+           } catch (error) {
+               console.error('Failed to load schedule:', error);
+           }
+       }
 
         function initializeSortable() {
             // Initialize sortable for stations
