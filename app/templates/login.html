@@ -3,6 +3,15 @@
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
+        <!-- Logo section above the card -->
+        <div class="col-12 text-center mb-4">
+            <img src="{{ url_for('static', filename='icons/icon-192x192.png') }}" 
+                 alt="Walking Bus Icon" 
+                 class="img-fluid" 
+                 style="max-width: 128px;">
+        </div>
+        
+        <!-- Card section -->
         <div class="col-md-6 col-lg-4">
             <div class="card">
                 <div class="card-body">

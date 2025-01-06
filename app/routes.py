@@ -8,7 +8,7 @@ from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
-from .auth import require_auth, SECRET_KEY, APP_PASSWORD, is_ip_allowed, record_attempt, LOCKOUT_TIME
+from .auth import require_auth, SECRET_KEY, APP_PASSWORD, is_ip_allowed, record_attempt, get_remaining_lockout_time
 import jwt
 
 # Create Blueprint
@@ -828,16 +828,17 @@ def update_daily_note():
 def login():
     if APP_PASSWORD is None:
         return redirect(url_for('main.index'))
-        
-    if request.method == 'POST':
-        if not is_ip_allowed():
-            minutes = int(LOCKOUT_TIME.total_seconds() / 60)
-            return render_template(
-                'login.html', 
-                error=f"Zu viele Versuche. Bitte warten Sie {minutes} Minuten. Der Zugangsversuch wurde protokolliert.",
-                hide_menu=True
-            )
+    
+    ip = request.remote_addr
+    error_message = None
+    
+    if not is_ip_allowed():
+        remaining_minutes = get_remaining_lockout_time(ip)
+        if remaining_minutes > 0:
+            error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
+            return render_template('login.html', error=error_message, hide_menu=True)
             
+    if request.method == 'POST':
         if request.form['password'] == APP_PASSWORD:
             token = jwt.encode(
                 {'logged_in': True},
@@ -856,7 +857,7 @@ def login():
             return response
             
         record_attempt()
-        return render_template('login.html', error="Falsches Passwort", hide_menu=True)
+        error_message = "Falsches Passwort"
         
-    return render_template('login.html', hide_menu=True)
+    return render_template('login.html', error=error_message, hide_menu=True)
 
