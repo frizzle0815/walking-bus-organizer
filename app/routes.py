@@ -8,7 +8,7 @@ from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
-from .auth import require_auth, SECRET_KEY, APP_PASSWORD
+from .auth import require_auth, SECRET_KEY, APP_PASSWORD, is_ip_allowed, record_attempt, LOCKOUT_TIME
 import jwt
 
 # Create Blueprint
@@ -826,11 +826,18 @@ def update_daily_note():
 
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
-    # Wenn kein Passwort konfiguriert: Redirect zur Hauptseite
     if APP_PASSWORD is None:
         return redirect(url_for('main.index'))
         
     if request.method == 'POST':
+        if not is_ip_allowed():
+            minutes = int(LOCKOUT_TIME.total_seconds() / 60)
+            return render_template(
+                'login.html', 
+                error=f"Zu viele Versuche. Bitte warten Sie {minutes} Minuten. Der Zugangsversuch wurde protokolliert.",
+                hide_menu=True
+            )
+            
         if request.form['password'] == APP_PASSWORD:
             token = jwt.encode(
                 {'logged_in': True},
@@ -847,4 +854,9 @@ def login():
                 samesite='Strict'
             )
             return response
-    return render_template('login.html')
+            
+        record_attempt()
+        return render_template('login.html', error="Falsches Passwort", hide_menu=True)
+        
+    return render_template('login.html', hide_menu=True)
+
