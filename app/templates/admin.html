@@ -253,9 +253,11 @@
 
 /* Additional iOS specific adjustments for mobile */
 @supports (-webkit-touch-callout: none) {
-    .time-input {
-        min-width: 90px; /* Slightly wider for iOS */
-        font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
+    @media (max-width: 576px) {
+        .time-input {
+            min-width: 44px; /* Slightly wider for iOS */
+            -webkit-appearance: none; /* Remove iOS default styling */
+        }
     }
 }
 
@@ -284,10 +286,15 @@
     }
     
     .time-input {
-        font-size: 0.8rem;
-        min-width: 30px;
-        height: 38px;
-        padding-right: 25px !important;
+        font-size: 0.75rem; /* Slightly smaller font */
+        min-width: 42px; /* Adjusted width */
+        width: 100%;
+        padding: 2px !important; /* Minimal padding */
+        text-align: center;
+    }
+
+    .time-input:not(.empty-time) {
+        padding-right: 2px !important;
     }
 
     /* Show clock icon only when input has empty-time class and is enabled */
