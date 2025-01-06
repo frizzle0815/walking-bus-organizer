@@ -251,6 +251,20 @@
     padding-left: 10px !important;
 }
 
+/* Override Bootstrap's default time input styling */
+input[type="time"] {
+    background-image: none !important;
+    padding-right: 5px !important;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+    display: none;
+}
+
+input[type="time"]::-webkit-inner-spin-button {
+    display: none;
+}
+
 /* Additional iOS specific adjustments for mobile */
 @supports (-webkit-touch-callout: none) {
     @media (max-width: 576px) {
