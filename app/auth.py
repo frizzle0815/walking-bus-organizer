@@ -30,7 +30,7 @@ def is_ip_allowed():
         minutes = int(LOCKOUT_TIME.total_seconds() / 60)
         current_app.logger.warning(
             f"IP {ip} locked out due to too many attempts. "
-            f"Next attempt allowed after: {now + minutes}"
+            f"Next attempt allowed after: {now + timedelta(minutes=minutes)}"
         )
         return False
     return True
