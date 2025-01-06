@@ -253,8 +253,21 @@
 
 /* Override Bootstrap's default time input styling */
 input[type="time"] {
-    background-image: none !important;
-    padding-right: 5px !important;
+    /* Remove default styling */
+    -webkit-appearance: textfield;
+    -moz-appearance: textfield;
+    appearance: textfield;
+    
+    /* Force left alignment */
+    text-align: left;
+    
+    /* Remove internal padding */
+    padding: 2px 4px !important;
+    
+    /* Control width */
+    width: 100%;
+    min-width: 42px;
+    
 }
 
 input[type="time"]::-webkit-calendar-picker-indicator {
@@ -294,6 +307,12 @@ input[type="time"]::-webkit-inner-spin-button {
 
 /* Specific mobile adjustments */
 @media (max-width: 576px) {
+     input[type="time"] {
+        font-size: 0.75rem;
+        /* Tighter padding for mobile */
+        padding: 2px 2px !important;
+    }
+
     .day-column {
         min-width: 40px;
         padding: 0 2px;

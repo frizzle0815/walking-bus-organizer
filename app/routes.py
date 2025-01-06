@@ -850,7 +850,7 @@ def login():
                 'auth_token',
                 token,
                 max_age=31536000,
-                secure=True,
+                secure=True,  # Set to False for lokal testing
                 httponly=True,
                 samesite='Strict'
             )
