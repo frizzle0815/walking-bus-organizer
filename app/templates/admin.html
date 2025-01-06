@@ -680,6 +680,15 @@ input[type="time"]::-webkit-inner-spin-button {
          });
 
          timeInput.addEventListener('change', async () => {
+             const day = timeInput.dataset.day;
+             const startTime = document.getElementById(`${day}-start`).value;
+             const endTime = document.getElementById(`${day}-end`).value;
+             
+             if (startTime && endTime && startTime >= endTime) {
+                 alert('Die Startzeit muss vor der Endzeit liegen.');
+                 timeInput.value = timeInput.dataset.savedValue || '';
+                 return;
+             }
              const newSchedule = {};
              
              // Collect all schedule data

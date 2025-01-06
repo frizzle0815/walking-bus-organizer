@@ -435,10 +435,18 @@ def update_schedule():
         start_time = day_data.get('start')
         end_time = day_data.get('end')
         
-        if start_time:
-            setattr(schedule, f"{day}_start", datetime.strptime(start_time, "%H:%M").time())
-        if end_time:
-            setattr(schedule, f"{day}_end", datetime.strptime(end_time, "%H:%M").time())
+        # Time validation
+        if start_time and end_time:
+            start = datetime.strptime(start_time, "%H:%M").time()
+            end = datetime.strptime(end_time, "%H:%M").time()
+            
+            if start >= end:
+                return jsonify({
+                    "error": f"Die Startzeit muss vor der Endzeit liegen ({day})"
+                }), 400
+                
+            setattr(schedule, f"{day}_start", start)
+            setattr(schedule, f"{day}_end", end)
     
     db.session.commit()
     return jsonify({"success": True})
