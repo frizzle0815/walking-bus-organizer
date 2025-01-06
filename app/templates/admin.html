@@ -681,14 +681,10 @@
      }
 
      async function createParticipantCard(participant) {
-         console.log('Creating participant card with data:', participant);
-         const schedule = globalSchedule;
-
-         // Create participant card with explicit data-participant-id
+         const schedule = globalSchedule;  // This already contains the active state for each day
          const newParticipant = participantTemplate.cloneNode(true);
          newParticipant.classList.remove('d-none', 'participant-template');
          
-         // Set the participant ID on the correct element
          const participantCard = newParticipant.querySelector('.participant-card');
          participantCard.dataset.participantId = participant.id;
          
@@ -710,7 +706,8 @@
          days.forEach(({ key, label }) => {
              const dayCheck = document.createElement('div');
              dayCheck.className = 'form-check';
-             const isEnabled = schedule[key];
+             // Check if the day is active in the schedule
+             const isEnabled = schedule[key].active;  // Changed this line to access .active property
 
              dayCheck.innerHTML = `
                  <input type="checkbox" class="form-check-input ${key}" 
@@ -725,6 +722,7 @@
 
          return newParticipant;
      }
+
 
 
        // Fetch schedule once at startup
