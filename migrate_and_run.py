@@ -2,10 +2,12 @@ import os
 from app import create_app, db, models
 from flask_migrate import upgrade, init, migrate
 from sqlalchemy import text
+from app.init_buses import init_walking_buses
 
 app = create_app()
 app.app_context().push()
 
+# This migrate script is for development flask enviroment !
 
 def check_alembic_version():
     """Check if alembic_version table exists and has data"""
@@ -53,6 +55,9 @@ def handle_migrations():
     
     print("Applying any pending migrations...")
     upgrade()
+
+    print("Initializing walking buses...")
+    init_walking_buses()
 
 
 if __name__ == "__main__":

@@ -3,13 +3,16 @@ from flask import Blueprint, render_template, jsonify, request, Response, stream
 from flask import send_from_directory
 from flask import current_app as app
 from flask import redirect, url_for
-from .models import db, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
+from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
-from .auth import require_auth, SECRET_KEY, APP_PASSWORD, is_ip_allowed, record_attempt, get_remaining_lockout_time
+from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time
 import jwt
+from os import environ
+from flask import session
+from .init_buses import init_walking_buses
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -35,9 +38,13 @@ def calendar_view():
 
 # Station Routes
 @bp.route("/api/stations", methods=["GET"])
+@require_auth
 def get_stations():
     today = get_current_date()
-    stations = Station.query.order_by(Station.position).all()
+    walking_bus_id = get_current_walking_bus_id()
+    if not walking_bus_id:
+        return jsonify({"error": "No walking bus selected", "redirect": True}), 401
+    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
     result = []
     
     for station in stations:
@@ -79,7 +86,9 @@ def get_stations():
 
 
 @bp.route("/api/stations", methods=["POST"])
+@require_auth
 def create_station():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     
     # First update positions of existing stations to make room
@@ -88,7 +97,7 @@ def create_station():
         station.position += 1
     
     # Create new station at position 0
-    new_station = Station(name=data['name'], position=0)
+    new_station = Station(name=data['name'], position=0, walking_bus_id=walking_bus_id)
     db.session.add(new_station)
     db.session.commit()
     
@@ -103,29 +112,41 @@ def create_station():
 
 
 @bp.route("/api/stations/<int:station_id>", methods=["PUT"])
+@require_auth
 def update_station(station_id):
-    station = Station.query.get_or_404(station_id)
+    walking_bus_id = get_current_walking_bus_id()
+    station = Station.query.filter_by(id=station_id, walking_bus_id=walking_bus_id).first_or_404()
+    
     data = request.get_json()
     old_name = station.name
+    
     if 'name' in data:
         station.name = data['name']
+    
     db.session.commit()
     app.logger.info(f"Haltestelle geändert von '{old_name}' zu '{station.name}' (ID: {station_id})")
     return jsonify({"success": True})
 
 
+
 @bp.route("/api/stations/<int:station_id>", methods=["DELETE"])
+@require_auth
 def delete_station(station_id):
-    station = Station.query.get_or_404(station_id)
+    walking_bus_id = get_current_walking_bus_id()
+    station = Station.query.filter_by(id=station_id, walking_bus_id=walking_bus_id).first_or_404()
+    
     db.session.delete(station)
     db.session.commit()
     return jsonify({"success": True})
 
 
+
 @bp.route("/api/stations/<int:station_id>/stats")
+@require_auth
 def get_station_stats(station_id):
     try:
-        station = Station.query.get_or_404(station_id)
+        walking_bus_id = get_current_walking_bus_id()
+        station = Station.query.filter_by(id=station_id, walking_bus_id=walking_bus_id).first_or_404()
         total = len(station.participants)
         today = get_current_date()
         
@@ -142,11 +163,15 @@ def get_station_stats(station_id):
         return jsonify({"error": str(e)}), 500
 
 
+
 @bp.route("/api/stations/stats/total")
+@require_auth
 def get_stations_total_stats():
     try:
-        # Get all stations
-        stations = Station.query.all()
+        walking_bus_id = get_current_walking_bus_id()
+        # Get all stations for current walking bus
+        stations = Station.query.filter_by(walking_bus_id=walking_bus_id).all()
+        
         # Sum up all participants across stations
         total = sum(len(station.participants) for station in stations)
         
@@ -165,16 +190,22 @@ def get_stations_total_stats():
         return jsonify({"error": str(e)}), 500
 
 
+
 @bp.route("/api/stations/order", methods=["PUT"])
+@require_auth
 def update_stations_order():
     try:
+        walking_bus_id = get_current_walking_bus_id()
         data = request.get_json()
         if not isinstance(data, list):
             return jsonify({"error": "Invalid data format. Expected a list."}), 400
 
         # Validate all station IDs exist before updating
         station_ids = [station_data['id'] for station_data in data]
-        stations = Station.query.filter(Station.id.in_(station_ids)).all()
+        stations = Station.query.filter(
+            Station.id.in_(station_ids),
+            Station.walking_bus_id == walking_bus_id
+        ).all()
         
         # Create a mapping of id to station for efficient updates
         station_map = {station.id: station for station in stations}
@@ -193,17 +224,27 @@ def update_stations_order():
         return jsonify({"error": str(e)}), 500
 
 
+
 # Participant Routes
 @bp.route("/api/participants", methods=["POST"])
+@require_auth
 def create_participant():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     today = get_current_date()
     weekday = WEEKDAY_MAPPING[today.weekday()]
     
+    # Verify station belongs to current walking bus
+    station = Station.query.filter_by(
+        id=data['station_id'], 
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
     new_participant = Participant(
         name=data['name'],
         station_id=data['station_id'],
-        position=data['position']
+        position=data['position'],
+        walking_bus_id=walking_bus_id  # Add walking bus association
     )
     db.session.add(new_participant)
     db.session.flush()
@@ -213,7 +254,8 @@ def create_participant():
         participant_id=new_participant.id,
         date=today,
         status=getattr(new_participant, weekday, True),
-        is_manual_override=False
+        is_manual_override=False,
+        walking_bus_id=walking_bus_id  # Add walking bus association
     )
     db.session.add(calendar_entry)
     
@@ -236,22 +278,40 @@ def create_participant():
 
 
 @bp.route("/api/stations/<int:station_id>/participants/<int:participant_id>", methods=["PUT"])
+@require_auth
 def update_participant(station_id, participant_id):
-    participant = Participant.query.get_or_404(participant_id)
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Get participant with walking bus verification
+    participant = Participant.query.filter_by(
+        id=participant_id, 
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
     data = request.get_json()
     old_name = participant.name
     
     # Handle position updates
     if 'position' in data:
-        # Get all participants in the same station
-        station_participants = Participant.query.filter_by(station_id=station_id).all()
+        # Get all participants in the same station within the same walking bus
+        station_participants = Participant.query.filter_by(
+            station_id=station_id,
+            walking_bus_id=walking_bus_id
+        ).all()
         # Update positions to ensure uniqueness
         for p in station_participants:
             if p.id != participant_id and p.position >= data['position']:
                 p.position += 1
     
+    # Verify new station belongs to same walking bus if station_id is being updated
+    if 'station_id' in data:
+        Station.query.filter_by(
+            id=data['station_id'], 
+            walking_bus_id=walking_bus_id
+        ).first_or_404()
+    
     # Update participant fields
-    for field in ['name', 'station_id', 'position', 'monday', 'tuesday', 'wednesday', 
+    for field in ['name', 'station_id', 'position', 'monday', 'tuesday', 'wednesday',
                  'thursday', 'friday', 'saturday', 'sunday']:
         if field in data:
             setattr(participant, field, data[field])
@@ -261,34 +321,57 @@ def update_participant(station_id, participant_id):
     return jsonify({"success": True})
 
 
-
 @bp.route("/api/participants/<int:participant_id>", methods=["DELETE"])
+@require_auth
 def delete_participant(participant_id):
     try:
-        CalendarStatus.query.filter_by(participant_id=participant_id).delete()
-        participant = Participant.query.get_or_404(participant_id)
+        walking_bus_id = get_current_walking_bus_id()
+        
+        # Delete calendar entries for this participant within the walking bus
+        CalendarStatus.query.filter_by(
+            participant_id=participant_id,
+            walking_bus_id=walking_bus_id
+        ).delete()
+        
+        # Get and verify participant belongs to current walking bus
+        participant = Participant.query.filter_by(
+            id=participant_id,
+            walking_bus_id=walking_bus_id
+        ).first_or_404()
+        
         name = participant.name  # Store name before deletion
         app.logger.info(f"Lösche Teilnehmer {name} (ID: {participant_id})")
+        
         db.session.delete(participant)
         db.session.commit()
         return jsonify({"success": True})
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
 @bp.route("/api/participation/<int:participant_id>", methods=["PATCH"])
+@require_auth
 def toggle_participation(participant_id):
-    participant = Participant.query.get_or_404(participant_id)
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Get participant with walking bus verification
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
     participant.status_today = not participant.status_today
-
+    
     # Add logging
     app.logger.info(f"Teilnehmer {participant.name} (ID: {participant_id}) Status Heute geändert zu {participant.status_today}")
     
     today = get_current_date()
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
-        date=today
+        date=today,
+        walking_bus_id=walking_bus_id
     ).first()
     
     if calendar_entry:
@@ -299,7 +382,8 @@ def toggle_participation(participant_id):
             participant_id=participant_id,
             date=today,
             status=participant.status_today,
-            is_manual_override=True
+            is_manual_override=True,
+            walking_bus_id=walking_bus_id
         )
         db.session.add(calendar_entry)
     
@@ -310,17 +394,28 @@ def toggle_participation(participant_id):
     })
 
 
+
 @bp.route("/api/participant/<int:participant_id>/weekday-status/<string:weekday>")
+@require_auth
 def get_participant_weekday_status(participant_id, weekday):
-    participant = Participant.query.get_or_404(participant_id)
+    walking_bus_id = get_current_walking_bus_id()
+    
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
     status = getattr(participant, weekday, True)
     return jsonify({"status": status})
 
 
+
 # Schedule and Calendar Routes
 @bp.route("/api/initialize-daily-status", methods=["POST"])
+@require_auth
 def initialize_daily_status():
     try:
+        walking_bus_id = get_current_walking_bus_id()
         today = get_current_date()
         current_time = get_current_time().time()
         app.logger.info(f"Initializing daily status for {today} at {current_time}")
@@ -329,13 +424,19 @@ def initialize_daily_status():
         holiday_service = HolidayService()
         holiday_service.update_holiday_cache()
 
-        # Delete all calendar entries from past dates
-        deleted_count = CalendarStatus.query.filter(CalendarStatus.date < today).delete()
+        # Delete all calendar entries from past dates for this walking bus
+        deleted_count = CalendarStatus.query.filter(
+            CalendarStatus.date < today,
+            CalendarStatus.walking_bus_id == walking_bus_id
+        ).delete()
         app.logger.info(f"Deleted {deleted_count} past calendar entries")
         db.session.commit()
 
-        # Get the daily note for today
-        daily_note = DailyNote.query.filter_by(date=today).first()
+        # Get the daily note for today for this walking bus
+        daily_note = DailyNote.query.filter_by(
+            date=today,
+            walking_bus_id=walking_bus_id
+        ).first()
 
         app.logger.info("Checking walking bus day status")
         walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
@@ -343,7 +444,7 @@ def initialize_daily_status():
 
         # Check schedule end time if walking bus is active
         if walking_bus_day:
-            schedule = WalkingBusSchedule.query.first()
+            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
             if schedule:
                 weekday = today.weekday()
                 end_time = getattr(schedule, f"{WEEKDAY_MAPPING[weekday]}_end")
@@ -372,60 +473,107 @@ def initialize_daily_status():
         return jsonify({"error": str(e)}), 500
 
 
-
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
+@require_auth
 def get_schedule():
-    schedule = WalkingBusSchedule.query.first()
-    if not schedule:
-        schedule = WalkingBusSchedule()
-        db.session.add(schedule)
-        db.session.commit()
+    app.logger.info("Starting get_schedule request")
     
-    return jsonify({
-        "monday": {
-            "active": schedule.monday,
-            "start": schedule.monday_start.strftime("%H:%M") if schedule.monday_start else None,
-            "end": schedule.monday_end.strftime("%H:%M") if schedule.monday_end else None
-        },
-        "tuesday": {
-            "active": schedule.tuesday,
-            "start": schedule.tuesday_start.strftime("%H:%M") if schedule.tuesday_start else None,
-            "end": schedule.tuesday_end.strftime("%H:%M") if schedule.tuesday_end else None
-        },
-        "wednesday": {
-            "active": schedule.wednesday,
-            "start": schedule.wednesday_start.strftime("%H:%M") if schedule.wednesday_start else None,
-            "end": schedule.wednesday_end.strftime("%H:%M") if schedule.wednesday_end else None
-        },
-        "thursday": {
-            "active": schedule.thursday,
-            "start": schedule.thursday_start.strftime("%H:%M") if schedule.thursday_start else None,
-            "end": schedule.thursday_end.strftime("%H:%M") if schedule.thursday_end else None
-        },
-        "friday": {
-            "active": schedule.friday,
-            "start": schedule.friday_start.strftime("%H:%M") if schedule.friday_start else None,
-            "end": schedule.friday_end.strftime("%H:%M") if schedule.friday_end else None
-        },
-        "saturday": {
-            "active": schedule.saturday,
-            "start": schedule.saturday_start.strftime("%H:%M") if schedule.saturday_start else None,
-            "end": schedule.saturday_end.strftime("%H:%M") if schedule.saturday_end else None
-        },
-        "sunday": {
-            "active": schedule.sunday,
-            "start": schedule.sunday_start.strftime("%H:%M") if schedule.sunday_start else None,
-            "end": schedule.sunday_end.strftime("%H:%M") if schedule.sunday_end else None
+    walking_bus_id = get_current_walking_bus_id()
+    app.logger.debug(f"Current walking_bus_id: {walking_bus_id}")
+    
+    if not walking_bus_id:
+        app.logger.error("No walking bus ID found in session")
+        return jsonify({
+            "error": "No walking bus selected",
+            "redirect": True
+        }), 401
+
+    try:
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+        app.logger.debug(f"Found schedule: {schedule is not None}")
+        
+        if not schedule:
+            app.logger.info(f"Creating new schedule for walking_bus_id: {walking_bus_id}")
+            schedule = WalkingBusSchedule(
+                walking_bus_id=walking_bus_id,
+                monday_start=WalkingBusSchedule.DEFAULT_START,
+                monday_end=WalkingBusSchedule.DEFAULT_END,
+                tuesday_start=WalkingBusSchedule.DEFAULT_START,
+                tuesday_end=WalkingBusSchedule.DEFAULT_END,
+                wednesday_start=WalkingBusSchedule.DEFAULT_START,
+                wednesday_end=WalkingBusSchedule.DEFAULT_END,
+                thursday_start=WalkingBusSchedule.DEFAULT_START,
+                thursday_end=WalkingBusSchedule.DEFAULT_END,
+                friday_start=WalkingBusSchedule.DEFAULT_START,
+                friday_end=WalkingBusSchedule.DEFAULT_END,
+                saturday_start=WalkingBusSchedule.DEFAULT_START,
+                saturday_end=WalkingBusSchedule.DEFAULT_END,
+                sunday_start=WalkingBusSchedule.DEFAULT_START,
+                sunday_end=WalkingBusSchedule.DEFAULT_END
+            )
+            db.session.add(schedule)
+            db.session.commit()
+            app.logger.info("New schedule created successfully")
+
+        response_data = {
+            "monday": {
+                "active": schedule.monday,
+                "start": schedule.monday_start.strftime("%H:%M") if schedule.monday_start else None,
+                "end": schedule.monday_end.strftime("%H:%M") if schedule.monday_end else None
+            },
+            "tuesday": {
+                "active": schedule.tuesday,
+                "start": schedule.tuesday_start.strftime("%H:%M") if schedule.tuesday_start else None,
+                "end": schedule.tuesday_end.strftime("%H:%M") if schedule.tuesday_end else None
+            },
+            "wednesday": {
+                "active": schedule.wednesday,
+                "start": schedule.wednesday_start.strftime("%H:%M") if schedule.wednesday_start else None,
+                "end": schedule.wednesday_end.strftime("%H:%M") if schedule.wednesday_end else None
+            },
+            "thursday": {
+                "active": schedule.thursday,
+                "start": schedule.thursday_start.strftime("%H:%M") if schedule.thursday_start else None,
+                "end": schedule.thursday_end.strftime("%H:%M") if schedule.thursday_end else None
+            },
+            "friday": {
+                "active": schedule.friday,
+                "start": schedule.friday_start.strftime("%H:%M") if schedule.friday_start else None,
+                "end": schedule.friday_end.strftime("%H:%M") if schedule.friday_end else None
+            },
+            "saturday": {
+                "active": schedule.saturday,
+                "start": schedule.saturday_start.strftime("%H:%M") if schedule.saturday_start else None,
+                "end": schedule.saturday_end.strftime("%H:%M") if schedule.saturday_end else None
+            },
+            "sunday": {
+                "active": schedule.sunday,
+                "start": schedule.sunday_start.strftime("%H:%M") if schedule.sunday_start else None,
+                "end": schedule.sunday_end.strftime("%H:%M") if schedule.sunday_end else None
+            }
         }
-    })
+        app.logger.debug(f"Returning response data: {response_data}")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        app.logger.error(f"Error in get_schedule: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "Internal server error",
+            "details": str(e)
+        }), 500
+
+
 
 
 @bp.route("/api/walking-bus-schedule", methods=["PUT"])
+@require_auth
 def update_schedule():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
-    schedule = WalkingBusSchedule.query.first()
+    
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     if not schedule:
-        schedule = WalkingBusSchedule()
+        schedule = WalkingBusSchedule(walking_bus_id=walking_bus_id)
         db.session.add(schedule)
     
     for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
@@ -452,13 +600,19 @@ def update_schedule():
     return jsonify({"success": True})
 
 
+
 @bp.route("/api/calendar-status", methods=["POST"])
+@require_auth
 def update_calendar_status():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     participant_id = data['participant_id']
     
-    # Get participant information early
-    participant = Participant.query.get_or_404(participant_id)
+    # Get participant information with walking bus verification
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
     
     # Correct way to handle timezone with zoneinfo
     naive_date = datetime.strptime(data['date'], '%Y-%m-%d')
@@ -466,12 +620,13 @@ def update_calendar_status():
     date = aware_date.date()
     
     status = data['status']
-
+    
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
-        date=date
+        date=date,
+        walking_bus_id=walking_bus_id
     ).first()
-
+    
     if calendar_entry:
         calendar_entry.status = status
         calendar_entry.is_manual_override = True
@@ -480,13 +635,14 @@ def update_calendar_status():
             participant_id=participant_id,
             date=date,
             status=status,
-            is_manual_override=True
+            is_manual_override=True,
+            walking_bus_id=walking_bus_id
         )
         db.session.add(calendar_entry)
-
+    
     if date == get_current_date():
         participant.status_today = status
-
+    
     db.session.commit()
     app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
     return jsonify({"success": True})
@@ -494,19 +650,37 @@ def update_calendar_status():
 
 
 @bp.route("/api/calendar-status/<int:participant_id>", methods=["GET"])
+@require_auth
 def get_calendar_status(participant_id):
-    entries = CalendarStatus.query.filter_by(participant_id=participant_id).all()
+    walking_bus_id = get_current_walking_bus_id()
+    
+    entries = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).all()
+    
     return jsonify([{
         'date': entry.date.isoformat(),
         'status': entry.status
     } for entry in entries])
 
 
+
 @bp.route("/api/calendar-data/<int:participant_id>", methods=["GET"])
+@require_auth
 def get_calendar_data(participant_id):
     try:
+        walking_bus_id = get_current_walking_bus_id()
+        if not walking_bus_id:
+            return jsonify({"error": "No walking bus selected", "redirect": True}), 401
         app.logger.info(f"Fetching calendar data for participant {participant_id}")
-        participant = Participant.query.get_or_404(participant_id)
+        
+        # Verify participant belongs to current walking bus
+        participant = Participant.query.filter_by(
+            id=participant_id,
+            walking_bus_id=walking_bus_id
+        ).first_or_404()
+        
         today = get_current_date()
         
         # Calculate dates for next 28 days starting from beginning of current week
@@ -515,9 +689,10 @@ def get_calendar_data(participant_id):
         
         app.logger.info(f"Checking dates from {dates_to_check[0]} to {dates_to_check[-1]}")
 
-        # Get existing calendar entries for the participant
+        # Get existing calendar entries for the participant within walking bus
         calendar_entries = CalendarStatus.query.filter(
             CalendarStatus.participant_id == participant_id,
+            CalendarStatus.walking_bus_id == walking_bus_id,
             CalendarStatus.date.in_(dates_to_check)
         ).all()
         
@@ -557,13 +732,20 @@ def get_calendar_data(participant_id):
         return jsonify({'error': str(e)}), 500
 
 
-
 @bp.route("/api/update-future-entries", methods=["PUT"])
+@require_auth
 def update_future_entries():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     participant_id = data['participant_id']
     day = data['day']
     status = data['status']
+    
+    # Verify participant belongs to current walking bus
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
     
     today = get_current_date()
     
@@ -589,6 +771,7 @@ def update_future_entries():
     for date in future_dates:
         calendar_entry = CalendarStatus.query.filter_by(
             participant_id=participant_id,
+            walking_bus_id=walking_bus_id,
             date=date
         ).first()
         
@@ -598,6 +781,7 @@ def update_future_entries():
             else:
                 new_entry = CalendarStatus(
                     participant_id=participant_id,
+                    walking_bus_id=walking_bus_id,
                     date=date,
                     status=status,
                     is_manual_override=False
@@ -609,14 +793,22 @@ def update_future_entries():
 
 
 @bp.route('/stream')
+@require_auth
 def stream():
     def event_stream():
         try:
+            walking_bus_id = get_current_walking_bus_id()
+            if not walking_bus_id:
+                return jsonify({"error": "No walking bus selected", "redirect": True}), 401
             last_data = None
             while True:
                 with db.session.begin():
                     current_time = get_current_time()
-                    stations = Station.query.order_by(Station.position).all()
+                    # Filter stations by walking bus
+                    stations = Station.query.filter_by(
+                        walking_bus_id=walking_bus_id
+                    ).order_by(Station.position).all()
+                    
                     current_data = {
                         "time": current_time.strftime("%H:%M"),
                         "stations": []
@@ -672,20 +864,27 @@ def manifest():
     return send_from_directory('static', 'manifest.json')
 
 
-def check_walking_bus_day(date, include_reason=False):
+def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):
     """
     Central function to determine if Walking Bus operates on a given date
     Args:
         date: The date to check
         include_reason: If True, returns tuple (is_active, reason, reason_type), otherwise just boolean
-    Returns: 
+        walking_bus_id: ID of the walking bus to check. If None, gets current from session.
+    Returns:
         bool or (bool, str, str) depending on include_reason parameter
     """
+    if walking_bus_id is None:
+        walking_bus_id = get_current_walking_bus_id()
+
     # Check for manual override first
-    override = WalkingBusOverride.query.filter_by(date=date).first()
+    override = WalkingBusOverride.query.filter_by(
+        date=date,
+        walking_bus_id=walking_bus_id
+    ).first()
     if override:
         return (override.is_active, 
-                override.reason,  # Use the stored reason
+                override.reason,
                 "MANUAL_OVERRIDE") if include_reason else override.is_active
 
     # Check for school holidays
@@ -695,13 +894,12 @@ def check_walking_bus_day(date, include_reason=False):
         .first()
 
     if holiday:
-        # Return tuple with both display name and full reason
         short_reason = holiday.name
         full_reason = f"Es sind {holiday.name}."
         return (False, {"short_reason": short_reason, "full_reason": full_reason}, "HOLIDAY") if include_reason else False
 
-    # Get base schedule
-    schedule = WalkingBusSchedule.query.first()
+    # Get base schedule for specific walking bus
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     if not schedule:
         return (False, "Achtung: Keine Planung angelegt!", "NO_SCHEDULE") if include_reason else False
     
@@ -724,7 +922,10 @@ def update_holiday_cache():
 
 
 @bp.route('/api/calendar/months/<int:year>/<int:month>/<int:count>')
+@require_auth
 def get_calendar_months(year, month, count):
+    walking_bus_id = get_current_walking_bus_id()
+    
     # Calculate start and end date for exactly one month
     start_date = datetime(year, month + 1, 1).date()
     
@@ -737,8 +938,15 @@ def get_calendar_months(year, month, count):
     current_date = start_date
     
     while current_date <= end_date:
-        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
-        daily_note = DailyNote.query.filter_by(date=current_date).first()
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        daily_note = DailyNote.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
         
         # Map reason types to display text - keeping the original mapping
         display_reason = {
@@ -762,18 +970,26 @@ def get_calendar_months(year, month, count):
     return jsonify(calendar_data)
 
 
-
 @bp.route("/api/walking-bus-override", methods=["POST"])
+@require_auth
 def toggle_walking_bus_override():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     date = datetime.strptime(data['date'], '%Y-%m-%d').date()
     reason = data.get('reason')
     
-    # Get original state
-    original_state, original_reason, original_type = check_walking_bus_day(date, include_reason=True)
+    # Get original state with walking bus context
+    original_state, original_reason, original_type = check_walking_bus_day(
+        date, 
+        include_reason=True,
+        walking_bus_id=walking_bus_id
+    )
     
-    # Check for existing override
-    override = WalkingBusOverride.query.filter_by(date=date).first()
+    # Check for existing override within walking bus context
+    override = WalkingBusOverride.query.filter_by(
+        date=date,
+        walking_bus_id=walking_bus_id
+    ).first()
     
     if override:
         # Removing override - restore original state
@@ -787,9 +1003,10 @@ def toggle_walking_bus_override():
             return jsonify({"error": "Begründung angeben"}), 400
             
         override = WalkingBusOverride(
-            date=date, 
+            date=date,
             is_active=not original_state,
-            reason=reason
+            reason=reason,
+            walking_bus_id=walking_bus_id
         )
         db.session.add(override)
         new_state = not original_state
@@ -807,18 +1024,27 @@ def toggle_walking_bus_override():
 
 
 @bp.route("/api/daily-note", methods=["POST"])
+@require_auth
 def update_daily_note():
+    walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     date = datetime.strptime(data['date'], '%Y-%m-%d').date()
     note = data.get('note', '').strip()
     
-    daily_note = DailyNote.query.filter_by(date=date).first()
+    daily_note = DailyNote.query.filter_by(
+        date=date,
+        walking_bus_id=walking_bus_id
+    ).first()
     
     if note:
         if daily_note:
             daily_note.note = note
         else:
-            daily_note = DailyNote(date=date, note=note)
+            daily_note = DailyNote(
+                date=date, 
+                note=note,
+                walking_bus_id=walking_bus_id
+            )
             db.session.add(daily_note)
     else:
         if daily_note:
@@ -832,40 +1058,113 @@ def update_daily_note():
     })
 
 
-@bp.route('/login', methods=['GET', 'POST'])
-def login():
-    if APP_PASSWORD is None:
-        return redirect(url_for('main.index'))
+def get_current_walking_bus_id():
+    app.logger.debug("Getting current walking bus ID")
     
+    # For single bus mode
+    if not environ.get('WALKING_BUSES'):
+        app.logger.debug("Single bus mode detected")
+        default_bus = WalkingBus.query.filter_by(name='Default Bus').first()
+        if default_bus:
+            app.logger.debug(f"Using default bus with ID: {default_bus.id}")
+            return default_bus.id
+        app.logger.error("No default bus found")
+        return None
+    
+    # For multi bus mode
+    bus_id = session.get("walking_bus_id")
+    app.logger.debug(f"Multi bus mode - Found bus ID in session: {bus_id}")
+    return bus_id
+
+
+@bp.route("/login", methods=["GET", "POST"])
+def login():
     ip = request.remote_addr
     error_message = None
+    is_multi_bus = init_walking_buses()
     
+    app.logger.debug(f"Login request from IP: {ip}")
+    app.logger.debug(f"Multi-bus mode: {is_multi_bus}")
+
+    # Handle GET request
+    if request.method == 'GET':
+        configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
+        buses = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).all() if is_multi_bus else None
+        return render_template('login.html', buses=buses, is_multi_bus=is_multi_bus)
+    
+    # Check IP lockout
     if not is_ip_allowed():
         remaining_minutes = get_remaining_lockout_time(ip)
         if remaining_minutes > 0:
             error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
-            return render_template('login.html', error=error_message, hide_menu=True)
-            
-    if request.method == 'POST':
-        if request.form['password'] == APP_PASSWORD:
-            token = jwt.encode(
-                {'logged_in': True},
-                SECRET_KEY,
-                algorithm="HS256"
-            )
-            response = redirect(url_for('main.index'))
-            response.set_cookie(
-                'auth_token',
-                token,
-                max_age=31536000,
-                secure=True,  # Set to False for lokal testing
-                httponly=True,
-                samesite='Strict'
-            )
-            return response
-            
-        record_attempt()
-        error_message = "Falsches Passwort"
-        
-    return render_template('login.html', error=error_message, hide_menu=True)
+            app.logger.warning(f"IP {ip} is locked out for {remaining_minutes} more minutes")
+            return render_template('login.html',
+                                error=error_message,
+                                hide_menu=True,
+                                buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
+                                is_multi_bus=is_multi_bus)
+    
+    # Handle POST request
+    password = request.form.get('password')
+    app.logger.debug(f"POST request - Password received: {'*' * len(password) if password else 'None'}")
 
+    # Get bus based on mode
+    if is_multi_bus:
+        bus_id = request.form.get('walking_bus')
+        app.logger.debug(f"POST request - Selected bus ID: {bus_id}")
+        if not bus_id:
+            app.logger.error("No walking bus selected in multi-bus mode")
+            return render_template('login.html',
+                                error="Bitte Walking Bus und Passwort eingeben",
+                                hide_menu=True,
+                                buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
+                                is_multi_bus=is_multi_bus)
+        bus = WalkingBus.query.get(bus_id)
+    else:
+        configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
+        bus = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first()
+    
+    # Validate credentials and create session
+    if bus and bus.password == password:
+        app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
+        
+        # Set session data
+        session['walking_bus_id'] = bus.id
+        session['walking_bus_name'] = bus.name
+        session['bus_password_hash'] = hash(bus.password)  # Store hash instead of plain password
+        session.permanent = True
+        
+        # Create JWT token
+        token = jwt.encode(
+            {
+                'logged_in': True,
+                'walking_bus_id': bus.id,
+                'walking_bus_name': bus.name,
+                'bus_password_hash': hash(bus.password),  # Include hash in token
+                'exp': datetime.utcnow() + timedelta(days=365)
+            },
+            SECRET_KEY,
+            algorithm="HS256"
+        )
+        
+        response = redirect(url_for('main.index'))
+        response.set_cookie(
+            'auth_token',
+            token,
+            max_age=31536000,
+            secure=True,
+            httponly=True,
+            samesite='Strict'
+        )
+        return response
+    
+    # Handle failed login
+    record_attempt()
+    error_message = "Ungültiges Passwort" if not is_multi_bus else "Ungültiger Walking Bus oder falsches Passwort"
+    app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
+    
+    return render_template('login.html',
+                         error=error_message,
+                         hide_menu=True,
+                         buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
+                         is_multi_bus=is_multi_bus)

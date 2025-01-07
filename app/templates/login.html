@@ -17,24 +17,51 @@
                 <div class="card-body">
                     <h3 class="card-title text-center mb-4">Walking Bus</h3>
                     
-                    {% if error %}
-                    <div class="alert alert-danger" role="alert">
-                        {{ error }}
+                    {% if not buses %}
+                    <div class="alert alert-warning" role="alert">
+                        Keine Walking Busse konfiguriert. Bitte WALKING_BUSES in den Umgebungsvariablen definieren.
                     </div>
-                    {% endif %}
-                    
-                    <form method="POST">
-                        <div class="form-group mb-3">
-                            <input type="password" 
-                                   name="password" 
-                                   class="form-control" 
-                                   placeholder="Passwort"
-                                   autocomplete="current-password"
-                                   required>
+                    {% else %}
+                        {% if error %}
+                        <div class="alert alert-danger" role="alert">
+                            {{ error }}
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Anmelden</button>
-                    </form>
+                        {% endif %}
+                        
+                        <form method="POST" action="{{ url_for('main.login') }}">
+                            {% if is_multi_bus %}
+                                <div class="form-group mb-3">
+                                    <select name="walking_bus" class="form-control" required>
+                                        <option value="">Walking Bus auswählen</option>
+                                        {% for bus in buses %}
+                                            <option value="{{ bus.id }}">{{ bus.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            {% endif %}
+                            <div class="form-group mb-3">
+                                <input type="password" 
+                                       name="password" 
+                                       class="form-control" 
+                                       placeholder="Passwort"
+                                       required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Anmelden</button>
+                        </form>
+                    {% endif %}
                 </div>
+            </div>
+        </div>
+
+        <!-- GitHub reference section -->
+        <div class="col-12 text-center mt-4">
+            <div class="github-reference p-3">
+                <a href="https://github.com/frizzle0815/walking-bus-organizer" 
+                   class="text-decoration-none text-dark" 
+                   target="_blank">
+                    <i class="bi bi-github me-2" style="font-size: 1.2rem;"></i>
+                    <span>Dieses Projekt ist Open Source.</span>
+                </a>
             </div>
         </div>
     </div>
