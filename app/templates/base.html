@@ -314,186 +314,210 @@
 
 
   </style>
-  <script>
-// Request persistent storage for PWA
-async function requestStoragePermission() {
-    if (navigator.storage && navigator.storage.persist) {
-        const isPersisted = await navigator.storage.persist();
-        console.log(`Persistent storage granted: ${isPersisted}`);
-    }
-}
+<script>
+ // IndexedDB setup
+ async function openAuthDB() {
+     return new Promise((resolve, reject) => {
+         const request = indexedDB.open('walking-bus-auth', 1);
+         request.onerror = () => reject(request.error);
+         request.onsuccess = () => resolve(request.result);
+         request.onupgradeneeded = (event) => {
+             const db = event.target.result;
+             db.createObjectStore('auth-store');
+         };
+     });
+ }
 
-// Initialize authentication handling
-async function initAuth() {
-    await requestStoragePermission();
-    
-    // Register periodic auth validation
-    setInterval(async () => {
-        try {
-            const response = await fetch('/validate-auth', {
-                method: 'POST',
-                credentials: 'include'
-            });
-            
-            if (!response.ok) {
-                // Redirect to login if validation fails
-                window.location.href = '/login';
-            }
-        } catch (error) {
-            console.log('Auth validation failed:', error);
-        }
-    }, 3600000); // Check every hour
-}
+ async function getStoredAuthToken() {
+     const db = await openAuthDB();
+     const tx = db.transaction('auth-store', 'readonly');
+     const store = tx.objectStore('auth-store');
+     return await store.get('authToken');
+ }
 
-// Add to your existing DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', async () => {
-    // Your existing code here
-    
-    // Initialize auth handling
-    await initAuth();
-});
+ async function storeAuthToken(token) {
+     const db = await openAuthDB();
+     const tx = db.transaction('auth-store', 'readwrite');
+     const store = tx.objectStore('auth-store');
+     await store.put(token, 'authToken');
+ }
 
-// Update your existing axios interceptor
-axios.interceptors.response.use(
-    response => response,
-    error => {
-        if (error.response && error.response.status === 401) {
-            if (error.response.data.redirect) {
-                // Clear any stored auth data before redirect
-                window.location.href = '/login';
-            }
-        }
-        return Promise.reject(error);
-    }
-);
-      
-let deferredPrompt;
+ // Storage permission request
+ async function requestStoragePermission() {
+     if (navigator.storage && navigator.storage.persist) {
+         const isPersisted = await navigator.storage.persist();
+         console.log(`Persistent storage granted: ${isPersisted}`);
+     }
+ }
 
-window.addEventListener('beforeinstallprompt', (e) => {
-    // Prevent Chrome 67 and earlier from automatically showing the prompt
-    e.preventDefault();
-    // Stash the event so it can be triggered later
-    deferredPrompt = e;
-    // Show the install button
-    document.getElementById('install-app-item').style.display = 'block';
-});
+ // Authentication handling
+ async function initAuth() {
+     await requestStoragePermission();
+     
+     // Auto-login check
+     if (window.location.pathname === '/login') {
+         try {
+             const token = await getStoredAuthToken();
+             if (token) {
+                 const response = await fetch('/validate-auth', {
+                     method: 'POST',
+                     headers: {
+                         'Authorization': `Bearer ${token}`
+                     }
+                 });
+                 
+                 if (response.ok) {
+                     document.cookie = `auth_token=${token}; max-age=31536000; secure; samesite=Strict`;
+                     window.location.href = '/';
+                 }
+             }
+         } catch (error) {
+             console.log('Auto-login failed:', error);
+         }
+     }
 
-document.getElementById('install-app').addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    
-    // Show the install prompt
-    deferredPrompt.prompt();
-    
-    // Wait for the user to respond to the prompt
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User response to the install prompt: ${outcome}`);
-    
-    // Clear the deferredPrompt variable
-    deferredPrompt = null;
-    
-    // Hide the install button
-    document.getElementById('install-app-item').style.display = 'none';
-});
+     // Periodic validation
+     setInterval(async () => {
+         try {
+             const response = await fetch('/validate-auth', {
+                 method: 'POST',
+                 credentials: 'include'
+             });
+             
+             if (!response.ok) {
+                 window.location.href = '/login';
+             }
+         } catch (error) {
+             console.log('Auth validation failed:', error);
+         }
+     }, 3600000); // Check every hour
+ }
 
-// Hide install prompt when app is installed
-window.addEventListener('appinstalled', () => {
-    document.getElementById('install-app-item').style.display = 'none';
-    console.log('PWA was installed');
-});
+ // Axios interceptor
+ axios.interceptors.response.use(
+     response => response,
+     error => {
+         if (error.response && error.response.status === 401) {
+             if (error.response.data.redirect) {
+                 window.location.href = '/login';
+             }
+         }
+         return Promise.reject(error);
+     }
+ );
 
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/static/service-worker.js')
-            .then(registration => {
-                console.log('ServiceWorker registration successful');
-            })
-            .catch(err => {
-                console.log('ServiceWorker registration failed: ', err);
-            });
-    });
-}
+ // PWA installation handling
+ let deferredPrompt;
 
-// Create EventSource for server updates
-const eventSource = new EventSource('/stream');
+ window.addEventListener('beforeinstallprompt', (e) => {
+     e.preventDefault();
+     deferredPrompt = e;
+     document.getElementById('install-app-item').style.display = 'block';
+ });
 
-eventSource.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-    // Update time display
-    if (data.time) {
-        document.getElementById('current-time').textContent = data.time;
-    }
-    // Handle other station data as needed
-};
+ document.getElementById('install-app').addEventListener('click', async () => {
+     if (!deferredPrompt) return;
+     deferredPrompt.prompt();
+     const { outcome } = await deferredPrompt.userChoice;
+     console.log(`User response to the install prompt: ${outcome}`);
+     deferredPrompt = null;
+     document.getElementById('install-app-item').style.display = 'none';
+ });
 
-eventSource.onerror = function(error) {
-    console.error('EventSource failed:', error);
-    eventSource.close();
-};
+ window.addEventListener('appinstalled', () => {
+     document.getElementById('install-app-item').style.display = 'none';
+     console.log('PWA was installed');
+ });
 
-// Add to your existing script section
-document.addEventListener('DOMContentLoaded', () => {
-    const darkModeToggle = document.getElementById('darkModeToggle');
-    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-    const navbar = document.querySelector('.navbar-collapse');
-    
-    // Size control visibility logic
-    const sizeControlContainer = document.getElementById('size-control-container');
-    const currentPath = window.location.pathname;
-    
-    // Show size control only on index.html
-    if (currentPath === '/') {
-        sizeControlContainer.style.display = 'block';
-    } else {
-        sizeControlContainer.style.display = 'none';
-    }
+ // Service Worker registration
+ if ('serviceWorker' in navigator) {
+     window.addEventListener('load', () => {
+         navigator.serviceWorker.register('/static/service-worker.js')
+             .then(registration => {
+                 console.log('ServiceWorker registration successful');
+             })
+             .catch(err => {
+                 console.log('ServiceWorker registration failed: ', err);
+             });
+     });
+ }
 
-    document.addEventListener('click', (event) => {
-        // Check if navbar is expanded and click is outside navbar
-        if (navbar.classList.contains('show') && 
-            !navbar.contains(event.target) && 
-            !event.target.classList.contains('navbar-toggler')) {
-            // Get the Bootstrap navbar toggler and click it
-            document.querySelector('.navbar-toggler').click();
-        }
-    });
+ // Server-sent events
+ const eventSource = new EventSource('/stream');
+ 
+ eventSource.onmessage = function(event) {
+     const data = JSON.parse(event.data);
+     if (data.time) {
+         document.getElementById('current-time').textContent = data.time;
+     }
+ };
 
-    // Initialize dark mode based on system preference or stored setting
-    const storedTheme = localStorage.getItem('theme');
-    if (storedTheme) {
-        document.documentElement.setAttribute('data-theme', storedTheme);
-        updateDarkModeIcon(storedTheme === 'dark');
-    } else if (prefersDarkScheme.matches) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        updateDarkModeIcon(true);
-    }
-    
-    // Handle button clicks
-    darkModeToggle.addEventListener('click', () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-        updateDarkModeIcon(newTheme === 'dark');
-    });
-    
-    // Listen for system theme changes
-    prefersDarkScheme.addEventListener('change', (e) => {
-        if (!localStorage.getItem('theme')) {
-            const newTheme = e.matches ? 'dark' : 'light';
-            document.documentElement.setAttribute('data-theme', newTheme);
-            updateDarkModeIcon(e.matches);
-        }
-    });
-    
-    function updateDarkModeIcon(isDark) {
-        const icon = darkModeToggle.querySelector('i');
-        icon.classList.remove('fa-sun', 'fa-moon');
-        icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
-    }
-});
+ eventSource.onerror = function(error) {
+     console.error('EventSource failed:', error);
+     eventSource.close();
+ };
 
-  </script>
+ // Main initialization
+ document.addEventListener('DOMContentLoaded', async () => {
+     await initAuth();
+
+     const darkModeToggle = document.getElementById('darkModeToggle');
+     const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+     const navbar = document.querySelector('.navbar-collapse');
+     
+     // Size control visibility
+     const sizeControlContainer = document.getElementById('size-control-container');
+     if (window.location.pathname === '/') {
+         sizeControlContainer.style.display = 'block';
+     } else {
+         sizeControlContainer.style.display = 'none';
+     }
+
+     // Navbar click handling
+     document.addEventListener('click', (event) => {
+         if (navbar.classList.contains('show') && 
+             !navbar.contains(event.target) && 
+             !event.target.classList.contains('navbar-toggler')) {
+             document.querySelector('.navbar-toggler').click();
+         }
+     });
+
+     // Dark mode initialization
+     const storedTheme = localStorage.getItem('theme');
+     if (storedTheme) {
+         document.documentElement.setAttribute('data-theme', storedTheme);
+         updateDarkModeIcon(storedTheme === 'dark');
+     } else if (prefersDarkScheme.matches) {
+         document.documentElement.setAttribute('data-theme', 'dark');
+         updateDarkModeIcon(true);
+     }
+     
+     // Dark mode toggle
+     darkModeToggle.addEventListener('click', () => {
+         const currentTheme = document.documentElement.getAttribute('data-theme');
+         const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+         document.documentElement.setAttribute('data-theme', newTheme);
+         localStorage.setItem('theme', newTheme);
+         updateDarkModeIcon(newTheme === 'dark');
+     });
+     
+     // System theme change handler
+     prefersDarkScheme.addEventListener('change', (e) => {
+         if (!localStorage.getItem('theme')) {
+             const newTheme = e.matches ? 'dark' : 'light';
+             document.documentElement.setAttribute('data-theme', newTheme);
+             updateDarkModeIcon(e.matches);
+         }
+     });
+ });
+
+ function updateDarkModeIcon(isDark) {
+     const icon = darkModeToggle.querySelector('i');
+     icon.classList.remove('fa-sun', 'fa-moon');
+     icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
+ }
+</script>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
