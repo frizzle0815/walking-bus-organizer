@@ -74,6 +74,19 @@ def create_app():
     # Session validation middleware
     @app.before_request
     def validate_session():
+        # Define PWA-related paths that should bypass authentication
+        pwa_paths = {
+            'manifest.json',
+            'service-worker.js',
+            'static/icons/',
+            'static/manifest.json'
+        }
+        
+        # Skip validation for PWA resources and static files
+        if any(path in request.path for path in pwa_paths) or \
+           (request.endpoint and 'static' in request.endpoint):
+            return None
+
         if request.endpoint and 'static' not in request.endpoint:
             # Check JWT token first
             token = request.cookies.get('auth_token') or \
