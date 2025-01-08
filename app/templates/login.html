@@ -31,10 +31,9 @@
                         <form method="POST" action="{{ url_for('main.login') }}">
                             {% if is_multi_bus %}
                                 <div class="form-group mb-3">
-                                    <select name="walking_bus" class="form-control" required>
-                                        <option value="">Walking Bus auswählen</option>
+                                    <select name="walking_bus" class="form-control" required data-placeholder="Walking Bus auswählen">
                                         {% for bus in buses %}
-                                            <option value="{{ bus.id }}">{{ bus.name }}</option>
+                                        <option value="{{ bus.id }}" {% if selected_bus_id|string == bus.id|string %}selected{% endif %}>{{ bus.name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>

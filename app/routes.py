@@ -1089,7 +1089,9 @@ def login():
     # Handle GET request
     if request.method == 'GET':
         configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
-        buses = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).all() if is_multi_bus else None
+        buses = WalkingBus.query.filter(
+            WalkingBus.id.in_(configured_bus_ids)
+        ).order_by(WalkingBus.id).all() if is_multi_bus else None
         return render_template('login.html', buses=buses, is_multi_bus=is_multi_bus)
     
     # Check IP lockout
@@ -1106,6 +1108,7 @@ def login():
     
     # Handle POST request
     password = request.form.get('password')
+    selected_bus_id = request.form.get('walking_bus')
     app.logger.debug(f"POST request - Password received: {'*' * len(password) if password else 'None'}")
 
     # Get bus based on mode
@@ -1160,11 +1163,26 @@ def login():
     
     # Handle failed login
     record_attempt()
-    error_message = "Ungültiges Passwort" if not is_multi_bus else "Ungültiger Walking Bus oder falsches Passwort"
+    error_message = "Ungültiges Passwort"
     app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
     
     return render_template('login.html',
                          error=error_message,
                          hide_menu=True,
+                         selected_bus_id=selected_bus_id,
                          buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
                          is_multi_bus=is_multi_bus)
+
+
+@bp.route("/logout")
+def logout():
+    # Clear all session data
+    session.clear()
+    
+    # Create response object for redirect
+    response = redirect(url_for('main.login'))
+    
+    # Remove the auth cookie
+    response.delete_cookie('auth_token')
+    
+    return response
