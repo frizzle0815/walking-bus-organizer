@@ -1113,7 +1113,7 @@ def login():
 
     # Get bus based on mode
     if is_multi_bus:
-        bus_id = request.form.get('walking_bus')
+        bus_id = selected_bus_id
         app.logger.debug(f"POST request - Selected bus ID: {bus_id}")
         if not bus_id:
             app.logger.error("No walking bus selected in multi-bus mode")
@@ -1134,31 +1134,38 @@ def login():
         # Set session data
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
-        session['bus_password_hash'] = hash(bus.password)  # Store hash instead of plain password
+        session['bus_password_hash'] = hash(bus.password)
         session.permanent = True
         
-        # Create JWT token
+        # Create JWT token with extended expiration for PWA
         token = jwt.encode(
             {
                 'logged_in': True,
                 'walking_bus_id': bus.id,
                 'walking_bus_name': bus.name,
-                'bus_password_hash': hash(bus.password),  # Include hash in token
-                'exp': datetime.utcnow() + timedelta(days=365)
+                'bus_password_hash': hash(bus.password),
+                'exp': datetime.utcnow() + timedelta(days=365),
+                'iat': datetime.utcnow(),
+                'type': 'pwa_auth'
             },
             SECRET_KEY,
             algorithm="HS256"
         )
         
         response = redirect(url_for('main.index'))
+        
+        # Set secure cookie with extended expiration
         response.set_cookie(
             'auth_token',
             token,
-            max_age=31536000,
+            max_age=31536000,  # 1 year in seconds
             secure=True,
             httponly=True,
             samesite='Strict'
         )
+        
+        # Add header for service worker to capture
+        response.headers['X-Auth-Token'] = token
         return response
     
     # Handle failed login
@@ -1182,7 +1189,44 @@ def logout():
     # Create response object for redirect
     response = redirect(url_for('main.login'))
     
-    # Remove the auth cookie
+    # Remove all auth-related cookies
     response.delete_cookie('auth_token')
     
+    # Add headers to trigger PWA cleanup
+    response.headers['Clear-Site-Data'] = '"cache", "storage"'
+    response.headers['X-Clear-Auth'] = 'true'
+    
     return response
+
+
+@bp.route("/validate-auth", methods=["POST"])
+def validate_auth():
+    try:
+        token = request.cookies.get('auth_token')
+        if not token:
+            return jsonify({"valid": False}), 401
+            
+        # Decode and verify token
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        
+        # Verify walking bus still exists and is valid
+        walking_bus_id = payload.get('walking_bus_id')
+        bus = WalkingBus.query.get(walking_bus_id)
+        
+        if not bus:
+            return jsonify({"valid": False}), 401
+            
+        # Check if password hash matches (in case password was changed)
+        if payload.get('bus_password_hash') != hash(bus.password):
+            return jsonify({"valid": False}), 401
+            
+        return jsonify({
+            "valid": True,
+            "walking_bus_id": bus.id,
+            "walking_bus_name": bus.name
+        })
+        
+    except jwt.ExpiredSignatureError:
+        return jsonify({"valid": False, "error": "Token expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"valid": False, "error": "Invalid token"}), 401

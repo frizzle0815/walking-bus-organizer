@@ -315,145 +315,183 @@
 
   </style>
   <script>
+// Request persistent storage for PWA
+async function requestStoragePermission() {
+    if (navigator.storage && navigator.storage.persist) {
+        const isPersisted = await navigator.storage.persist();
+        console.log(`Persistent storage granted: ${isPersisted}`);
+    }
+}
 
-      // Add global axios interceptor for handling 401 responses
-      axios.interceptors.response.use(
-          response => response,
-          error => {
-              if (error.response && error.response.status === 401) {
-                  if (error.response.data.redirect) {
-                      window.location.href = '/login';
-                  }
-              }
-              return Promise.reject(error);
-          }
-      );
+// Initialize authentication handling
+async function initAuth() {
+    await requestStoragePermission();
+    
+    // Register periodic auth validation
+    setInterval(async () => {
+        try {
+            const response = await fetch('/validate-auth', {
+                method: 'POST',
+                credentials: 'include'
+            });
+            
+            if (!response.ok) {
+                // Redirect to login if validation fails
+                window.location.href = '/login';
+            }
+        } catch (error) {
+            console.log('Auth validation failed:', error);
+        }
+    }, 3600000); // Check every hour
+}
+
+// Add to your existing DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', async () => {
+    // Your existing code here
+    
+    // Initialize auth handling
+    await initAuth();
+});
+
+// Update your existing axios interceptor
+axios.interceptors.response.use(
+    response => response,
+    error => {
+        if (error.response && error.response.status === 401) {
+            if (error.response.data.redirect) {
+                // Clear any stored auth data before redirect
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
       
-      let deferredPrompt;
+let deferredPrompt;
 
-      window.addEventListener('beforeinstallprompt', (e) => {
-          // Prevent Chrome 67 and earlier from automatically showing the prompt
-          e.preventDefault();
-          // Stash the event so it can be triggered later
-          deferredPrompt = e;
-          // Show the install button
-          document.getElementById('install-app-item').style.display = 'block';
-      });
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent Chrome 67 and earlier from automatically showing the prompt
+    e.preventDefault();
+    // Stash the event so it can be triggered later
+    deferredPrompt = e;
+    // Show the install button
+    document.getElementById('install-app-item').style.display = 'block';
+});
 
-      document.getElementById('install-app').addEventListener('click', async () => {
-          if (!deferredPrompt) return;
-          
-          // Show the install prompt
-          deferredPrompt.prompt();
-          
-          // Wait for the user to respond to the prompt
-          const { outcome } = await deferredPrompt.userChoice;
-          console.log(`User response to the install prompt: ${outcome}`);
-          
-          // Clear the deferredPrompt variable
-          deferredPrompt = null;
-          
-          // Hide the install button
-          document.getElementById('install-app-item').style.display = 'none';
-      });
+document.getElementById('install-app').addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    
+    // Show the install prompt
+    deferredPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    
+    // Clear the deferredPrompt variable
+    deferredPrompt = null;
+    
+    // Hide the install button
+    document.getElementById('install-app-item').style.display = 'none';
+});
 
-      // Hide install prompt when app is installed
-      window.addEventListener('appinstalled', () => {
-          document.getElementById('install-app-item').style.display = 'none';
-          console.log('PWA was installed');
-      });
+// Hide install prompt when app is installed
+window.addEventListener('appinstalled', () => {
+    document.getElementById('install-app-item').style.display = 'none';
+    console.log('PWA was installed');
+});
 
-      if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/static/service-worker.js')
-                  .then(registration => {
-                      console.log('ServiceWorker registration successful');
-                  })
-                  .catch(err => {
-                      console.log('ServiceWorker registration failed: ', err);
-                  });
-          });
-      }
-  
-      // Create EventSource for server updates
-      const eventSource = new EventSource('/stream');
-      
-      eventSource.onmessage = function(event) {
-          const data = JSON.parse(event.data);
-          // Update time display
-          if (data.time) {
-              document.getElementById('current-time').textContent = data.time;
-          }
-          // Handle other station data as needed
-      };
-  
-      eventSource.onerror = function(error) {
-          console.error('EventSource failed:', error);
-          eventSource.close();
-      };
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/service-worker.js')
+            .then(registration => {
+                console.log('ServiceWorker registration successful');
+            })
+            .catch(err => {
+                console.log('ServiceWorker registration failed: ', err);
+            });
+    });
+}
 
-      // Add to your existing script section
-      document.addEventListener('DOMContentLoaded', () => {
-          const darkModeToggle = document.getElementById('darkModeToggle');
-          const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-          const navbar = document.querySelector('.navbar-collapse');
-          
-          // Size control visibility logic
-          const sizeControlContainer = document.getElementById('size-control-container');
-          const currentPath = window.location.pathname;
-          
-          // Show size control only on index.html
-          if (currentPath === '/') {
-              sizeControlContainer.style.display = 'block';
-          } else {
-              sizeControlContainer.style.display = 'none';
-          }
+// Create EventSource for server updates
+const eventSource = new EventSource('/stream');
 
-          document.addEventListener('click', (event) => {
-              // Check if navbar is expanded and click is outside navbar
-              if (navbar.classList.contains('show') && 
-                  !navbar.contains(event.target) && 
-                  !event.target.classList.contains('navbar-toggler')) {
-                  // Get the Bootstrap navbar toggler and click it
-                  document.querySelector('.navbar-toggler').click();
-              }
-          });
+eventSource.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    // Update time display
+    if (data.time) {
+        document.getElementById('current-time').textContent = data.time;
+    }
+    // Handle other station data as needed
+};
 
-          // Initialize dark mode based on system preference or stored setting
-          const storedTheme = localStorage.getItem('theme');
-          if (storedTheme) {
-              document.documentElement.setAttribute('data-theme', storedTheme);
-              updateDarkModeIcon(storedTheme === 'dark');
-          } else if (prefersDarkScheme.matches) {
-              document.documentElement.setAttribute('data-theme', 'dark');
-              updateDarkModeIcon(true);
-          }
-          
-          // Handle button clicks
-          darkModeToggle.addEventListener('click', () => {
-              const currentTheme = document.documentElement.getAttribute('data-theme');
-              const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-              
-              document.documentElement.setAttribute('data-theme', newTheme);
-              localStorage.setItem('theme', newTheme);
-              updateDarkModeIcon(newTheme === 'dark');
-          });
-          
-          // Listen for system theme changes
-          prefersDarkScheme.addEventListener('change', (e) => {
-              if (!localStorage.getItem('theme')) {
-                  const newTheme = e.matches ? 'dark' : 'light';
-                  document.documentElement.setAttribute('data-theme', newTheme);
-                  updateDarkModeIcon(e.matches);
-              }
-          });
-          
-          function updateDarkModeIcon(isDark) {
-              const icon = darkModeToggle.querySelector('i');
-              icon.classList.remove('fa-sun', 'fa-moon');
-              icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
-          }
-      });
+eventSource.onerror = function(error) {
+    console.error('EventSource failed:', error);
+    eventSource.close();
+};
+
+// Add to your existing script section
+document.addEventListener('DOMContentLoaded', () => {
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const navbar = document.querySelector('.navbar-collapse');
+    
+    // Size control visibility logic
+    const sizeControlContainer = document.getElementById('size-control-container');
+    const currentPath = window.location.pathname;
+    
+    // Show size control only on index.html
+    if (currentPath === '/') {
+        sizeControlContainer.style.display = 'block';
+    } else {
+        sizeControlContainer.style.display = 'none';
+    }
+
+    document.addEventListener('click', (event) => {
+        // Check if navbar is expanded and click is outside navbar
+        if (navbar.classList.contains('show') && 
+            !navbar.contains(event.target) && 
+            !event.target.classList.contains('navbar-toggler')) {
+            // Get the Bootstrap navbar toggler and click it
+            document.querySelector('.navbar-toggler').click();
+        }
+    });
+
+    // Initialize dark mode based on system preference or stored setting
+    const storedTheme = localStorage.getItem('theme');
+    if (storedTheme) {
+        document.documentElement.setAttribute('data-theme', storedTheme);
+        updateDarkModeIcon(storedTheme === 'dark');
+    } else if (prefersDarkScheme.matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        updateDarkModeIcon(true);
+    }
+    
+    // Handle button clicks
+    darkModeToggle.addEventListener('click', () => {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        updateDarkModeIcon(newTheme === 'dark');
+    });
+    
+    // Listen for system theme changes
+    prefersDarkScheme.addEventListener('change', (e) => {
+        if (!localStorage.getItem('theme')) {
+            const newTheme = e.matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            updateDarkModeIcon(e.matches);
+        }
+    });
+    
+    function updateDarkModeIcon(isDark) {
+        const icon = darkModeToggle.querySelector('i');
+        icon.classList.remove('fa-sun', 'fa-moon');
+        icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
+    }
+});
 
   </script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
