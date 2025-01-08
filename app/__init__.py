@@ -161,6 +161,13 @@ def create_app():
             '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
         ))
         file_handler.setLevel(logging.INFO)
+
+        # Add stdout handler for Gunicorn
+        stdout_handler = logging.StreamHandler()
+        stdout_handler.setLevel(logging.INFO)
+        stdout_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        stdout_handler.setFormatter(stdout_formatter)
+        app.logger.addHandler(stdout_handler)
         
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
