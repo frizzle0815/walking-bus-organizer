@@ -66,7 +66,28 @@ self.addEventListener('activate', (event) => {
  console.log('[SW] Activate event triggered');
  event.waitUntil(
      Promise.all([
+         // Claim clients and log
          self.clients.claim().then(() => console.log('[SW] Clients claimed')),
+         
+         // Check and restore auth state
+         caches.open(AUTH_CACHE)
+             .then(cache => cache.match('auth-token'))
+             .then(tokenResponse => {
+                 console.log('[SW] Checking auth token in cache');
+                 if (tokenResponse) {
+                     return tokenResponse.json().then(data => {
+                         console.log('[SW] Auth token found, validating');
+                         return fetch('/validate-auth', {
+                             method: 'POST',
+                             headers: {
+                                 'Authorization': `Bearer ${data.token}`
+                             }
+                         });
+                     });
+                 }
+             }),
+         
+         // Cache cleanup with logging
          caches.keys().then(cacheNames => {
              console.log('[SW] Checking caches:', cacheNames);
              return Promise.all(
