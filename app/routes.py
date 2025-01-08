@@ -1160,7 +1160,7 @@ def login():
             token,
             max_age=31536000,  # 1 year in seconds
             secure=True,
-            httponly=True,
+            httponly=False,
             samesite='Strict'
         )
         
@@ -1209,7 +1209,7 @@ def logout():
     response.delete_cookie(
         'auth_token',
         secure=True,
-        httponly=True,
+        httponly=False,
         samesite='Strict'
     )
     
