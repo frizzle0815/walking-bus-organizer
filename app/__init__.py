@@ -74,8 +74,8 @@ def create_app():
     # Session validation middleware
     @app.before_request
     def validate_session():
-        app.logger.info(f"[REQUEST] Path: {request.path}")
-        app.logger.info(f"[REQUEST] Endpoint: {request.endpoint}")
+        app.logger.info(f"[SESSION][REQUEST] Path: {request.path}")
+        app.logger.info(f"[SESSION][REQUEST] Endpoint: {request.endpoint}")
         
         # Define PWA-related paths that should bypass authentication
         pwa_paths = {
@@ -88,27 +88,27 @@ def create_app():
         # Skip validation for PWA resources and static files
         if any(path in request.path for path in pwa_paths) or \
            (request.endpoint and 'static' in request.endpoint):
-            app.logger.info("[PWA] Bypassing auth for PWA/static resource")
+            app.logger.info("[SESSION][PWA] Bypassing auth for PWA/static resource")
             return None
 
         if request.endpoint and 'static' not in request.endpoint:
             # Check JWT token first
             token = request.cookies.get('auth_token')
-            app.logger.info(f"[TOKEN] Found in cookies: {bool(token)}")
+            app.logger.info(f"[SESSION][TOKEN] Found in cookies: {bool(token)}")
             
             if not token:
                 token = request.headers.get('Authorization', '').replace('Bearer ', '')
-                app.logger.info(f"[TOKEN] Found in headers: {bool(token)}")
+                app.logger.info(f"[SESSION][TOKEN] Found in headers: {bool(token)}")
             
             if token:
                 try:
-                    app.logger.info("[TOKEN] Attempting to decode")
+                    app.logger.info("[SESSION][TOKEN] Attempting to decode")
                     payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-                    app.logger.info(f"[TOKEN] Payload: {payload}")
+                    app.logger.info(f"[SESSION][TOKEN] Payload: {payload}")
                     
                     walking_bus_id = payload.get('walking_bus_id')
                     bus_password_hash = payload.get('bus_password_hash')
-                    app.logger.info(f"[BUS] Walking bus ID: {walking_bus_id}")
+                    app.logger.info(f"[SESSION][BUS] Walking bus ID: {walking_bus_id}")
                     
                     # Get current bus configuration
                     buses_env = os.environ.get('WALKING_BUSES', '').strip()
@@ -118,28 +118,28 @@ def create_app():
                             for b in buses_env.split(',')
                             if len(b.split(':')) == 3
                         )
-                        app.logger.info(f"[BUS] Available configs: {list(bus_configs.keys())}")
+                        app.logger.info(f"[SESSION][BUS] Available configs: {list(bus_configs.keys())}")
                         
                         # Validate bus ID and password hash from token
                         if walking_bus_id in bus_configs:
-                            app.logger.info("[VALIDATION] Bus ID found in configs")
+                            app.logger.info("[SESSION][VALIDATION] Bus ID found in configs")
                             if bus_password_hash == bus_configs[walking_bus_id]:
-                                app.logger.info("[VALIDATION] Password hash matches")
+                                app.logger.info("[SESSION][VALIDATION] Password hash matches")
                                 session['walking_bus_id'] = walking_bus_id
                                 session['bus_password_hash'] = bus_password_hash
                                 session.permanent = True
                                 return None
                             else:
-                                app.logger.info("[VALIDATION] Password hash mismatch")
+                                app.logger.info("[SESSION][VALIDATION] Password hash mismatch")
                         else:
-                            app.logger.info("[VALIDATION] Bus ID not found in configs")
+                            app.logger.info("[SESSION][VALIDATION] Bus ID not found in configs")
                 except jwt.InvalidTokenError as e:
-                    app.logger.info(f"[ERROR] Token validation failed: {str(e)}")
+                    app.logger.info(f"[SESSION][ERROR] Token validation failed: {str(e)}")
             else:
-                app.logger.info("[TOKEN] No token found")
+                app.logger.info("[SESSION][TOKEN] No token found")
             
             # Clear session if validation fails
-            app.logger.info("[SESSION] Clearing and redirecting to login")
+            app.logger.info("[SESSION][SESSION] Clearing and redirecting to login")
             session.clear()
             if request.endpoint != 'main.login':
                 return redirect(url_for('main.login'))
