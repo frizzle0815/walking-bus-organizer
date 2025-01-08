@@ -74,8 +74,8 @@ def create_app():
     # Session validation middleware
     @app.before_request
     def validate_session():
-        app.logger.debug(f"[REQUEST] Path: {request.path}")
-        app.logger.debug(f"[REQUEST] Endpoint: {request.endpoint}")
+        app.logger.info(f"[REQUEST] Path: {request.path}")
+        app.logger.info(f"[REQUEST] Endpoint: {request.endpoint}")
         
         # Define PWA-related paths that should bypass authentication
         pwa_paths = {
@@ -88,27 +88,27 @@ def create_app():
         # Skip validation for PWA resources and static files
         if any(path in request.path for path in pwa_paths) or \
            (request.endpoint and 'static' in request.endpoint):
-            app.logger.debug("[PWA] Bypassing auth for PWA/static resource")
+            app.logger.info("[PWA] Bypassing auth for PWA/static resource")
             return None
 
         if request.endpoint and 'static' not in request.endpoint:
             # Check JWT token first
             token = request.cookies.get('auth_token')
-            app.logger.debug(f"[TOKEN] Found in cookies: {bool(token)}")
+            app.logger.info(f"[TOKEN] Found in cookies: {bool(token)}")
             
             if not token:
                 token = request.headers.get('Authorization', '').replace('Bearer ', '')
-                app.logger.debug(f"[TOKEN] Found in headers: {bool(token)}")
+                app.logger.info(f"[TOKEN] Found in headers: {bool(token)}")
             
             if token:
                 try:
-                    app.logger.debug("[TOKEN] Attempting to decode")
+                    app.logger.info("[TOKEN] Attempting to decode")
                     payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-                    app.logger.debug(f"[TOKEN] Payload: {payload}")
+                    app.logger.info(f"[TOKEN] Payload: {payload}")
                     
                     walking_bus_id = payload.get('walking_bus_id')
                     bus_password_hash = payload.get('bus_password_hash')
-                    app.logger.debug(f"[BUS] Walking bus ID: {walking_bus_id}")
+                    app.logger.info(f"[BUS] Walking bus ID: {walking_bus_id}")
                     
                     # Get current bus configuration
                     buses_env = os.environ.get('WALKING_BUSES', '').strip()
@@ -118,28 +118,28 @@ def create_app():
                             for b in buses_env.split(',')
                             if len(b.split(':')) == 3
                         )
-                        app.logger.debug(f"[BUS] Available configs: {list(bus_configs.keys())}")
+                        app.logger.info(f"[BUS] Available configs: {list(bus_configs.keys())}")
                         
                         # Validate bus ID and password hash from token
                         if walking_bus_id in bus_configs:
-                            app.logger.debug("[VALIDATION] Bus ID found in configs")
+                            app.logger.info("[VALIDATION] Bus ID found in configs")
                             if bus_password_hash == bus_configs[walking_bus_id]:
-                                app.logger.debug("[VALIDATION] Password hash matches")
+                                app.logger.info("[VALIDATION] Password hash matches")
                                 session['walking_bus_id'] = walking_bus_id
                                 session['bus_password_hash'] = bus_password_hash
                                 session.permanent = True
                                 return None
                             else:
-                                app.logger.debug("[VALIDATION] Password hash mismatch")
+                                app.logger.info("[VALIDATION] Password hash mismatch")
                         else:
-                            app.logger.debug("[VALIDATION] Bus ID not found in configs")
+                            app.logger.info("[VALIDATION] Bus ID not found in configs")
                 except jwt.InvalidTokenError as e:
-                    app.logger.debug(f"[ERROR] Token validation failed: {str(e)}")
+                    app.logger.info(f"[ERROR] Token validation failed: {str(e)}")
             else:
-                app.logger.debug("[TOKEN] No token found")
+                app.logger.info("[TOKEN] No token found")
             
             # Clear session if validation fails
-            app.logger.debug("[SESSION] Clearing and redirecting to login")
+            app.logger.info("[SESSION] Clearing and redirecting to login")
             session.clear()
             if request.endpoint != 'main.login':
                 return redirect(url_for('main.login'))
@@ -150,34 +150,6 @@ def create_app():
         if 'X-Auth-Token' in response.headers:
             response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
         return response
-
-    # Configure logging
-    if not app.debug:
-        if not os.path.exists('logs'):
-            os.mkdir('logs')
-        
-        file_handler = RotatingFileHandler('logs/walking_bus.log', maxBytes=10240, backupCount=10)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        file_handler.setLevel(logging.INFO)
-
-        # Add stdout handler for Gunicorn
-        stdout_handler = logging.StreamHandler()
-        stdout_handler.setLevel(logging.INFO)
-        stdout_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        stdout_handler.setFormatter(stdout_formatter)
-        app.logger.addHandler(stdout_handler)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        console_handler.setFormatter(console_formatter)
-        
-        app.logger.addHandler(file_handler)
-        app.logger.addHandler(console_handler)
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Walking Bus startup')
 
     # Initialize extensions
     db.init_app(app)
