@@ -1166,6 +1166,7 @@ def login():
         
         # Add header for service worker to capture
         response.headers['X-Auth-Token'] = token
+        response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
         return response
     
     # Handle failed login

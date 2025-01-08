@@ -97,6 +97,14 @@ def create_app():
                         if request.endpoint != 'main.login':
                             return redirect(url_for('main.login'))
 
+    # Add the new auth token capture middleware
+    @app.after_request
+    def capture_auth_token(response):
+        if 'X-Auth-Token' in response.headers:
+            # Allow the token to be read by JavaScript
+            response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
+        return response
+
     # Configure logging
     if not app.debug:
         if not os.path.exists('logs'):
@@ -127,3 +135,4 @@ def create_app():
     app.register_blueprint(bp)
 
     return app
+

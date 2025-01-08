@@ -71,18 +71,14 @@ def get_remaining_lockout_time(ip):
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        token = request.cookies.get('auth_token')
+        token = request.cookies.get('auth_token') or \
+                request.headers.get('Authorization', '').replace('Bearer ', '')
         
-        # No token -> redirect to login
         if not token:
             return redirect(url_for('main.login'))
             
         try:
-            # Decode token and verify walking bus context
             payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            if not payload.get('walking_bus_id'):
-                return redirect(url_for('main.login'))
-                
             return f(*args, **kwargs)
         except jwt.ExpiredSignatureError:
             return redirect(url_for('main.login'))
