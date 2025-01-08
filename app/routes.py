@@ -1190,12 +1190,21 @@ def logout():
     # Create response object for redirect
     response = redirect(url_for('main.login'))
     
-    # Remove all auth-related cookies
-    response.delete_cookie('auth_token')
+    # Remove auth token cookie with all security flags
+    response.delete_cookie(
+        'auth_token',
+        secure=True,
+        httponly=True,
+        samesite='Strict'
+    )
     
-    # Add headers to trigger PWA cleanup
-    response.headers['Clear-Site-Data'] = '"cache", "storage"'
-    response.headers['X-Clear-Auth'] = 'true'
+    # Force browser to clear cache and storage
+    response.headers.update({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Clear-Site-Data': '"cache", "cookies", "storage"'
+    })
     
     return response
 

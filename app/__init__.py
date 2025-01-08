@@ -56,10 +56,6 @@ class RequestFormatter(logging.Formatter):
 def create_app():
     app = Flask(__name__)
 
-    gunicorn_logger = logging.getLogger('gunicorn.error')
-    app.logger.handlers = gunicorn_logger.handlers
-    app.logger.setLevel(gunicorn_logger.level)
-    
     # Security Configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
@@ -154,27 +150,6 @@ def create_app():
         if 'X-Auth-Token' in response.headers:
             response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
         return response
-
-    # Configure logging
-    if not app.debug:
-        if not os.path.exists('logs'):
-            os.mkdir('logs')
-        
-        file_handler = RotatingFileHandler('logs/walking_bus.log', maxBytes=10240, backupCount=10)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-        ))
-        file_handler.setLevel(logging.INFO)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        console_handler.setFormatter(console_formatter)
-        
-        app.logger.addHandler(file_handler)
-        app.logger.addHandler(console_handler)
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Walking Bus startup')
 
     # Initialize extensions
     db.init_app(app)
