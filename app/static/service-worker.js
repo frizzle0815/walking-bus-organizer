@@ -14,6 +14,21 @@ const URLS_TO_CACHE = [
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css'
 ];
 
+// Handle messages from the client
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'STORE_AUTH_TOKEN') {
+        caches.open(AUTH_CACHE).then(cache => {
+            const headers = new Headers({
+                'Authorization': `Bearer ${event.data.token}`
+            });
+            const response = new Response(JSON.stringify({token: event.data.token}), {
+                headers: headers
+            });
+            cache.put('auth-token', response);
+        });
+    }
+});
+
 // Installation des Service Workers
 self.addEventListener('install', (event) => {
     event.waitUntil(
@@ -45,21 +60,41 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event handling with authentication
 self.addEventListener('fetch', (event) => {
-    // Handle API requests
-    if (event.request.url.includes('/api/')) {
+    // Handle API requests and authenticated routes
+    if (event.request.url.includes('/api/') || event.request.url.endsWith('/')) {
         event.respondWith(
-            fetch(event.request)
-                .then(response => {
-                    if (!response.ok) throw new Error('Network response was not ok');
-                    const clonedResponse = response.clone();
-                    caches.open(DATA_CACHE).then(cache => {
-                        cache.put(event.request, clonedResponse);
-                    });
-                    return response;
+            caches.open(AUTH_CACHE)
+                .then(cache => cache.match('auth-token'))
+                .then(tokenResponse => {
+                    if (tokenResponse) {
+                        return tokenResponse.json().then(data => {
+                            const authenticatedRequest = new Request(event.request.url, {
+                                method: event.request.method,
+                                headers: {
+                                    ...Object.fromEntries(event.request.headers),
+                                    'Authorization': `Bearer ${data.token}`
+                                },
+                                mode: 'cors',
+                                credentials: 'include'
+                            });
+                            
+                            return fetch(authenticatedRequest)
+                                .then(response => {
+                                    if (!response.ok) throw new Error('Network response was not ok');
+                                    const clonedResponse = response.clone();
+                                    if (event.request.url.includes('/api/')) {
+                                        caches.open(DATA_CACHE).then(cache => {
+                                            cache.put(event.request, clonedResponse);
+                                        });
+                                    }
+                                    return response;
+                                })
+                                .catch(() => caches.match(event.request));
+                        });
+                    }
+                    return fetch(event.request);
                 })
-                .catch(() => {
-                    return caches.match(event.request);
-                })
+                .catch(() => fetch(event.request))
         );
         return;
     }
@@ -97,7 +132,7 @@ self.addEventListener('sync', (event) => {
     if (event.tag === 'sync-auth') {
         event.waitUntil(
             caches.open(AUTH_CACHE)
-                .then(cache => cache.match('auth-data'))
+                .then(cache => cache.match('auth-token'))
                 .then(response => {
                     if (response) {
                         return response.json();
@@ -106,11 +141,11 @@ self.addEventListener('sync', (event) => {
                 })
                 .then(authData => {
                     if (authData) {
-                        // Attempt to revalidate authentication
                         return fetch('/validate-auth', {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/json'
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${authData.token}`
                             },
                             body: JSON.stringify(authData)
                         });

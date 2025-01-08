@@ -1167,6 +1167,21 @@ def login():
         # Add header for service worker to capture
         response.headers['X-Auth-Token'] = token
         response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
+        response.headers['Service-Worker-Allowed'] = '/'
+        # Add script to store token in service worker
+        response.headers['Content-Security-Policy'] = "script-src 'self' 'unsafe-inline'"
+        script = f"""
+        <script>
+            if ('serviceWorker' in navigator) {{
+                navigator.serviceWorker.ready.then(registration => {{
+                    registration.active.postMessage({{
+                        type: 'STORE_AUTH_TOKEN',
+                        token: '{token}'
+                    }});
+                }});
+            }}
+        </script>
+        """
         return response
     
     # Handle failed login
