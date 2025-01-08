@@ -27,8 +27,8 @@ services:
       - FLASK_ENV=production
       - HOLIDAY_COUNTRY=DE
       - HOLIDAY_SUBDIVISION=NW
-      - SECRET_KEY=
-      - WALKING_BUSES=
+      - SECRET_KEY={Choose_Random_Key}
+      - WALKING_BUSES=1:bus_name1:password1,2:bus_name2:password2
 
 volumes:
   postgres_data:
