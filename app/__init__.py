@@ -151,6 +151,27 @@ def create_app():
             response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
         return response
 
+    # Configure logging
+    if not app.debug:
+        if not os.path.exists('logs'):
+            os.mkdir('logs')
+        
+        file_handler = RotatingFileHandler('logs/walking_bus.log', maxBytes=10240, backupCount=10)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+        ))
+        file_handler.setLevel(logging.INFO)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        
+        app.logger.addHandler(file_handler)
+        app.logger.addHandler(console_handler)
+        app.logger.setLevel(logging.INFO)
+        app.logger.info('Walking Bus startup')
+
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
