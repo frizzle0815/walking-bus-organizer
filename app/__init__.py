@@ -6,6 +6,7 @@ import os
 import pytz
 import logging
 import secrets
+import jwt
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
@@ -74,34 +75,44 @@ def create_app():
     @app.before_request
     def validate_session():
         if request.endpoint and 'static' not in request.endpoint:
-            walking_bus_id = session.get('walking_bus_id')
+            # Check JWT token first
+            token = request.cookies.get('auth_token') or \
+                   request.headers.get('Authorization', '').replace('Bearer ', '')
             
-            # Only validate if user is logged in
-            if walking_bus_id:
-                # Get current bus configuration
-                buses_env = os.environ.get('WALKING_BUSES', '').strip()
-                if buses_env:
-                    bus_configs = dict(
-                        (int(b.split(':')[0]), hash(b.split(':')[2]))  # Store hash instead
-                        for b in buses_env.split(',')
-                        if len(b.split(':')) == 3
-                    )
+            if token:
+                try:
+                    payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+                    walking_bus_id = payload.get('walking_bus_id')
+                    bus_password_hash = payload.get('bus_password_hash')
                     
-                    # Force logout if:
-                    # 1. Bus ID no longer exists in config
-                    # 2. Password has changed
-                    if (walking_bus_id not in bus_configs or 
-                        session.get('bus_password_hash') != bus_configs[walking_bus_id]):
+                    # Get current bus configuration
+                    buses_env = os.environ.get('WALKING_BUSES', '').strip()
+                    if buses_env:
+                        bus_configs = dict(
+                            (int(b.split(':')[0]), hash(b.split(':')[2]))
+                            for b in buses_env.split(',')
+                            if len(b.split(':')) == 3
+                        )
                         
-                        session.clear()
-                        if request.endpoint != 'main.login':
-                            return redirect(url_for('main.login'))
+                        # Validate bus ID and password hash from token
+                        if walking_bus_id in bus_configs and bus_password_hash == bus_configs[walking_bus_id]:
+                            # Token is valid and matches current config
+                            session['walking_bus_id'] = walking_bus_id
+                            session['bus_password_hash'] = bus_password_hash
+                            session.permanent = True
+                            return None
+                except jwt.InvalidTokenError:
+                    pass
+            
+            # Clear session if validation fails
+            session.clear()
+            if request.endpoint != 'main.login':
+                return redirect(url_for('main.login'))
 
-    # Add the new auth token capture middleware
+    # Auth token capture middleware
     @app.after_request
     def capture_auth_token(response):
         if 'X-Auth-Token' in response.headers:
-            # Allow the token to be read by JavaScript
             response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
         return response
 
@@ -135,4 +146,3 @@ def create_app():
     app.register_blueprint(bp)
 
     return app
-
