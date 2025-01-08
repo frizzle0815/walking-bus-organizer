@@ -16,17 +16,34 @@ const URLS_TO_CACHE = [
 
 // Handle messages from the client
 self.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'STORE_AUTH_TOKEN') {
-        caches.open(AUTH_CACHE).then(cache => {
-            const headers = new Headers({
-                'Authorization': `Bearer ${event.data.token}`
-            });
-            const response = new Response(JSON.stringify({token: event.data.token}), {
-                headers: headers
-            });
-            cache.put('auth-token', response);
-        });
-    }
+ console.log('[SW] Message received:', event.data?.type);
+ 
+ if (event.data?.type === 'STORE_AUTH_TOKEN') {
+     console.log('[SW] Processing token storage');
+     
+     caches.open(AUTH_CACHE)
+         .then(cache => {
+             console.log('[SW] Cache opened');
+             const response = new Response(JSON.stringify({
+                 token: event.data.token,
+                 timestamp: new Date().toISOString()
+             }));
+             return cache.put('auth-token', response);
+         })
+         .then(() => {
+             console.log('[SW] Token stored successfully');
+             // Send success message back to client
+             if (event.ports && event.ports[0]) {
+                 event.ports[0].postMessage({ success: true });
+             }
+         })
+         .catch(error => {
+             console.error('[SW] Storage error:', error);
+             if (event.ports && event.ports[0]) {
+                 event.ports[0].postMessage({ success: false, error: error.message });
+             }
+         });
+ }
 });
 
 // Installation des Service Workers

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
-from flask import send_from_directory
+from flask import send_from_directory, make_response
 from flask import current_app as app
 from flask import redirect, url_for
 from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
@@ -1129,59 +1129,34 @@ def login():
     
     # Validate credentials and create session
     if bus and bus.password == password:
-        app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
-        
-        # Set session data
-        session['walking_bus_id'] = bus.id
-        session['walking_bus_name'] = bus.name
-        session['bus_password_hash'] = hash(bus.password)
-        session.permanent = True
-        
-        # Create JWT token with extended expiration for PWA
-        token = jwt.encode(
-            {
-                'logged_in': True,
-                'walking_bus_id': bus.id,
-                'walking_bus_name': bus.name,
-                'bus_password_hash': hash(bus.password),
-                'exp': datetime.utcnow() + timedelta(days=365),
-                'iat': datetime.utcnow(),
-                'type': 'pwa_auth'
-            },
-            SECRET_KEY,
-            algorithm="HS256"
-        )
-        
-        response = redirect(url_for('main.index'))
-        
-        # Set secure cookie with extended expiration
+        # Create token first
+        token = jwt.encode({
+            'logged_in': True,
+            'walking_bus_id': bus.id,
+            'walking_bus_name': bus.name,
+            'bus_password_hash': hash(bus.password),
+            'exp': datetime.utcnow() + timedelta(days=365),
+            'iat': datetime.utcnow(),
+            'type': 'pwa_auth'
+        }, SECRET_KEY, algorithm="HS256")
+
+        # Instead of redirecting immediately, render a transition page
+        response = make_response(render_template(
+            'auth_transition.html',
+            auth_token=token,
+            redirect_url=url_for('main.index')
+        ))
+
+        # Set the cookie
         response.set_cookie(
             'auth_token',
             token,
-            max_age=31536000,  # 1 year in seconds
+            max_age=31536000,
             secure=True,
-            httponly=False,
+            httponly=True,
             samesite='Strict'
         )
-        
-        # Add header for service worker to capture
-        response.headers['X-Auth-Token'] = token
-        response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
-        response.headers['Service-Worker-Allowed'] = '/'
-        # Add script to store token in service worker
-        response.headers['Content-Security-Policy'] = "script-src 'self' 'unsafe-inline'"
-        script = f"""
-        <script>
-            if ('serviceWorker' in navigator) {{
-                navigator.serviceWorker.ready.then(registration => {{
-                    registration.active.postMessage({{
-                        type: 'STORE_AUTH_TOKEN',
-                        token: '{token}'
-                    }});
-                }});
-            }}
-        </script>
-        """
+
         return response
     
     # Handle failed login
@@ -1209,7 +1184,7 @@ def logout():
     response.delete_cookie(
         'auth_token',
         secure=True,
-        httponly=False,
+        httponly=True,
         samesite='Strict'
     )
     

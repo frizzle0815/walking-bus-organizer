@@ -65,4 +65,35 @@
         </div>
     </div>
 </div>
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const authToken = document.querySelector('meta[name="auth-token"]')?.content;
+    console.log('Token check step 1 - Auth token present:', !!authToken);
+    
+    if (authToken && 'serviceWorker' in navigator) {
+        console.log('Token check step 2 - Starting Service Worker registration');
+        navigator.serviceWorker.register('/static/service-worker.js')
+            .then(registration => {
+                console.log('Token check step 3 - Registration successful');
+                if (registration.active) {
+                    console.log('Token check step 4 - Active Service Worker found');
+                    registration.active.postMessage({
+                        type: 'STORE_AUTH_TOKEN',
+                        token: authToken
+                    });
+                    console.log('Token check step 5 - Message sent to Service Worker');
+                } else {
+                    console.warn('Token check step 4 failed - No active Service Worker');
+                }
+            })
+            .catch(error => {
+                console.error('Token check failed at step:', error);
+            });
+    }
+});
+</script>
 {% endblock %}
+{% endblock %}
+
