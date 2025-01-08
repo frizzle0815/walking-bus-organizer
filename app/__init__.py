@@ -55,6 +55,10 @@ class RequestFormatter(logging.Formatter):
 
 def create_app():
     app = Flask(__name__)
+
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
     
     # Security Configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
