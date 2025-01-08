@@ -32,7 +32,6 @@ self.addEventListener('message', (event) => {
          })
          .then(() => {
              console.log('[SW] Token stored successfully');
-             // Send success message back to client
              if (event.ports && event.ports[0]) {
                  event.ports[0].postMessage({ success: true });
              }
@@ -48,32 +47,41 @@ self.addEventListener('message', (event) => {
 
 // Installation des Service Workers
 self.addEventListener('install', (event) => {
-    event.waitUntil(
-        Promise.all([
-            caches.open(STATIC_CACHE).then(cache => cache.addAll(URLS_TO_CACHE)),
-            caches.open(DATA_CACHE),
-            caches.open(AUTH_CACHE)
-        ])
-    );
+ console.log('[SW] Install event triggered');
+ event.waitUntil(
+     Promise.all([
+         caches.open(STATIC_CACHE).then(cache => {
+             console.log('[SW] Caching static resources');
+             return cache.addAll(URLS_TO_CACHE);
+         }),
+         caches.open(DATA_CACHE).then(() => console.log('[SW] Data cache created')),
+         caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created'))
+     ]).then(() => console.log('[SW] Installation complete'))
+ );
 });
 
 // Activate event to clean up old caches
+// Add storage persistence check
 self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        Promise.all([
-            self.clients.claim(),
-            caches.keys().then(cacheNames => {
-                return Promise.all(
-                    cacheNames.map(cacheName => {
-                        if (![STATIC_CACHE, DATA_CACHE, AUTH_CACHE].includes(cacheName)) {
-                            return caches.delete(cacheName);
-                        }
-                    })
-                );
-            })
-        ])
-    );
+ console.log('[SW] Activate event triggered');
+ event.waitUntil(
+     Promise.all([
+         self.clients.claim().then(() => console.log('[SW] Clients claimed')),
+         caches.keys().then(cacheNames => {
+             console.log('[SW] Checking caches:', cacheNames);
+             return Promise.all(
+                 cacheNames.map(cacheName => {
+                     if (![STATIC_CACHE, DATA_CACHE, AUTH_CACHE].includes(cacheName)) {
+                         console.log('[SW] Deleting old cache:', cacheName);
+                         return caches.delete(cacheName);
+                     }
+                 })
+             );
+         })
+     ]).then(() => console.log('[SW] Activation complete'))
+ );
 });
+
 
 // Fetch event handling with authentication
 self.addEventListener('fetch', (event) => {

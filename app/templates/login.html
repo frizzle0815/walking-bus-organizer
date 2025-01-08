@@ -28,7 +28,7 @@
                         </div>
                         {% endif %}
                         
-                        <form method="POST" action="{{ url_for('main.login') }}">
+                        <form method="POST" action="{{ url_for('main.login') }}" id="loginForm">
                             {% if is_multi_bus %}
                                 <div class="form-group mb-3">
                                     <select name="walking_bus" class="form-control" required data-placeholder="Walking Bus auswählen">
@@ -65,35 +65,31 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const authToken = document.querySelector('meta[name="auth-token"]')?.content;
-    console.log('Token check step 1 - Auth token present:', !!authToken);
-    
-    if (authToken && 'serviceWorker' in navigator) {
-        console.log('Token check step 2 - Starting Service Worker registration');
-        navigator.serviceWorker.register('/static/service-worker.js')
-            .then(registration => {
-                console.log('Token check step 3 - Registration successful');
-                if (registration.active) {
-                    console.log('Token check step 4 - Active Service Worker found');
-                    registration.active.postMessage({
-                        type: 'STORE_AUTH_TOKEN',
-                        token: authToken
-                    });
-                    console.log('Token check step 5 - Message sent to Service Worker');
-                } else {
-                    console.warn('Token check step 4 failed - No active Service Worker');
-                }
-            })
-            .catch(error => {
-                console.error('Token check failed at step:', error);
-            });
+window.addEventListener('load', async function() {
+    if ('serviceWorker' in navigator) {
+        try {
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('ServiceWorker registration successful');
+            
+            const isPersisted = await navigator.storage.persist();
+            console.log('Persistent storage granted:', isPersisted);
+            
+            // Initialize form handling
+            const loginForm = document.getElementById('loginForm');
+            if (loginForm) {
+                loginForm.addEventListener('submit', function(event) {
+                    localStorage.removeItem('auth_token');
+                    return true;
+                });
+            }
+        } catch (error) {
+            console.error('ServiceWorker registration failed:', error);
+        }
     }
 });
 </script>
 {% endblock %}
-{% endblock %}
-

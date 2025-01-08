@@ -315,6 +315,41 @@
 
   </style>
 <script>
+async function storeAuthToken(token) {
+    const db = await openAuthDB();
+    const tx = db.transaction('auth-store', 'readwrite');
+    const store = tx.objectStore('auth-store');
+    await store.put(token, 'authToken');
+    
+    if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration.active) {
+            registration.active.postMessage({
+                type: 'STORE_AUTH_TOKEN',
+                token: token
+            });
+        }
+    }
+}
+
+// Initialize auth handling
+document.addEventListener('DOMContentLoaded', async function() {
+    if ('serviceWorker' in navigator) {
+        try {
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('ServiceWorker registration successful');
+            
+            const isPersisted = await navigator.storage.persist();
+            console.log(`Persistent storage granted: ${isPersisted}`);
+            
+            // Initialize auth if needed
+            await initAuth();
+        } catch (error) {
+            console.error('ServiceWorker registration failed:', error);
+        }
+    }
+});
+
  // IndexedDB setup
  async function openAuthDB() {
      return new Promise((resolve, reject) => {
@@ -352,9 +387,11 @@
 
  // Authentication handling
  async function initAuth() {
-     await requestStoragePermission();
+     if (window.location.pathname === '/login') {
+         return; // Don't perform auth check on login page
+     }
      
-     // Check stored token on every app start
+     await requestStoragePermission();
      const token = await getStoredAuthToken();
      if (token) {
          try {
@@ -366,22 +403,13 @@
                  credentials: 'include'
              });
              
-             if (response.ok) {
-                 // Ensure cookie is set
-                 document.cookie = `auth_token=${token}; max-age=31536000; secure; samesite=Strict`;
-                 if (window.location.pathname === '/login') {
-                     window.location.href = '/';
-                 }
-                 return;
+             if (!response.ok) {
+                 throw new Error('Token validation failed');
              }
          } catch (error) {
              console.log('Token validation failed:', error);
+             window.location.href = '/login';
          }
-     }
-
-     // Only redirect if we're not already on the login page
-     if (window.location.pathname !== '/login') {
-         window.location.href = '/login';
      }
  }
 

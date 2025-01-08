@@ -1129,7 +1129,15 @@ def login():
     
     # Validate credentials and create session
     if bus and bus.password == password:
-        # Create token first
+        app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
+        
+        # Set session data
+        session['walking_bus_id'] = bus.id
+        session['walking_bus_name'] = bus.name
+        session['bus_password_hash'] = hash(bus.password)
+        session.permanent = True
+        
+        # Create JWT token
         token = jwt.encode({
             'logged_in': True,
             'walking_bus_id': bus.id,
@@ -1139,15 +1147,15 @@ def login():
             'iat': datetime.utcnow(),
             'type': 'pwa_auth'
         }, SECRET_KEY, algorithm="HS256")
-
-        # Instead of redirecting immediately, render a transition page
+        
+        # Create response with transition page
         response = make_response(render_template(
             'auth_transition.html',
             auth_token=token,
             redirect_url=url_for('main.index')
         ))
-
-        # Set the cookie
+        
+        # Set secure cookie
         response.set_cookie(
             'auth_token',
             token,
@@ -1156,7 +1164,11 @@ def login():
             httponly=True,
             samesite='Strict'
         )
-
+        
+        # Add header for service worker
+        response.headers['X-Auth-Token'] = token
+        response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
+        
         return response
     
     # Handle failed login

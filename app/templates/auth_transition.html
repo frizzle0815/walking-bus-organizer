@@ -1,85 +1,62 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication</title>
+</head>
+<body>
+    <div id="auth-status">Authenticating...</div>
 
-{% block content %}
-<div id="auth-status">Authenticating...</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Create a debug log function that writes to both console and page
-function debugLog(message) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `${timestamp}: ${message}`;
-    console.log(logMessage);
-    
-    // Also display on page
-    const statusDiv = document.getElementById('auth-status');
-    if (statusDiv) {
-        statusDiv.innerHTML += `<br>${logMessage}`;
-    }
-}
-
-async function requestStoragePermission() {
-    if (navigator.storage && navigator.storage.persist) {
-        const isPersisted = await navigator.storage.persist();
-        console.log(`Persistent storage granted: ${isPersisted}`);
-        return isPersisted;
-    }
-    return false;
-}
-
-document.addEventListener('DOMContentLoaded', async function() {
-    const hasPermission = await requestStoragePermission();
-    console.log(`Storage permission status: ${hasPermission}`);
-    
-    if (!hasPermission) {
-        // Fall back to session storage if persistent storage isn't granted
-        console.log('Using session storage fallback');
-    }
-    debugLog('DOM loaded');
-    const authToken = "{{ auth_token }}";
-    debugLog(`Auth token exists: ${!!authToken}`);
-    debugLog(`Auth token length: ${authToken?.length || 0}`);
-    
-    if (!authToken) {
-        debugLog('No auth token found - checking localStorage');
-        const storedToken = localStorage.getItem('temp_auth_token');
-        debugLog(`Stored token exists: ${!!storedToken}`);
-    }
-    
-    if ('serviceWorker' in navigator) {
-        debugLog('Service Worker supported');
-        navigator.serviceWorker.getRegistration()
-            .then(registration => {
-                debugLog(`Existing registration: ${!!registration}`);
-                return navigator.serviceWorker.register('/static/service-worker.js');
-            })
-            .then(registration => {
-                debugLog('Service Worker registered');
-                if (registration.active) {
-                    debugLog('Active service worker found');
-                    return new Promise((resolve) => {
-                        const messageChannel = new MessageChannel();
-                        messageChannel.port1.onmessage = (event) => {
-                            debugLog(`Received response from SW: ${JSON.stringify(event.data)}`);
+    <script>
+        console.log('Auth transition page loaded');
+        
+        async function initializeServiceWorker() {
+            console.log('Starting Service Worker initialization');
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            
+            if (registration.installing) {
+                console.log('Service Worker installing');
+                await new Promise(resolve => {
+                    registration.installing.addEventListener('statechange', e => {
+                        if (e.target.state === 'activated') {
+                            console.log('Service Worker activated');
                             resolve();
-                        };
-                        registration.active.postMessage({
-                            type: 'STORE_AUTH_TOKEN',
-                            token: authToken
-                        }, [messageChannel.port2]);
-                        debugLog('Message sent to Service Worker');
+                        }
                     });
+                });
+            }
+            
+            return registration.active;
+        }
+        
+        document.addEventListener('DOMContentLoaded', async function() {
+            const authToken = "{{ auth_token }}";
+            console.log('Auth token present:', !!authToken);
+            
+            if (authToken && 'serviceWorker' in navigator) {
+                try {
+                    const activeWorker = await initializeServiceWorker();
+                    console.log('Service Worker ready for message');
+                    
+                    const messageChannel = new MessageChannel();
+                    messageChannel.port1.onmessage = (event) => {
+                        console.log('Token stored:', event.data);
+                        window.location.href = "{{ redirect_url }}";
+                    };
+                    
+                    activeWorker.postMessage({
+                        type: 'STORE_AUTH_TOKEN',
+                        token: authToken
+                    }, [messageChannel.port2]);
+                    
+                    console.log('Token message sent');
+                } catch (error) {
+                    console.error('Service Worker setup failed:', error);
+                    window.location.href = "{{ redirect_url }}";
                 }
-                debugLog('No active service worker found');
-                return Promise.reject('No active service worker');
-            })
-            .catch(error => {
-                debugLog(`Error: ${error}`);
-            });
-    } else {
-        debugLog('Service Worker not supported');
-    }
-});
-</script>
-{% endblock %}
+            }
+        });
+    </script>
+</body>
+</html>
