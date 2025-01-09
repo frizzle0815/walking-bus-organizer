@@ -315,6 +315,29 @@
 
   </style>
 <script>
+let authInitialized = false;
+let serviceWorkerRegistered = false;
+
+async function initializeApp() {
+    if (serviceWorkerRegistered) {
+        return;
+    }
+    serviceWorkerRegistered = true;
+
+    console.log('[AUTO LOGIN] Starting app initialization');
+    
+    if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        console.log('[AUTO LOGIN] Service Worker registered');
+        
+        if (window.location.pathname === '/login') {
+            await attemptAutoLogin();
+        } else {
+            await initAuth();
+        }
+    }
+}
+
 async function ensurePersistentStorage() {
     console.log('[STORAGE] Requesting persistent storage');
     if (navigator.storage && navigator.storage.persist) {
@@ -396,23 +419,8 @@ async function storeAuthToken(token) {
     }
 }
 
-// Initialize auth handling
-document.addEventListener('DOMContentLoaded', async function() {
-    if ('serviceWorker' in navigator) {
-        try {
-            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-            console.log('ServiceWorker registration successful');
-            
-            const isPersisted = await navigator.storage.persist();
-            console.log(`Persistent storage granted: ${isPersisted}`);
-            
-            // Initialize auth if needed
-            await initAuth();
-        } catch (error) {
-            console.error('ServiceWorker registration failed:', error);
-        }
-    }
-});
+// Main initialization
+document.addEventListener('DOMContentLoaded', initializeApp);
 
  // IndexedDB setup
  async function openAuthDB() {
@@ -451,21 +459,26 @@ document.addEventListener('DOMContentLoaded', async function() {
 
  // Authentication handling
  async function initAuth() {
-     // Skip completely if we're on the login page
-     if (window.location.pathname === '/login') {
-         console.log('[AUTO LOGIN INIT] On login page, skipping base.html auth check');
-         await attemptAutoLogin();
-         return;
-     }
-     
-     await requestStoragePermission();
-     const token = await getStoredAuthToken();
-     
-     if (!token) {
-         console.log('[AUTO LOGIN INIT] No token found, attempting auto-login');
-         await attemptAutoLogin();
-         return;
-     }
+     if (authInitialized) {
+           console.log('[AUTO LOGIN] Auth already initialized, skipping');
+           return;
+       }
+       authInitialized = true;
+
+       if (window.location.pathname === '/login') {
+           console.log('[AUTO LOGIN] On login page, starting auto-login check');
+           await attemptAutoLogin();
+           return;
+       }
+       
+       await requestStoragePermission();
+       const token = await getStoredAuthToken();
+       
+       if (!token) {
+           console.log('[AUTO LOGIN] No token found, attempting auto-login');
+           await attemptAutoLogin();
+           return;
+       }
      try {
          const response = await fetch('/validate-auth', {
              method: 'POST',
@@ -563,6 +576,15 @@ document.addEventListener('DOMContentLoaded', async function() {
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
+     if ('serviceWorker' in navigator) {
+           try {
+               const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+               console.log('[AUTO LOGIN] Service Worker registered');
+               await initAuth();
+           } catch (error) {
+               console.error('[AUTO LOGIN] Service Worker registration failed:', error);
+           }
+       }
      await initAuth();
      initializeEventSource();
 
