@@ -339,47 +339,35 @@ async function attemptAutoLogin() {
         return;
     }
 
-    console.log('[AUTO LOGIN] No token in cookies, attempting service worker registration');
+    console.log('[AUTO LOGIN] No token in cookies, checking cache storage');
     
     if ('serviceWorker' in navigator) {
         try {
-            // Register/activate service worker
-            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-            console.log('[AUTO LOGIN] Service Worker registered');
-
-            // Wait for the service worker to be ready
-            await navigator.serviceWorker.ready;
-            console.log('[AUTO LOGIN] Service Worker is ready');
-
-            // Try to get token from IndexedDB
-            const db = await openAuthDB();
-            const tx = db.transaction('auth-store', 'readonly');
-            const store = tx.objectStore('auth-store');
-            const storedToken = await store.get('authToken');
-
-            if (storedToken) {
-                console.log('[AUTO LOGIN] Token found in storage, validating...');
+            // Check Cache Storage directly
+            const cache = await caches.open('walking-bus-auth-v1');
+            const tokenResponse = await cache.match('/static/auth-token');
+            
+            if (tokenResponse) {
+                console.log('[AUTO LOGIN] Token found in cache storage, validating...');
+                const tokenData = await tokenResponse.json();
                 
-                // Validate token with backend
                 const response = await fetch('/validate-auth', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${storedToken}`
+                        'Authorization': `Bearer ${tokenData.token}`
                     }
                 });
 
                 if (response.ok) {
                     console.log('[AUTO LOGIN] Token is valid, setting cookie and reloading');
-                    // Set the cookie
-                    document.cookie = `auth_token=${storedToken}; max-age=31536000; secure; samesite=Strict`;
-                    // Reload to complete authentication
-                    window.location.reload();
+                    document.cookie = `auth_token=${tokenData.token}; max-age=31536000; secure; samesite=Strict`;
+                    window.location.href = '/';
                     return;
                 }
                 
                 console.log('[AUTO LOGIN] Token validation failed');
             } else {
-                console.log('[AUTO LOGIN] No token found in storage');
+                console.log('[AUTO LOGIN] No token found in cache storage');
             }
         } catch (error) {
             console.error('[AUTO LOGIN] Error during auto-login:', error);
@@ -462,39 +450,40 @@ document.addEventListener('DOMContentLoaded', async function() {
  }
 
  // Authentication handling
-// Modify the existing initAuth function
-async function initAuth() {
-    // Skip completely if we're on the login page
-    if (window.location.pathname === '/login') {
-        console.log('[AUTO LOGIN] On login page, skipping base.html auth check');
-        return;
-    }
-    
-    await requestStoragePermission();
-    const token = await getStoredAuthToken();
-    
-    if (!token) {
-        console.log('[AUTO LOGIN] No token found, attempting auto-login');
-        await attemptAutoLogin();
-        return;
-    }
-    try {
-        const response = await fetch('/validate-auth', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            },
-            credentials: 'include'
-        });
-        
-        if (!response.ok) {
-            throw new Error('Token validation failed');
-        }
-    } catch (error) {
-        console.log('[AUTO LOGIN] Token validation failed:', error);
-        await attemptAutoLogin();
-    }
-}
+ async function initAuth() {
+     // Skip completely if we're on the login page
+     if (window.location.pathname === '/login') {
+         console.log('[AUTO LOGIN INIT] On login page, skipping base.html auth check');
+         await attemptAutoLogin();
+         return;
+     }
+     
+     await requestStoragePermission();
+     const token = await getStoredAuthToken();
+     
+     if (!token) {
+         console.log('[AUTO LOGIN INIT] No token found, attempting auto-login');
+         await attemptAutoLogin();
+         return;
+     }
+     try {
+         const response = await fetch('/validate-auth', {
+             method: 'POST',
+             headers: {
+                 'Authorization': `Bearer ${token}`
+             },
+             credentials: 'include'
+         });
+         
+         if (!response.ok) {
+             throw new Error('Token validation failed');
+         }
+     } catch (error) {
+         console.log('[AUTO LOGIN INIT] Token validation failed:', error);
+         await attemptAutoLogin();
+     }
+ }
+
 
 
  // Axios interceptor
