@@ -315,8 +315,22 @@
 
   </style>
 <script>
+async function ensurePersistentStorage() {
+    console.log('[STORAGE] Requesting persistent storage');
+    if (navigator.storage && navigator.storage.persist) {
+        const isPersisted = await navigator.storage.persist();
+        console.log('[STORAGE] Persistent storage granted:', isPersisted);
+        return isPersisted;
+    }
+    return false;
+}
+
 async function attemptAutoLogin() {
     console.log('[AUTO LOGIN] Starting auto-login attempt');
+
+    // Ensure persistent storage first
+    const isPersisted = await ensurePersistentStorage();
+    console.log('[AUTO LOGIN] Storage persistence status:', isPersisted);
     
     // First check if we already have a token in cookies
     const cookieToken = document.cookie.split('; ').find(row => row.startsWith('auth_token='));
@@ -450,8 +464,10 @@ document.addEventListener('DOMContentLoaded', async function() {
  // Authentication handling
 // Modify the existing initAuth function
 async function initAuth() {
+    // Skip completely if we're on the login page
     if (window.location.pathname === '/login') {
-        return; // Don't perform auth check on login page
+        console.log('[AUTO LOGIN] On login page, skipping base.html auth check');
+        return;
     }
     
     await requestStoragePermission();
@@ -462,7 +478,6 @@ async function initAuth() {
         await attemptAutoLogin();
         return;
     }
-    
     try {
         const response = await fetch('/validate-auth', {
             method: 'POST',
@@ -501,22 +516,26 @@ async function initAuth() {
  window.addEventListener('beforeinstallprompt', (e) => {
      e.preventDefault();
      deferredPrompt = e;
-     document.getElementById('install-app-item').style.display = 'block';
+     const installAppItem = document.getElementById('install-app-item');
+     if (installAppItem) {
+         installAppItem.style.display = 'block';
+     }
  });
 
- document.getElementById('install-app').addEventListener('click', async () => {
-     if (!deferredPrompt) return;
-     deferredPrompt.prompt();
-     const { outcome } = await deferredPrompt.userChoice;
-     console.log(`User response to the install prompt: ${outcome}`);
-     deferredPrompt = null;
-     document.getElementById('install-app-item').style.display = 'none';
- });
-
- window.addEventListener('appinstalled', () => {
-     document.getElementById('install-app-item').style.display = 'none';
-     console.log('PWA was installed');
- });
+ const installApp = document.getElementById('install-app');
+ if (installApp) {
+     installApp.addEventListener('click', async () => {
+         if (!deferredPrompt) return;
+         deferredPrompt.prompt();
+         const { outcome } = await deferredPrompt.userChoice;
+         console.log(`User response to the install prompt: ${outcome}`);
+         deferredPrompt = null;
+         const installAppItem = document.getElementById('install-app-item');
+         if (installAppItem) {
+             installAppItem.style.display = 'none';
+         }
+     });
+ }
 
  // Service Worker registration
  if ('serviceWorker' in navigator) {
@@ -532,72 +551,84 @@ async function initAuth() {
  }
 
  // Server-sent events
- const eventSource = new EventSource('/stream');
- 
- eventSource.onmessage = function(event) {
-     const data = JSON.parse(event.data);
-     if (data.time) {
-         document.getElementById('current-time').textContent = data.time;
-     }
- };
+ function initializeEventSource() {
+    if (window.location.pathname !== '/login') {
+        const eventSource = new EventSource('/stream');
+        
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.time) {
+                document.getElementById('current-time').textContent = data.time;
+            }
+        };
 
- eventSource.onerror = function(error) {
-     console.error('EventSource failed:', error);
-     eventSource.close();
- };
+        eventSource.onerror = function(error) {
+            console.error('EventSource failed:', error);
+            eventSource.close();
+        };
+
+        // Store EventSource in window object for global access
+        window.eventSource = eventSource;
+    }
+}
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
      await initAuth();
+     initializeEventSource();
 
      const darkModeToggle = document.getElementById('darkModeToggle');
      const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
      const navbar = document.querySelector('.navbar-collapse');
      
-     // Size control visibility
+     // Size control visibility - only if element exists
      const sizeControlContainer = document.getElementById('size-control-container');
-     if (window.location.pathname === '/') {
+     if (sizeControlContainer && window.location.pathname === '/') {
          sizeControlContainer.style.display = 'block';
-     } else {
-         sizeControlContainer.style.display = 'none';
      }
 
-     // Navbar click handling
-     document.addEventListener('click', (event) => {
-         if (navbar.classList.contains('show') && 
-             !navbar.contains(event.target) && 
-             !event.target.classList.contains('navbar-toggler')) {
-             document.querySelector('.navbar-toggler').click();
+     // Navbar click handling - only if navbar exists
+     if (navbar) {
+         document.addEventListener('click', (event) => {
+             if (navbar.classList.contains('show') && 
+                 !navbar.contains(event.target) && 
+                 !event.target.classList.contains('navbar-toggler')) {
+                 document.querySelector('.navbar-toggler').click();
+             }
+         });
+     }
+
+     // Dark mode initialization - only if toggle exists
+     if (darkModeToggle) {
+         const storedTheme = localStorage.getItem('theme');
+         if (storedTheme) {
+             document.documentElement.setAttribute('data-theme', storedTheme);
+             updateDarkModeIcon(storedTheme === 'dark');
+         } else if (prefersDarkScheme.matches) {
+             document.documentElement.setAttribute('data-theme', 'dark');
+             updateDarkModeIcon(true);
          }
-     });
-
-     // Dark mode initialization
-     const storedTheme = localStorage.getItem('theme');
-     if (storedTheme) {
-         document.documentElement.setAttribute('data-theme', storedTheme);
-         updateDarkModeIcon(storedTheme === 'dark');
-     } else if (prefersDarkScheme.matches) {
-         document.documentElement.setAttribute('data-theme', 'dark');
-         updateDarkModeIcon(true);
+         
+         // Dark mode toggle
+         darkModeToggle.addEventListener('click', () => {
+             const currentTheme = document.documentElement.getAttribute('data-theme');
+             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+             document.documentElement.setAttribute('data-theme', newTheme);
+             localStorage.setItem('theme', newTheme);
+             updateDarkModeIcon(newTheme === 'dark');
+         });
      }
-     
-     // Dark mode toggle
-     darkModeToggle.addEventListener('click', () => {
-         const currentTheme = document.documentElement.getAttribute('data-theme');
-         const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-         document.documentElement.setAttribute('data-theme', newTheme);
-         localStorage.setItem('theme', newTheme);
-         updateDarkModeIcon(newTheme === 'dark');
-     });
      
      // System theme change handler
-     prefersDarkScheme.addEventListener('change', (e) => {
-         if (!localStorage.getItem('theme')) {
-             const newTheme = e.matches ? 'dark' : 'light';
-             document.documentElement.setAttribute('data-theme', newTheme);
-             updateDarkModeIcon(e.matches);
-         }
-     });
+     if (darkModeToggle) {
+         prefersDarkScheme.addEventListener('change', (e) => {
+             if (!localStorage.getItem('theme')) {
+                 const newTheme = e.matches ? 'dark' : 'light';
+                 document.documentElement.setAttribute('data-theme', newTheme);
+                 updateDarkModeIcon(e.matches);
+             }
+         });
+     }
  });
 
  function updateDarkModeIcon(isDark) {

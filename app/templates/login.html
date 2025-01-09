@@ -69,27 +69,74 @@
 
 {% block scripts %}
 <script>
-window.addEventListener('load', async function() {
+// Prevent base.html auth initialization
+window.skipBaseAuth = true;
+
+// Separate auto-login check
+async function performAutoLogin() {
+    console.log('[AUTO LOGIN] Starting auto-login check on login page');
+    
     if ('serviceWorker' in navigator) {
         try {
-            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-            console.log('ServiceWorker registration successful');
-            
+            // Ensure persistent storage first
             const isPersisted = await navigator.storage.persist();
-            console.log('Persistent storage granted:', isPersisted);
+            console.log('[AUTO LOGIN] Storage persistence status:', isPersisted);
             
-            // Initialize form handling
-            const loginForm = document.getElementById('loginForm');
-            if (loginForm) {
-                loginForm.addEventListener('submit', function(event) {
-                    localStorage.removeItem('auth_token');
-                    return true;
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('[AUTO LOGIN] Service Worker registered');
+
+            // Wait for the service worker to be ready
+            await navigator.serviceWorker.ready;
+            console.log('[AUTO LOGIN] Service Worker is ready');
+
+            // Check for cached token
+            const cache = await caches.open('walking-bus-auth-v1');
+            const tokenResponse = await cache.match('/static/auth-token');
+            
+            if (tokenResponse) {
+                console.log('[AUTO LOGIN] Found cached token, attempting validation');
+                const tokenData = await tokenResponse.json();
+                
+                const response = await fetch('/validate-auth', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${tokenData.token}`
+                    }
                 });
+
+                if (response.ok) {
+                    console.log('[AUTO LOGIN] Token valid, redirecting to main page');
+                    document.cookie = `auth_token=${tokenData.token}; max-age=31536000; secure; samesite=Strict`;
+                    window.location.href = '/';
+                    return;
+                } else {
+                    console.log('[AUTO LOGIN] Token validation failed');
+                }
+            } else {
+                console.log('[AUTO LOGIN] No cached token found');
             }
         } catch (error) {
-            console.error('ServiceWorker registration failed:', error);
+            console.error('[AUTO LOGIN] Error during auto-login process:', error);
         }
+    }
+}
+
+// Wait for DOM content to be loaded before initializing anything
+document.addEventListener('DOMContentLoaded', function() {
+    // Start auto-login process
+    performAutoLogin();
+    
+    // Set up form handler if form exists
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        console.log('[AUTO LOGIN] Setting up login form handler');
+        loginForm.addEventListener('submit', function(event) {
+            localStorage.removeItem('auth_token');
+            return true;
+        });
     }
 });
 </script>
 {% endblock %}
+
+
