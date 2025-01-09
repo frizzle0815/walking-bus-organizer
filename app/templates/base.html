@@ -320,6 +320,7 @@ let serviceWorkerRegistered = false;
 
 async function initializeApp() {
     if (serviceWorkerRegistered) {
+        console.log('[AUTO LOGIN] Service Worker already registered, skipping');
         return;
     }
     serviceWorkerRegistered = true;
@@ -330,11 +331,8 @@ async function initializeApp() {
         const registration = await navigator.serviceWorker.register('/static/service-worker.js');
         console.log('[AUTO LOGIN] Service Worker registered');
         
-        if (window.location.pathname === '/login') {
-            await attemptAutoLogin();
-        } else {
-            await initAuth();
-        }
+        // Single point of auth initialization
+        await initAuth();
     }
 }
 
@@ -397,9 +395,16 @@ async function attemptAutoLogin() {
         }
     }
     
+    // Only now check if we're on login page and should allow manual login
+    if (window.location.pathname === '/login') {
+        console.log('[AUTO LOGIN] On login page without valid token, allowing manual login');
+        return;
+    }
+    
     console.log('[AUTO LOGIN] Auto-login process complete - redirecting to login');
     window.location.href = '/login';
 }
+
 
 
 async function storeAuthToken(token) {
