@@ -349,11 +349,9 @@ async function ensurePersistentStorage() {
 async function attemptAutoLogin() {
     console.log('[AUTO LOGIN] Starting auto-login attempt');
 
-    // Ensure persistent storage first
     const isPersisted = await ensurePersistentStorage();
     console.log('[AUTO LOGIN] Storage persistence status:', isPersisted);
    
-    // Check for tokens in both cookie and cache before deciding to return on login page
     const cookieToken = document.cookie.split('; ').find(row => row.startsWith('auth_token='));
     let hasValidToken = false;
 
@@ -410,9 +408,11 @@ async function attemptAutoLogin() {
                    if (contentType && contentType.includes('application/json')) {
                        const errorData = await response.json();
                        if (response.ok) {
-                           console.log('[AUTO LOGIN] Token is valid, setting cookie and reloading');
+                           console.log('[AUTO LOGIN] Token is valid, setting cookie');
                            document.cookie = `auth_token=${tokenData.token}; max-age=31536000; secure; samesite=Strict`;
-                           window.location.href = '/';
+                           if (window.location.pathname === '/login') {
+                               window.location.href = '/';
+                           }
                            return;
                        }
                        
@@ -439,7 +439,6 @@ async function attemptAutoLogin() {
         }
     }
    
-    // Only return on login page if we haven't found any valid tokens
     if (window.location.pathname === '/login' && !hasValidToken) {
         console.log('[AUTO LOGIN] On login page without valid token, allowing manual login');
         return;
@@ -453,52 +452,6 @@ async function attemptAutoLogin() {
 
 
 
-async function storeAuthToken(token) {
-    const db = await openAuthDB();
-    const tx = db.transaction('auth-store', 'readwrite');
-    const store = tx.objectStore('auth-store');
-    await store.put(token, 'authToken');
-    
-    if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.ready;
-        if (registration.active) {
-            registration.active.postMessage({
-                type: 'STORE_AUTH_TOKEN',
-                token: token
-            });
-        }
-    }
-}
-
-// Main initialization
-document.addEventListener('DOMContentLoaded', initializeApp);
-
- // IndexedDB setup
- async function openAuthDB() {
-     return new Promise((resolve, reject) => {
-         const request = indexedDB.open('walking-bus-auth', 1);
-         request.onerror = () => reject(request.error);
-         request.onsuccess = () => resolve(request.result);
-         request.onupgradeneeded = (event) => {
-             const db = event.target.result;
-             db.createObjectStore('auth-store');
-         };
-     });
- }
-
- async function getStoredAuthToken() {
-     const db = await openAuthDB();
-     const tx = db.transaction('auth-store', 'readonly');
-     const store = tx.objectStore('auth-store');
-     return await store.get('authToken');
- }
-
- async function storeAuthToken(token) {
-     const db = await openAuthDB();
-     const tx = db.transaction('auth-store', 'readwrite');
-     const store = tx.objectStore('auth-store');
-     await store.put(token, 'authToken');
- }
 
  // Storage permission request
  async function requestStoragePermission() {
@@ -511,41 +464,18 @@ document.addEventListener('DOMContentLoaded', initializeApp);
  // Authentication handling
  async function initAuth() {
      if (authInitialized) {
-           console.log('[AUTO LOGIN] Auth already initialized, skipping');
-           return;
-       }
-       authInitialized = true;
-
-       if (window.location.pathname === '/login') {
-           console.log('[AUTO LOGIN] On login page, starting auto-login check');
-           await attemptAutoLogin();
-           return;
-       }
-       
-       await requestStoragePermission();
-       const token = await getStoredAuthToken();
-       
-       if (!token) {
-           console.log('[AUTO LOGIN] No token found, attempting auto-login');
-           await attemptAutoLogin();
-           return;
-       }
-     try {
-         const response = await fetch('/validate-auth', {
-             method: 'POST',
-             headers: {
-                 'Authorization': `Bearer ${token}`
-             },
-             credentials: 'include'
-         });
-         
-         if (!response.ok) {
-             throw new Error('Token validation failed');
-         }
-     } catch (error) {
-         console.log('[AUTO LOGIN INIT] Token validation failed:', error);
-         await attemptAutoLogin();
+         console.log('[INIT AUTO LOGIN] Auth already initialized, skipping');
+         return;
      }
+     authInitialized = true;
+
+     if (window.location.pathname === '/login') {
+         console.log('[INIT AUTO LOGIN] On login page, starting auto-login check');
+         await attemptAutoLogin();
+         return;
+     }
+     
+     await attemptAutoLogin();
  }
 
 
@@ -627,29 +557,32 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
+     // Initialize app and service worker
      if ('serviceWorker' in navigator) {
-           try {
-               const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-               console.log('[AUTO LOGIN] Service Worker registered');
-               await initAuth();
-           } catch (error) {
-               console.error('[AUTO LOGIN] Service Worker registration failed:', error);
-           }
-       }
-     await initAuth();
+         try {
+             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+             console.log('[AUTO LOGIN] Service Worker registered');
+             await initAuth();
+         } catch (error) {
+             console.error('[AUTO LOGIN] Service Worker registration failed:', error);
+         }
+     }
+
+     // Initialize event source for real-time updates
      initializeEventSource();
 
+     // UI Components initialization
      const darkModeToggle = document.getElementById('darkModeToggle');
      const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
      const navbar = document.querySelector('.navbar-collapse');
      
-     // Size control visibility - only if element exists
+     // Size control visibility
      const sizeControlContainer = document.getElementById('size-control-container');
      if (sizeControlContainer && window.location.pathname === '/') {
          sizeControlContainer.style.display = 'block';
      }
 
-     // Navbar click handling - only if navbar exists
+     // Navbar click handling
      if (navbar) {
          document.addEventListener('click', (event) => {
              if (navbar.classList.contains('show') && 
@@ -660,7 +593,7 @@ document.addEventListener('DOMContentLoaded', initializeApp);
          });
      }
 
-     // Dark mode initialization - only if toggle exists
+     // Dark mode initialization and handlers
      if (darkModeToggle) {
          const storedTheme = localStorage.getItem('theme');
          if (storedTheme) {
@@ -671,7 +604,6 @@ document.addEventListener('DOMContentLoaded', initializeApp);
              updateDarkModeIcon(true);
          }
          
-         // Dark mode toggle
          darkModeToggle.addEventListener('click', () => {
              const currentTheme = document.documentElement.getAttribute('data-theme');
              const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
@@ -679,10 +611,7 @@ document.addEventListener('DOMContentLoaded', initializeApp);
              localStorage.setItem('theme', newTheme);
              updateDarkModeIcon(newTheme === 'dark');
          });
-     }
-     
-     // System theme change handler
-     if (darkModeToggle) {
+
          prefersDarkScheme.addEventListener('change', (e) => {
              if (!localStorage.getItem('theme')) {
                  const newTheme = e.matches ? 'dark' : 'light';
