@@ -352,57 +352,103 @@ async function attemptAutoLogin() {
     // Ensure persistent storage first
     const isPersisted = await ensurePersistentStorage();
     console.log('[AUTO LOGIN] Storage persistence status:', isPersisted);
-    
-    // First check if we already have a token in cookies
+   
+    // Check for tokens in both cookie and cache before deciding to return on login page
     const cookieToken = document.cookie.split('; ').find(row => row.startsWith('auth_token='));
+    let hasValidToken = false;
+
     if (cookieToken) {
-        console.log('[AUTO LOGIN] Token found in cookies, no auto-login needed');
-        return;
+        console.log('[AUTO LOGIN] Token found in cookies, validating...');
+        const response = await fetch('/validate-auth', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${cookieToken.split('=')[1]}`
+            }
+        });
+
+        try {
+            const errorData = await response.json();
+            if (!response.ok) {
+                console.log('[AUTO LOGIN] Token validation failed:', errorData);
+                if (errorData.error === 'password_mismatch') {
+                    console.log('[AUTO LOGIN] Password hash mismatch detected - configuration might have changed');
+                }
+                if (errorData.error === 'invalid_bus') {
+                    console.log('[AUTO LOGIN] Bus ID no longer exists in configuration');
+                }
+                console.log('[AUTO LOGIN] Cookie token invalid, removing...');
+                document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            } else {
+                hasValidToken = true;
+                return;
+            }
+        } catch (error) {
+            console.error('[AUTO LOGIN] Error parsing validation response:', error);
+        }
     }
 
-    console.log('[AUTO LOGIN] No token in cookies, checking cache storage');
-    
+    console.log('[AUTO LOGIN] Checking cache storage for token');
+   
     if ('serviceWorker' in navigator) {
         try {
-            // Check Cache Storage directly
             const cache = await caches.open('walking-bus-auth-v1');
             const tokenResponse = await cache.match('/static/auth-token');
-            
+           
             if (tokenResponse) {
-                console.log('[AUTO LOGIN] Token found in cache storage, validating...');
-                const tokenData = await tokenResponse.json();
-                
-                const response = await fetch('/validate-auth', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${tokenData.token}`
-                    }
-                });
+               console.log('[AUTO LOGIN] Token found in cache storage, validating...');
+               const tokenData = await tokenResponse.json();
+                  
+               const response = await fetch('/validate-auth', {
+                   method: 'POST',
+                   headers: {
+                       'Authorization': `Bearer ${tokenData.token}`
+                   }
+               });
 
-                if (response.ok) {
-                    console.log('[AUTO LOGIN] Token is valid, setting cookie and reloading');
-                    document.cookie = `auth_token=${tokenData.token}; max-age=31536000; secure; samesite=Strict`;
-                    window.location.href = '/';
-                    return;
-                }
-                
-                console.log('[AUTO LOGIN] Token validation failed');
-            } else {
-                console.log('[AUTO LOGIN] No token found in cache storage');
-            }
+               try {
+                   const contentType = response.headers.get('content-type');
+                   if (contentType && contentType.includes('application/json')) {
+                       const errorData = await response.json();
+                       if (response.ok) {
+                           console.log('[AUTO LOGIN] Token is valid, setting cookie and reloading');
+                           document.cookie = `auth_token=${tokenData.token}; max-age=31536000; secure; samesite=Strict`;
+                           window.location.href = '/';
+                           return;
+                       }
+                       
+                       console.log('[AUTO LOGIN] Token validation failed:', errorData);
+                       if (errorData.error === 'password_mismatch') {
+                           console.log('[AUTO LOGIN] Password hash mismatch detected - configuration might have changed');
+                       }
+                       if (errorData.error === 'invalid_bus') {
+                           console.log('[AUTO LOGIN] Bus ID no longer exists in configuration');
+                       }
+                   } else {
+                       console.log('[AUTO LOGIN] Received non-JSON response, token likely invalid');
+                   }
+
+                   console.log('[AUTO LOGIN] Cache token invalid, clearing cache...');
+                   await cache.delete('/static/auth-token');
+               } catch (error) {
+                   console.log('[AUTO LOGIN] Invalid response format, clearing cached token');
+                   await cache.delete('/static/auth-token');
+               }
+           }
         } catch (error) {
             console.error('[AUTO LOGIN] Error during auto-login:', error);
         }
     }
-    
-    // Only now check if we're on login page and should allow manual login
-    if (window.location.pathname === '/login') {
+   
+    // Only return on login page if we haven't found any valid tokens
+    if (window.location.pathname === '/login' && !hasValidToken) {
         console.log('[AUTO LOGIN] On login page without valid token, allowing manual login');
         return;
     }
-    
-    console.log('[AUTO LOGIN] Auto-login process complete - redirecting to login');
-    window.location.href = '/login';
+
+    if (window.location.pathname !== '/login') {
+        console.log('[AUTO LOGIN] No valid tokens found, redirecting to login');
+        window.location.href = '/login';
+    }
 }
 
 

@@ -1214,9 +1214,12 @@ def logout():
 @bp.route("/validate-auth", methods=["POST"])
 def validate_auth():
     try:
-        token = request.cookies.get('auth_token')
+        # Check both cookie and Authorization header
+        token = request.cookies.get('auth_token') or \
+                request.headers.get('Authorization', '').replace('Bearer ', '')
+        
         if not token:
-            return jsonify({"valid": False}), 401
+            return jsonify({"valid": False, "error": "no_token"}), 401
             
         # Decode and verify token
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
@@ -1226,11 +1229,19 @@ def validate_auth():
         bus = WalkingBus.query.get(walking_bus_id)
         
         if not bus:
-            return jsonify({"valid": False}), 401
+            return jsonify({
+                "valid": False, 
+                "error": "invalid_bus",
+                "message": "Walking bus no longer exists in configuration"
+            }), 401
             
-        # Check if password hash matches (in case password was changed)
+        # Check if password hash matches
         if payload.get('bus_password_hash') != hash(bus.password):
-            return jsonify({"valid": False}), 401
+            return jsonify({
+                "valid": False, 
+                "error": "password_mismatch",
+                "message": "Password hash does not match current configuration"
+            }), 401
             
         return jsonify({
             "valid": True,
@@ -1239,6 +1250,7 @@ def validate_auth():
         })
         
     except jwt.ExpiredSignatureError:
-        return jsonify({"valid": False, "error": "Token expired"}), 401
+        return jsonify({"valid": False, "error": "token_expired"}), 401
     except jwt.InvalidTokenError:
-        return jsonify({"valid": False, "error": "Invalid token"}), 401
+        return jsonify({"valid": False, "error": "invalid_token"}), 401
+
