@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
-from flask import send_from_directory, make_response
+from flask import Blueprint, render_template, session, jsonify, request, Response, stream_with_context
+from flask import send_from_directory
 from flask import current_app as app
 from flask import redirect, url_for
 from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
@@ -11,7 +11,6 @@ import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time
 import jwt
 from os import environ
-from flask import session
 from .init_buses import init_walking_buses
 
 # Create Blueprint
@@ -1082,106 +1081,79 @@ def login():
     ip = request.remote_addr
     error_message = None
     is_multi_bus = init_walking_buses()
-    
+
     app.logger.debug(f"Login request from IP: {ip}")
     app.logger.debug(f"Multi-bus mode: {is_multi_bus}")
 
-    # Handle GET request
     if request.method == 'GET':
         configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
         buses = WalkingBus.query.filter(
             WalkingBus.id.in_(configured_bus_ids)
         ).order_by(WalkingBus.id).all() if is_multi_bus else None
         return render_template('login.html', hide_menu=True, buses=buses, is_multi_bus=is_multi_bus)
-    
-    # Check IP lockout
+
     if not is_ip_allowed():
         remaining_minutes = get_remaining_lockout_time(ip)
         if remaining_minutes > 0:
             error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
             app.logger.warning(f"IP {ip} is locked out for {remaining_minutes} more minutes")
             return render_template('login.html',
-                                error=error_message,
-                                hide_menu=True,
-                                buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                                is_multi_bus=is_multi_bus)
-    
-    # Handle POST request
+                                   error=error_message,
+                                   hide_menu=True,
+                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
+                                   is_multi_bus=is_multi_bus)
+
     password = request.form.get('password')
     selected_bus_id = request.form.get('walking_bus')
     app.logger.debug(f"POST request - Password received: {'*' * len(password) if password else 'None'}")
 
-    # Get bus based on mode
     if is_multi_bus:
         bus_id = selected_bus_id
         app.logger.debug(f"POST request - Selected bus ID: {bus_id}")
         if not bus_id:
             app.logger.error("No walking bus selected in multi-bus mode")
             return render_template('login.html',
-                                error="Bitte Walking Bus und Passwort eingeben",
-                                hide_menu=True,
-                                buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
-                                is_multi_bus=is_multi_bus)
+                                   error="Bitte Walking Bus und Passwort eingeben",
+                                   hide_menu=True,
+                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
+                                   is_multi_bus=is_multi_bus)
         bus = WalkingBus.query.get(bus_id)
     else:
         configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
         bus = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first()
-    
-    # Validate credentials and create session
+
     if bus and bus.password == password:
         app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
-        
-        # Set session data
+
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
         session['bus_password_hash'] = hash(bus.password)
         session.permanent = True
-        
-        # Create JWT token
+
         token = jwt.encode({
             'logged_in': True,
             'walking_bus_id': bus.id,
             'walking_bus_name': bus.name,
             'bus_password_hash': hash(bus.password),
-            'exp': datetime.utcnow() + timedelta(days=365),
+            'exp': datetime.utcnow() + timedelta(days=60),  # Set expiration to 60 days
             'iat': datetime.utcnow(),
             'type': 'pwa_auth'
         }, SECRET_KEY, algorithm="HS256")
-        
-        # Create response with transition page
-        response = make_response(render_template(
-            'auth_transition.html',
-            auth_token=token,
-            redirect_url=url_for('main.index')
-        ))
-        
-        # Set secure cookie
-        response.set_cookie(
-            'auth_token',
-            token,
-            max_age=31536000,
-            secure=True,
-            httponly=True,
-            samesite='Strict'
-        )
-        
-        # Add header for service worker
-        response.headers['X-Auth-Token'] = token
-        response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
-        
-        return response
-    
-    # Handle failed login
+
+        # Send token as JSON response
+        return jsonify({'auth_token': token, 'redirect_url': url_for('main.index')})
+
     record_attempt()
     error_message = "Ungültiges Passwort"
     app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
-    
+
     return render_template('login.html',
-                         error=error_message,
-                         hide_menu=True,
-                         selected_bus_id=selected_bus_id,
-                         buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                         is_multi_bus=is_multi_bus)
+                           error=error_message,
+                           hide_menu=True,
+                           selected_bus_id=selected_bus_id,
+                           buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
+                           is_multi_bus=is_multi_bus)
+
 
 
 @bp.route("/logout")

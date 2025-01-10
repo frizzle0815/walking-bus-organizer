@@ -71,36 +71,27 @@ def get_remaining_lockout_time(ip):
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        current_app.logger.info('[CENTRAL AUTH] Starting authentication check')
+        token = request.cookies.get('auth_token') or request.headers.get('Authorization', '').replace('Bearer ', '')
         
-        # Check cookies and headers first
-        token = request.cookies.get('auth_token') or \
-                request.headers.get('Authorization', '').replace('Bearer ', '')
-        
-        if token:
-            current_app.logger.info('[CENTRAL AUTH] Token found in cookies/headers')
-        
-        # If no token found, check service worker cache
         if not token:
-            current_app.logger.info('[CENTRAL AUTH] No token in cookies/headers, checking service worker cache')
-            cache = FileSystemCache('cache')
-            cached_token = cache.get('/static/auth-token')
-            if cached_token:
-                token = cached_token.get('token')
-                current_app.logger.info('[CENTRAL AUTH] Token found in service worker cache')
-        
-        # If still no token, redirect to login
-        if not token:
-            current_app.logger.info('[CENTRAL AUTH] No token found anywhere, redirecting to login')
             return redirect(url_for('main.login'))
-            
+        
         try:
-            decoded_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            current_app.logger.info('[CENTRAL AUTH] Token successfully validated')
-            return f(*args, **kwargs)
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-            current_app.logger.info('[CENTRAL AUTH] Token validation failed, redirecting to login')
-            return redirect(url_for('main.login'))
+            # Dekodiere und überprüfe den Token
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             
+            # Optional: Weitere Überprüfungen, z.B. ob der Benutzer noch existiert
+            # user_id = payload.get('user_id')
+            # user = User.query.get(user_id)
+            # if not user:
+            #     return redirect(url_for('main.login'))
+            
+        except jwt.ExpiredSignatureError:
+            return redirect(url_for('main.login'))
+        except jwt.InvalidTokenError:
+            return redirect(url_for('main.login'))
+        
+        return f(*args, **kwargs)
+    
     return decorated_function
 

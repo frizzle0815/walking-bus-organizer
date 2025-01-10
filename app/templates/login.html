@@ -66,19 +66,3 @@
     </div>
 </div>
 {% endblock %}
-
-{% block scripts %}
-<script>
- document.addEventListener('DOMContentLoaded', function() {
-     const loginForm = document.getElementById('loginForm');
-     if (loginForm) {
-         loginForm.addEventListener('submit', function(event) {
-             localStorage.removeItem('auth_token');
-             return true;
-         });
-     }
- });
-</script>
-{% endblock %}
-
-

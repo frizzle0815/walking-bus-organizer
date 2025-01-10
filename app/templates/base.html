@@ -316,7 +316,152 @@
   </style>
 <script>
 let authInitialized = false;
-let serviceWorkerRegistered = false;
+
+ // Service Worker registration
+ async function registerServiceWorker() {
+     if ('serviceWorker' in navigator) {
+         try {
+             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+             console.log('[CENTRAL] ServiceWorker registration successful');
+             return registration;
+         } catch (err) {
+             console.log('[CENTRAL] ServiceWorker registration failed: ', err);
+         }
+     }
+     return null;
+ }
+
+ //Make seure, we use the correct service worker
+ async function initializeServiceWorker() {
+     console.log('Starting Service Worker initialization');
+     const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+
+     if (registration.installing) {
+         console.log('Service Worker installing');
+         await new Promise(resolve => {
+             registration.installing.addEventListener('statechange', e => {
+                 if (e.target.state === 'activated') {
+                     console.log('Service Worker activated');
+                     resolve();
+                 }
+             });
+         });
+     }
+
+     return registration.active;
+ }
+
+ async function loginUser() {
+     const form = document.getElementById('loginForm');
+     if (!form) {
+         console.log('Login form not found, exiting loginUser function.');
+         return;
+     }
+
+     console.log('Login form found, adding submit event listener.');
+
+     form.addEventListener('submit', async (event) => {
+         event.preventDefault();
+         console.log('Form submission prevented, preparing to send login request.');
+
+         const formData = new FormData(form);
+         console.log('Form data prepared:', Array.from(formData.entries()));
+
+         try {
+             const response = await fetch('/login', {
+                 method: 'POST',
+                 body: formData
+             });
+             console.log('Login request sent, awaiting response.');
+
+             const contentType = response.headers.get('content-type');
+             if (response.ok && contentType && contentType.includes('application/json')) {
+                 console.log('Login successful, parsing response JSON.');
+                 const data = await response.json();
+                 console.log('Response JSON parsed:', data);
+
+                 const authToken = data.auth_token;
+                 const redirectUrl = data.redirect_url;
+                 console.log('Auth token and redirect URL extracted:', authToken, redirectUrl);
+
+                 if (authToken && 'serviceWorker' in navigator) {
+                     console.log('Auth token present and service worker supported, preparing to store token.');
+                     try {
+                         const activeWorker = await initializeServiceWorker();
+                         console.log('Service Worker ready for message');
+
+                         const messageChannel = new MessageChannel();
+                         messageChannel.port1.onmessage = (event) => {
+                             console.log('Token stored:', event.data);
+                             // Redirect only after the token is stored successfully
+                             if (event.data.success) {
+                                 console.log('Redirecting to:', redirectUrl);
+                                 window.location.href = redirectUrl;
+                             }
+                         };
+
+                         activeWorker.postMessage({
+                             type: 'STORE_AUTH_TOKEN',
+                             token: authToken
+                         }, [messageChannel.port2]);
+
+                         console.log('Token message sent');
+                     } catch (error) {
+                         console.error('Service Worker setup failed:', error);
+                     }
+                 }
+             } else {
+                 console.error('Login failed, displaying error message.');
+                 const errorText = await response.text();
+                 document.body.innerHTML = errorText;
+             }
+         } catch (error) {
+             console.error('Error during login process:', error);
+         }
+     });
+ }
+
+ // Function to get the auth token from the cache
+ async function getAuthToken() {
+     console.log('Attempting to retrieve auth token from cache...');
+     if ('caches' in window) {
+         try {
+             const cache = await caches.open('walking-bus-auth-v1');
+             console.log('Cache opened successfully.');
+             const response = await cache.match('static/auth-token');  // Important! Add static/ before auth-token!
+             if (response) {
+                 console.log('Auth token found in cache.');
+                 const data = await response.json();
+                 console.log('Auth token retrieved:', data.token);
+                 return data.token;
+             } else {
+                 console.log('No auth token found in cache.');
+             }
+         } catch (error) {
+             console.error('Error accessing cache:', error);
+         }
+     } else {
+         console.log('Cache API not supported in this browser.');
+     }
+     return null;
+ }
+
+ // Add auth token to header for authentication in auth.py
+ axios.interceptors.request.use(async (config) => {
+     console.log('Intercepting request to add auth token...');
+     const token = await getAuthToken();
+     if (token) {
+         console.log('Adding auth token to request headers.');
+         config.headers['Authorization'] = `Bearer ${token}`;
+     } else {
+         console.log('No auth token to add to request headers.');
+     }
+     return config;
+ }, (error) => {
+     console.error('Error in request interceptor:', error);
+     return Promise.reject(error);
+ });
+
 
 async function ensurePersistentStorage() {
     console.log('[STORAGE] Requesting persistent storage');
@@ -336,38 +481,22 @@ async function ensurePersistentStorage() {
      }
  }
 
- // Authentication handling
- async function initAuth() {
-     if (authInitialized) {
-         return;
-     }
-     authInitialized = true;
-     
-     // Nur noch für initiale Service Worker Registration
-     if ('serviceWorker' in navigator) {
-         try {
-             await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[AUTH] Service Worker registered');
-         } catch (error) {
-             console.error('[AUTH] Service Worker registration failed:', error);
-         }
-     }
- }
-
-
 
  // Axios interceptor
  axios.interceptors.response.use(
-     response => response,
-     error => {
-         if (error.response && error.response.status === 401) {
-             if (error.response.data.redirect) {
-                 window.location.href = '/login';
-             }
-         }
-         return Promise.reject(error);
-     }
- );
+    response => response,
+    error => {
+        if (error.response && error.response.status === 401) {
+            console.log('Received 401 response:', error.response.data);
+            if (error.response.data.redirect) {
+                console.log('Redirecting to login page');
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
 
  // PWA installation handling
  let deferredPrompt;
@@ -396,53 +525,13 @@ async function ensurePersistentStorage() {
      });
  }
 
- // Service Worker registration
- if ('serviceWorker' in navigator) {
-     window.addEventListener('load', () => {
-         navigator.serviceWorker.register('/static/service-worker.js')
-             .then(registration => {
-                 console.log('ServiceWorker registration successful');
-             })
-             .catch(err => {
-                 console.log('ServiceWorker registration failed: ', err);
-             });
-     });
- }
-
- // Server-sent events
- function initializeEventSource() {
-    if (window.location.pathname !== '/login') {
-        const eventSource = new EventSource('/stream');
-        
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if (data.time) {
-                document.getElementById('current-time').textContent = data.time;
-            }
-        };
-
-        eventSource.onerror = function(error) {
-            console.error('EventSource failed:', error);
-            eventSource.close();
-        };
-
-        // Store EventSource in window object for global access
-        window.eventSource = eventSource;
-    }
-}
-
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
-     // Initialize app and service worker
-     if ('serviceWorker' in navigator) {
-         try {
-             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[AUTO LOGIN] Service Worker registered');
-             await initAuth();
-         } catch (error) {
-             console.error('[AUTO LOGIN] Service Worker registration failed:', error);
-         }
-     }
+     // Register service worker
+     await registerServiceWorker();
+
+     // Initialize login functionality
+     loginUser();
 
      // Initialize event source for real-time updates
      initializeEventSource();
@@ -497,6 +586,29 @@ async function ensurePersistentStorage() {
          });
      }
  });
+
+
+ // Server-sent events
+ function initializeEventSource() {
+     if (window.location.pathname !== '/login') {
+         const eventSource = new EventSource('/stream');
+         
+         eventSource.onmessage = function(event) {
+             const data = JSON.parse(event.data);
+             if (data.time) {
+                 document.getElementById('current-time').textContent = data.time;
+             }
+         };
+
+         eventSource.onerror = function(error) {
+             console.error('EventSource failed:', error);
+             eventSource.close();
+         };
+
+         // Store EventSource in window object for global access
+         window.eventSource = eventSource;
+     }
+ }
 
  function updateDarkModeIcon(isDark) {
      const icon = darkModeToggle.querySelector('i');
