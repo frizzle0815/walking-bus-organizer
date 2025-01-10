@@ -1111,7 +1111,11 @@ def login():
         buses = WalkingBus.query.filter(
             WalkingBus.id.in_(configured_bus_ids)
         ).order_by(WalkingBus.id).all() if is_multi_bus else None
-        return render_template('login.html', hide_menu=True, buses=buses, is_multi_bus=is_multi_bus)
+        return render_template('login.html', 
+                     hide_menu=True, 
+                     buses=buses, 
+                     is_multi_bus=is_multi_bus,
+                     git_revision=get_git_revision())
 
     if not is_ip_allowed():
         remaining_minutes = get_remaining_lockout_time(ip)
