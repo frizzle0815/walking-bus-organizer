@@ -35,8 +35,14 @@ WEEKDAY_MAPPING = {
 
 
 def get_git_revision():
+    # First check for build-time revision file
+    if os.path.exists('git_revision.txt'):
+        with open('git_revision.txt', 'r') as f:
+            revision = f.read().strip()
+            return {'short': revision[:7], 'full': revision}
+    
+    # Fallback to git command for development
     try:
-        # Get both short and full hash
         short_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
         full_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
         return {'short': short_hash, 'full': full_hash}
