@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 # Clone repo and get revision
 RUN git clone https://github.com/frizzle0815/walking-bus-organizer.git . && \
     git rev-parse HEAD > git_revision.txt && \
-    rm -rf .git
+    rm -rf .git .gitignore
 
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
