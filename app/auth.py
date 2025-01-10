@@ -10,7 +10,6 @@ import os
 
 # JWT Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
-APP_PASSWORD = os.getenv('APP_PASSWORD', None)
 
 # Brute Force Protection Configuration
 login_attempts = defaultdict(list)
