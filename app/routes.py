@@ -406,12 +406,30 @@ def get_participant_weekday_status(participant_id, weekday):
     return jsonify({"status": status})
 
 
-
 # Schedule and Calendar Routes
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 @require_auth
 def initialize_daily_status():
     try:
+        # Get and check token expiration
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp_timestamp = payload['exp']
+        exp_date = datetime.fromtimestamp(exp_timestamp)
+        remaining_days = (exp_date - datetime.utcnow()).days
+        
+        # Create new token if less than 30 days remaining
+        new_token = None
+        if remaining_days < 30:
+            # Verify old token before creating new one
+            verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            new_token = jwt.encode({
+                **verified_payload,
+                'exp': datetime.utcnow() + timedelta(days=60),
+                'iat': datetime.utcnow()
+            }, SECRET_KEY, algorithm="HS256")
+            app.logger.info("Created new token with extended expiration")
+
         walking_bus_id = get_current_walking_bus_id()
         today = get_current_date()
         current_time = get_current_time().time()
@@ -462,6 +480,11 @@ def initialize_daily_status():
             "reason_type": reason_type,
             "note": daily_note.note if daily_note else None
         }
+
+        # Add new token to response if created
+        if new_token:
+            response["new_auth_token"] = new_token
+
         app.logger.info(f"Returning response: {response}")
         return jsonify(response)
     except Exception as e:
