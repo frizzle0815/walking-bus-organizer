@@ -318,24 +318,6 @@
 let authInitialized = false;
 let serviceWorkerRegistered = false;
 
-async function initializeApp() {
-    if (serviceWorkerRegistered) {
-        console.log('[AUTO LOGIN] Service Worker already registered, skipping');
-        return;
-    }
-    serviceWorkerRegistered = true;
-
-    console.log('[AUTO LOGIN] Starting app initialization');
-    
-    if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-        console.log('[AUTO LOGIN] Service Worker registered');
-        
-        // Single point of auth initialization
-        await initAuth();
-    }
-}
-
 async function ensurePersistentStorage() {
     console.log('[STORAGE] Requesting persistent storage');
     if (navigator.storage && navigator.storage.persist) {
@@ -345,113 +327,6 @@ async function ensurePersistentStorage() {
     }
     return false;
 }
-
-async function attemptAutoLogin() {
-    console.log('[AUTO LOGIN] Starting auto-login attempt');
-
-    const isPersisted = await ensurePersistentStorage();
-    console.log('[AUTO LOGIN] Storage persistence status:', isPersisted);
-   
-    const cookieToken = document.cookie.split('; ').find(row => row.startsWith('auth_token='));
-    let hasValidToken = false;
-
-    if (cookieToken) {
-        console.log('[AUTO LOGIN] Token found in cookies, validating...');
-        const response = await fetch('/validate-auth', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${cookieToken.split('=')[1]}`
-            }
-        });
-
-        try {
-            const errorData = await response.json();
-            if (!response.ok) {
-                console.log('[AUTO LOGIN] Token validation failed:', errorData);
-                if (errorData.error === 'password_mismatch') {
-                    console.log('[AUTO LOGIN] Password hash mismatch detected - configuration might have changed');
-                }
-                if (errorData.error === 'invalid_bus') {
-                    console.log('[AUTO LOGIN] Bus ID no longer exists in configuration');
-                }
-                console.log('[AUTO LOGIN] Cookie token invalid, removing...');
-                document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-            } else {
-                hasValidToken = true;
-                return;
-            }
-        } catch (error) {
-            console.error('[AUTO LOGIN] Error parsing validation response:', error);
-        }
-    }
-
-    console.log('[AUTO LOGIN] Checking cache storage for token');
-   
-    if ('serviceWorker' in navigator) {
-        try {
-            const cache = await caches.open('walking-bus-auth-v1');
-            const tokenResponse = await cache.match('/static/auth-token');
-           
-            if (tokenResponse) {
-               console.log('[AUTO LOGIN] Token found in cache storage, validating...');
-               const tokenData = await tokenResponse.json();
-                  
-               const response = await fetch('/validate-auth', {
-                   method: 'POST',
-                   headers: {
-                       'Authorization': `Bearer ${tokenData.token}`
-                   }
-               });
-
-               try {
-                   const contentType = response.headers.get('content-type');
-                   if (contentType && contentType.includes('application/json')) {
-                       const errorData = await response.json();
-                       if (response.ok) {
-                           console.log('[AUTO LOGIN] Token is valid, setting cookie');
-                           document.cookie = `auth_token=${tokenData.token}; max-age=31536000; secure; samesite=Strict`;
-                           if (window.location.pathname === '/login') {
-                               window.location.href = '/';
-                           }
-                           return;
-                       }
-                       
-                       console.log('[AUTO LOGIN] Token validation failed:', errorData);
-                       if (errorData.error === 'password_mismatch') {
-                           console.log('[AUTO LOGIN] Password hash mismatch detected - configuration might have changed');
-                       }
-                       if (errorData.error === 'invalid_bus') {
-                           console.log('[AUTO LOGIN] Bus ID no longer exists in configuration');
-                       }
-                   } else {
-                       console.log('[AUTO LOGIN] Received non-JSON response, token likely invalid');
-                   }
-
-                   console.log('[AUTO LOGIN] Cache token invalid, clearing cache...');
-                   await cache.delete('/static/auth-token');
-               } catch (error) {
-                   console.log('[AUTO LOGIN] Invalid response format, clearing cached token');
-                   await cache.delete('/static/auth-token');
-               }
-           }
-        } catch (error) {
-            console.error('[AUTO LOGIN] Error during auto-login:', error);
-        }
-    }
-   
-    if (window.location.pathname === '/login' && !hasValidToken) {
-        console.log('[AUTO LOGIN] On login page without valid token, allowing manual login');
-        return;
-    }
-
-    if (window.location.pathname !== '/login') {
-        console.log('[AUTO LOGIN] No valid tokens found, redirecting to login');
-        window.location.href = '/login';
-    }
-}
-
-
-
 
  // Storage permission request
  async function requestStoragePermission() {
@@ -464,18 +339,19 @@ async function attemptAutoLogin() {
  // Authentication handling
  async function initAuth() {
      if (authInitialized) {
-         console.log('[INIT AUTO LOGIN] Auth already initialized, skipping');
          return;
      }
      authInitialized = true;
-
-     if (window.location.pathname === '/login') {
-         console.log('[INIT AUTO LOGIN] On login page, starting auto-login check');
-         await attemptAutoLogin();
-         return;
-     }
      
-     await attemptAutoLogin();
+     // Nur noch für initiale Service Worker Registration
+     if ('serviceWorker' in navigator) {
+         try {
+             await navigator.serviceWorker.register('/static/service-worker.js');
+             console.log('[AUTH] Service Worker registered');
+         } catch (error) {
+             console.error('[AUTH] Service Worker registration failed:', error);
+         }
+     }
  }
 
 

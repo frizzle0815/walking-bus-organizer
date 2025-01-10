@@ -106,6 +106,43 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event handling with authentication
 self.addEventListener('fetch', (event) => {
+     // Special handling for login page
+    if (event.request.url.includes('/login')) {
+        event.respondWith(
+            caches.open(AUTH_CACHE)
+                .then(cache => {
+                    console.log('[SW AUTH] Checking token for login page');
+                    return cache.match('/static/auth-token');
+                })
+                .then(async tokenResponse => {
+                    if (tokenResponse) {
+                        console.log('[SW AUTH] Token found in cache, validating...');
+                        const tokenData = await tokenResponse.json();
+                        const validationResponse = await fetch('/validate-auth', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${tokenData.token}`
+                            }
+                        });
+                        
+                        if (validationResponse.ok) {
+                            console.log('[SW AUTH] Token valid, redirecting to home');
+                            return Response.redirect('/', 302);
+                        } else {
+                            console.log('[SW AUTH] Token invalid, clearing cache');
+                            const errorData = await validationResponse.json();
+                            console.log('[SW AUTH] Validation error:', errorData);
+                            await cache.delete('/static/auth-token');
+                        }
+                    } else {
+                        console.log('[SW AUTH] No token found, showing login page');
+                    }
+                    return fetch(event.request);
+                })
+        );
+        return;
+    }
+
     // Handle API requests and authenticated routes
     if (event.request.url.includes('/api/') || event.request.url.endsWith('/')) {
         event.respondWith(
