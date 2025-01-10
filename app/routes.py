@@ -6,6 +6,7 @@ from flask import redirect, url_for
 from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
+from app import get_git_revision
 import json
 import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
@@ -1119,6 +1120,7 @@ def login():
             app.logger.warning(f"IP {ip} is locked out for {remaining_minutes} more minutes")
             return render_template('login.html',
                                    error=error_message,
+                                   git_revision=get_git_revision(),
                                    hide_menu=True,
                                    buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
                                    is_multi_bus=is_multi_bus)
@@ -1134,6 +1136,7 @@ def login():
             app.logger.error("No walking bus selected in multi-bus mode")
             return render_template('login.html',
                                    error="Bitte Walking Bus und Passwort eingeben",
+                                   git_revision=get_git_revision(),
                                    hide_menu=True,
                                    buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
                                    is_multi_bus=is_multi_bus)
@@ -1173,6 +1176,7 @@ def login():
 
     return render_template('login.html',
                            error=error_message,
+                           git_revision=get_git_revision(),
                            hide_menu=True,
                            selected_bus_id=selected_bus_id,
                            buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,

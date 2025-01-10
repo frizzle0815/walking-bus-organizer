@@ -1,4 +1,4 @@
-from flask import Flask, request, session, redirect, url_for
+from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from datetime import datetime, timedelta
@@ -6,7 +6,7 @@ import os
 import pytz
 import logging
 import secrets
-import jwt
+import subprocess
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
@@ -32,6 +32,16 @@ WEEKDAY_MAPPING = {
     5: 'saturday',
     6: 'sunday'
 }
+
+
+def get_git_revision():
+    try:
+        # Get both short and full hash
+        short_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+        full_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+        return {'short': short_hash, 'full': full_hash}
+    except:
+        return {'short': 'unknown', 'full': 'unknown'}
 
 
 def get_current_time():
