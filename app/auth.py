@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import request, redirect, url_for
+from flask import request, redirect, url_for, jsonify
 from flask import current_app
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -75,7 +75,7 @@ def require_auth(f):
         
         if not token:
             current_app.logger.info(f"[AUTH.PY][AUTH] No token in request headers")
-            return redirect(url_for('main.login'))
+            return jsonify({"error": "No token provided", "redirect": True}), 401
         
         try:
             # Decode and verify token
@@ -94,20 +94,20 @@ def require_auth(f):
                 
                 if walking_bus_id not in bus_configs:
                     current_app.logger.info(f"[AUTH.PY][AUTH] Invalid bus ID: {walking_bus_id}")
-                    return redirect(url_for('main.login'))
+                    return jsonify({"error": "Invalid bus ID", "redirect": True}), 401
                     
                 if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
                     current_app.logger.info(f"[AUTH.PY][AUTH] Invalid password hash")
-                    return redirect(url_for('main.login'))
+                    return jsonify({"error": "Invalid credentials", "redirect": True}), 401
             
             return f(*args, **kwargs)
             
         except jwt.ExpiredSignatureError:
             current_app.logger.info(f"[AUTH.PY][AUTH] Token expired")
-            return redirect(url_for('main.login'))
+            return jsonify({"error": "Token expired", "redirect": True}), 401
         except jwt.InvalidTokenError:
             current_app.logger.info(f"[AUTH.PY][AUTH] Invalid token")
-            return redirect(url_for('main.login'))
+            return jsonify({"error": "Invalid token", "redirect": True}), 401
     
     return decorated_function
 

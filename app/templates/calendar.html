@@ -341,7 +341,7 @@ async function showReasonPrompt(isCurrentlyActive, isOverride, day, dayElement) 
         document.getElementById('saveNote').addEventListener('click', async () => {
             const noteText = document.getElementById('noteInput').value.trim();
             try {
-                const response = await fetch('/api/daily-note', {
+                const response = await fetchWithAuth('/api/daily-note', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -369,7 +369,7 @@ async function showReasonPrompt(isCurrentlyActive, isOverride, day, dayElement) 
         if (document.getElementById('deleteNote')) {
             document.getElementById('deleteNote').addEventListener('click', async () => {
                 try {
-                    const response = await fetch('/api/daily-note', {
+                    const response = await fetchWithAuth('/api/daily-note', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -449,7 +449,7 @@ async function showReasonPrompt(isCurrentlyActive, isOverride, day, dayElement) 
 
 async function loadMonthSequentially(year, month) {
     try {
-        const response = await fetch(`/api/calendar/months/${year}/${month}/1`);
+        const response = await fetchWithAuth(`/api/calendar/months/${year}/${month}/1`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -540,7 +540,7 @@ function renderMonths(calendarData, container) {
                         return; // User cancelled
                     }
                     
-                    const response = await fetch('/api/walking-bus-override', {
+                    const response = await fetchWithAuth('/api/walking-bus-override', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -626,7 +626,7 @@ function renderMonths(calendarData, container) {
 }
 
 async function loadMonthSequentially(year, month) {
-    const response = await fetch(`/api/calendar/months/${year}/${month}/1`);
+    const response = await fetchWithAuth(`/api/calendar/months/${year}/${month}/1`);
     return await response.json();
 }
 
