@@ -1,8 +1,9 @@
 from functools import wraps
-from flask import request, redirect, url_for, jsonify
+from flask import request, jsonify
 from flask import current_app
 from datetime import datetime, timedelta
 from collections import defaultdict
+from hashlib import sha256
 from math import ceil
 import jwt
 import os
@@ -68,6 +69,14 @@ def get_remaining_lockout_time(ip):
     return 0
 
 
+def get_consistent_hash(text):
+    """
+    Creates a consistent SHA-256 hash for the given text
+    Returns a hex string representation of the hash
+    """
+    return sha256(str(text).encode()).hexdigest()
+
+
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -87,7 +96,7 @@ def require_auth(f):
             
             if buses_env:
                 bus_configs = dict(
-                    (int(b.split(':')[0]), hash(b.split(':')[2]))
+                    (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
                     for b in buses_env.split(',')
                     if len(b.split(':')) == 3
                 )

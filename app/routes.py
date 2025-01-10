@@ -8,7 +8,7 @@ from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
-from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time
+from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
 import jwt
 from os import environ
 from .init_buses import init_walking_buses
@@ -1121,16 +1121,18 @@ def login():
     if bus and bus.password == password:
         app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
 
+        password_hash = get_consistent_hash(bus.password)
+
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
-        session['bus_password_hash'] = hash(bus.password)
+        session['bus_password_hash'] = password_hash
         session.permanent = True
 
         token = jwt.encode({
             'logged_in': True,
             'walking_bus_id': bus.id,
             'walking_bus_name': bus.name,
-            'bus_password_hash': hash(bus.password),
+            'bus_password_hash': password_hash,
             'exp': datetime.utcnow() + timedelta(days=60),  # Set expiration to 60 days
             'iat': datetime.utcnow(),
             'type': 'pwa_auth'
@@ -1177,48 +1179,3 @@ def logout():
     })
     
     return response
-
-
-@bp.route("/validate-auth", methods=["POST"])
-def validate_auth():
-    try:
-        # Check both cookie and Authorization header
-        token = request.cookies.get('auth_token') or \
-                request.headers.get('Authorization', '').replace('Bearer ', '')
-        
-        if not token:
-            return jsonify({"valid": False, "error": "no_token"}), 401
-            
-        # Decode and verify token
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        
-        # Verify walking bus still exists and is valid
-        walking_bus_id = payload.get('walking_bus_id')
-        bus = WalkingBus.query.get(walking_bus_id)
-        
-        if not bus:
-            return jsonify({
-                "valid": False, 
-                "error": "invalid_bus",
-                "message": "Walking bus no longer exists in configuration"
-            }), 401
-            
-        # Check if password hash matches
-        if payload.get('bus_password_hash') != hash(bus.password):
-            return jsonify({
-                "valid": False, 
-                "error": "password_mismatch",
-                "message": "Password hash does not match current configuration"
-            }), 401
-            
-        return jsonify({
-            "valid": True,
-            "walking_bus_id": bus.id,
-            "walking_bus_name": bus.name
-        })
-        
-    except jwt.ExpiredSignatureError:
-        return jsonify({"valid": False, "error": "token_expired"}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({"valid": False, "error": "invalid_token"}), 401
-
