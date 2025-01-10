@@ -9,6 +9,7 @@ from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 import json
 import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
+from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
 import jwt
 from os import environ
 from .init_buses import init_walking_buses
@@ -1142,7 +1143,9 @@ def login():
         return jsonify({'auth_token': token, 'redirect_url': url_for('main.index')})
 
     record_attempt()
-    error_message = "Ungültiges Passwort"
+    remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
+    lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
+    error_message = f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig."
     app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
 
     return render_template('login.html',
