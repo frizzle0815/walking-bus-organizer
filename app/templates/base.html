@@ -388,25 +388,32 @@ let authInitialized = false;
                  if (authToken && 'serviceWorker' in navigator) {
                      console.log('[BASE.HTML]Auth token present and service worker supported, preparing to store token.');
                      try {
-                         const activeWorker = await initializeServiceWorker();
+                         const activeWorker = await initializeServiceWorker();  // Store doesn't work without separate initialize - don't know why!
                          console.log('[BASE.HTML]Service Worker ready for message');
 
-                         const messageChannel = new MessageChannel();
-                         messageChannel.port1.onmessage = (event) => {
-                             console.log('[BASE.HTML]Token stored:', event.data);
-                             // Redirect only after the token is stored successfully
-                             if (event.data.success) {
-                                 console.log('[BASE.HTML]Redirecting to:', redirectUrl);
-                                 window.location.href = redirectUrl;
-                             }
-                         };
+                         await new Promise((resolve, reject) => {
+                             const messageChannel = new MessageChannel();
+                             messageChannel.port1.onmessage = (event) => {
+                                 console.log('[BASE.HTML]Token stored:', event.data);
+                                 if (event.data.success) {
+                                     resolve();
+                                 } else {
+                                     reject('Failed to store token');
+                                 }
+                             };
 
-                         activeWorker.postMessage({
-                             type: 'STORE_AUTH_TOKEN',
-                             token: authToken
-                         }, [messageChannel.port2]);
+                             activeWorker.postMessage({
+                                 type: 'STORE_AUTH_TOKEN',
+                                 token: authToken
+                             }, [messageChannel.port2]);
 
-                         console.log('[BASE.HTML]Token message sent');
+                             console.log('[BASE.HTML]Token message sent');
+                         });
+
+                         // Redirect only after the token is stored successfully
+                         console.log('[BASE.HTML]Redirecting to:', redirectUrl);
+                         window.location.href = redirectUrl;
+
                      } catch (error) {
                          console.error('Service Worker setup failed:', error);
                      }
@@ -421,6 +428,7 @@ let authInitialized = false;
          }
      });
  }
+
 
 async function ensurePersistentStorage() {
     console.log('[BASE.HTML][STORAGE] Requesting persistent storage');
