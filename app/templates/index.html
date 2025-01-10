@@ -881,7 +881,7 @@
     }
 
     function updateStationStats(stationId) {
-        fetch(`/api/stations/${stationId}/stats`)
+        fetchWithAuth(`/api/stations/${stationId}/stats`)
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -896,7 +896,7 @@
                 }
                 
                 // Update total stats
-                return fetch('/api/stations/stats/total');
+                return fetchWithAuth('/api/stations/stats/total');
             })
             .then(response => response.json())
             .then(totalData => {
@@ -975,7 +975,7 @@
 
         try {
             // Try online first
-            const response = await fetch(`/api/calendar-data/${participantId}`);
+            const response = await fetchWithAuth(`/api/calendar-data/${participantId}`);
             if (response.ok) {
                 const calendarData = await response.json();
                 // Store in IndexedDB for offline use

@@ -74,10 +74,7 @@ def create_app():
     # Session validation middleware
     @app.before_request
     def validate_session():
-        app.logger.info(f"[SESSION][REQUEST] Path: {request.path}")
-        app.logger.info(f"[SESSION][REQUEST] Endpoint: {request.endpoint}")
-        
-        # Define PWA-related paths that should bypass authentication
+        # Only check for PWA resources
         pwa_paths = {
             'manifest.json',
             'service-worker.js',
@@ -85,19 +82,9 @@ def create_app():
             'static/manifest.json'
         }
         
-        # Skip validation for PWA resources and static files
         if any(path in request.path for path in pwa_paths) or \
            (request.endpoint and 'static' in request.endpoint):
-            app.logger.info("[SESSION][PWA] Bypassing auth for PWA/static resource")
             return None
-
-        # Let the decorator handle token validation
-        if request.endpoint != 'main.login':
-            # Ensure session is cleared if not authenticated
-            if 'walking_bus_id' not in session:
-                app.logger.info("[SESSION][SESSION] No valid session found, redirecting to login")
-                session.clear()
-                return redirect(url_for('main.login'))
 
     # Auth token capture middleware
     @app.after_request

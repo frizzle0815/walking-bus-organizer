@@ -314,6 +314,7 @@
 
 
   </style>
+{% include 'auth.html' %}
 <script>
 let authInitialized = false;
 
@@ -322,10 +323,10 @@ let authInitialized = false;
      if ('serviceWorker' in navigator) {
          try {
              const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[CENTRAL] ServiceWorker registration successful');
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
              return registration;
          } catch (err) {
-             console.log('[CENTRAL] ServiceWorker registration failed: ', err);
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed: ', err);
          }
      }
      return null;
@@ -333,15 +334,15 @@ let authInitialized = false;
 
  //Make seure, we use the correct service worker
  async function initializeServiceWorker() {
-     console.log('Starting Service Worker initialization');
+     console.log('[BASE.HTML]Starting Service Worker initialization');
      const registration = await navigator.serviceWorker.register('/static/service-worker.js');
 
      if (registration.installing) {
-         console.log('Service Worker installing');
+         console.log('[BASE.HTML]Service Worker installing');
          await new Promise(resolve => {
              registration.installing.addEventListener('statechange', e => {
                  if (e.target.state === 'activated') {
-                     console.log('Service Worker activated');
+                     console.log('[BASE.HTML]Service Worker activated');
                      resolve();
                  }
              });
@@ -354,48 +355,48 @@ let authInitialized = false;
  async function loginUser() {
      const form = document.getElementById('loginForm');
      if (!form) {
-         console.log('Login form not found, exiting loginUser function.');
+         console.log('[BASE.HTML]Login form not found, exiting loginUser function.');
          return;
      }
 
-     console.log('Login form found, adding submit event listener.');
+     console.log('[BASE.HTML]Login form found, adding submit event listener.');
 
      form.addEventListener('submit', async (event) => {
          event.preventDefault();
-         console.log('Form submission prevented, preparing to send login request.');
+         console.log('[BASE.HTML]Form submission prevented, preparing to send login request.');
 
          const formData = new FormData(form);
-         console.log('Form data prepared:', Array.from(formData.entries()));
+         console.log('[BASE.HTML]Form data prepared:', Array.from(formData.entries()));
 
          try {
              const response = await fetch('/login', {
                  method: 'POST',
                  body: formData
              });
-             console.log('Login request sent, awaiting response.');
+             console.log('[BASE.HTML]Login request sent, awaiting response.');
 
              const contentType = response.headers.get('content-type');
              if (response.ok && contentType && contentType.includes('application/json')) {
-                 console.log('Login successful, parsing response JSON.');
+                 console.log('[BASE.HTML]Login successful, parsing response JSON.');
                  const data = await response.json();
-                 console.log('Response JSON parsed:', data);
+                 console.log('[BASE.HTML]Response JSON parsed:', data);
 
                  const authToken = data.auth_token;
                  const redirectUrl = data.redirect_url;
-                 console.log('Auth token and redirect URL extracted:', authToken, redirectUrl);
+                 console.log('[BASE.HTML]Auth token and redirect URL extracted:', authToken, redirectUrl);
 
                  if (authToken && 'serviceWorker' in navigator) {
-                     console.log('Auth token present and service worker supported, preparing to store token.');
+                     console.log('[BASE.HTML]Auth token present and service worker supported, preparing to store token.');
                      try {
                          const activeWorker = await initializeServiceWorker();
-                         console.log('Service Worker ready for message');
+                         console.log('[BASE.HTML]Service Worker ready for message');
 
                          const messageChannel = new MessageChannel();
                          messageChannel.port1.onmessage = (event) => {
-                             console.log('Token stored:', event.data);
+                             console.log('[BASE.HTML]Token stored:', event.data);
                              // Redirect only after the token is stored successfully
                              if (event.data.success) {
-                                 console.log('Redirecting to:', redirectUrl);
+                                 console.log('[BASE.HTML]Redirecting to:', redirectUrl);
                                  window.location.href = redirectUrl;
                              }
                          };
@@ -405,7 +406,7 @@ let authInitialized = false;
                              token: authToken
                          }, [messageChannel.port2]);
 
-                         console.log('Token message sent');
+                         console.log('[BASE.HTML]Token message sent');
                      } catch (error) {
                          console.error('Service Worker setup failed:', error);
                      }
@@ -421,53 +422,11 @@ let authInitialized = false;
      });
  }
 
- // Function to get the auth token from the cache
- async function getAuthToken() {
-     console.log('Attempting to retrieve auth token from cache...');
-     if ('caches' in window) {
-         try {
-             const cache = await caches.open('walking-bus-auth-v1');
-             console.log('Cache opened successfully.');
-             const response = await cache.match('static/auth-token');  // Important! Add static/ before auth-token!
-             if (response) {
-                 console.log('Auth token found in cache.');
-                 const data = await response.json();
-                 console.log('Auth token retrieved:', data.token);
-                 return data.token;
-             } else {
-                 console.log('No auth token found in cache.');
-             }
-         } catch (error) {
-             console.error('Error accessing cache:', error);
-         }
-     } else {
-         console.log('Cache API not supported in this browser.');
-     }
-     return null;
- }
-
- // Add auth token to header for authentication in auth.py
- axios.interceptors.request.use(async (config) => {
-     console.log('Intercepting request to add auth token...');
-     const token = await getAuthToken();
-     if (token) {
-         console.log('Adding auth token to request headers.');
-         config.headers['Authorization'] = `Bearer ${token}`;
-     } else {
-         console.log('No auth token to add to request headers.');
-     }
-     return config;
- }, (error) => {
-     console.error('Error in request interceptor:', error);
-     return Promise.reject(error);
- });
-
-
 async function ensurePersistentStorage() {
-    console.log('[STORAGE] Requesting persistent storage');
+    console.log('[BASE.HTML][STORAGE] Requesting persistent storage');
     if (navigator.storage && navigator.storage.persist) {
         const isPersisted = await navigator.storage.persist();
-        console.log('[STORAGE] Persistent storage granted:', isPersisted);
+        console.log('[BASE.HTML][STORAGE] Persistent storage granted:', isPersisted);
         return isPersisted;
     }
     return false;
@@ -480,22 +439,6 @@ async function ensurePersistentStorage() {
          console.log(`Persistent storage granted: ${isPersisted}`);
      }
  }
-
-
- // Axios interceptor
- axios.interceptors.response.use(
-    response => response,
-    error => {
-        if (error.response && error.response.status === 401) {
-            console.log('Received 401 response:', error.response.data);
-            if (error.response.data.redirect) {
-                console.log('Redirecting to login page');
-                window.location.href = '/login';
-            }
-        }
-        return Promise.reject(error);
-    }
-);
 
 
  // PWA installation handling
@@ -527,6 +470,9 @@ async function ensurePersistentStorage() {
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
+     console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
+     console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+
      // Register service worker
      await registerServiceWorker();
 

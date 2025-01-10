@@ -1,0 +1,64 @@
+<!-- auth.html -->
+<script>
+(function() {
+    // Make auth functions globally available
+    window.fetchWithAuth = async function(url, options = {}) {
+        console.log('[AUTH.HTML][FETCH] Starting authenticated request to:', url);
+        try {
+            const cache = await caches.open('walking-bus-auth-v1');
+            const tokenResponse = await cache.match('static/auth-token');
+            
+            if (!tokenResponse) {
+                console.log('[AUTH.HTML][FETCH] No token found in cache');
+                window.location.href = '/login';
+                return;
+            }
+            
+            const tokenData = await tokenResponse.json();
+            console.log('[AUTH.HTML][FETCH] Token retrieved from cache');
+            
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${tokenData.token}`
+            };
+            
+            console.log('[AUTH.HTML][FETCH] Sending request with auth header');
+            return fetch(url, options);
+        } catch (error) {
+            console.error('[AUTH.HTML][FETCH] Error during authenticated request:', error);
+            throw error;
+        }
+    };
+
+    window.getAuthToken = async function() {
+        console.log('[AUTH.HTML]Attempting to retrieve auth token from cache...');
+        if ('caches' in window) {
+            try {
+                const cache = await caches.open('walking-bus-auth-v1');
+                const response = await cache.match('static/auth-token');
+                if (response) {
+                    const data = await response.json();
+                    console.log('[AUTH.HTML] Successfully retrieved auth token from cache');
+                    return data.token;
+                }
+            } catch (error) {
+                console.error('[AUTH.HTML] Error accessing cache:', error);
+            }
+        }
+        return null;
+    };
+
+    // Initialize Axios interceptor
+    axios.interceptors.request.use(async (config) => {
+        console.log(`[AUTH.HTML] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
+        const token = await window.getAuthToken();
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+        return config;
+    }, (error) => {
+        console.error('[AUTH.HTML] Error in request interceptor:', error);
+        return Promise.reject(error);
+    });
+})();
+</script>

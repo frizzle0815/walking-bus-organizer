@@ -18,19 +18,16 @@ bp = Blueprint("main", __name__)
 
 # Frontend Routes
 @bp.route('/')
-@require_auth
 def index():
     return render_template('index.html')
 
 
 @bp.route("/admin")
-@require_auth
 def admin():
     return render_template("admin.html")
 
 
 @bp.route("/calendar")
-@require_auth
 def calendar_view():
     return render_template("calendar.html")
 
@@ -792,7 +789,6 @@ def update_future_entries():
 
 
 @bp.route('/stream')
-@require_auth
 def stream():
     def event_stream():
         try:

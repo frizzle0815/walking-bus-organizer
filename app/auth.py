@@ -30,7 +30,7 @@ def is_ip_allowed():
         newest_attempt = max(login_attempts[ip])
         lockout_end = newest_attempt + LOCKOUT_TIME
         
-        current_app.logger.warning(
+        current_app.logger.info(
             f"IP {ip} locked out due to too many attempts. "
             f"Next attempt allowed after: {lockout_end.strftime('%H:%M:%S')}"
         )
@@ -47,7 +47,7 @@ def record_attempt():
         login_attempts[ip].append(datetime.now())
         
         # Log the failed attempt
-        current_app.logger.warning(
+        current_app.logger.info(
             f"Failed login attempt from IP: {ip}. "
             f"Total attempts: {len(login_attempts[ip])}"
         )
@@ -71,27 +71,43 @@ def get_remaining_lockout_time(ip):
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        token = request.cookies.get('auth_token') or request.headers.get('Authorization', '').replace('Bearer ', '')
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
         
         if not token:
+            current_app.logger.info(f"[AUTH.PY][AUTH] No token in request headers")
             return redirect(url_for('main.login'))
         
         try:
-            # Dekodiere und überprüfe den Token
+            # Decode and verify token
             payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             
-            # Optional: Weitere Überprüfungen, z.B. ob der Benutzer noch existiert
-            # user_id = payload.get('user_id')
-            # user = User.query.get(user_id)
-            # if not user:
-            #     return redirect(url_for('main.login'))
+            # Verify walking bus ID from environment
+            walking_bus_id = payload.get('walking_bus_id')
+            buses_env = os.environ.get('WALKING_BUSES', '').strip()
+            
+            if buses_env:
+                bus_configs = dict(
+                    (int(b.split(':')[0]), hash(b.split(':')[2]))
+                    for b in buses_env.split(',')
+                    if len(b.split(':')) == 3
+                )
+                
+                if walking_bus_id not in bus_configs:
+                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid bus ID: {walking_bus_id}")
+                    return redirect(url_for('main.login'))
+                    
+                if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
+                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid password hash")
+                    return redirect(url_for('main.login'))
+            
+            return f(*args, **kwargs)
             
         except jwt.ExpiredSignatureError:
+            current_app.logger.info(f"[AUTH.PY][AUTH] Token expired")
             return redirect(url_for('main.login'))
         except jwt.InvalidTokenError:
+            current_app.logger.info(f"[AUTH.PY][AUTH] Invalid token")
             return redirect(url_for('main.login'))
-        
-        return f(*args, **kwargs)
     
     return decorated_function
 
