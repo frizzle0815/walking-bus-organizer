@@ -73,4 +73,98 @@
         }
     );
 })();
+
+
+ //Make sure, we use the correct service worker
+ async function initializeServiceWorker() {
+     console.log('[AUTH.HTML]Starting Service Worker initialization');
+     const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+
+     if (registration.installing) {
+         console.log('[AUTH.HTML]Service Worker installing');
+         await new Promise(resolve => {
+             registration.installing.addEventListener('statechange', e => {
+                 if (e.target.state === 'activated') {
+                     console.log('[AUTH.HTML]Service Worker activated');
+                     resolve();
+                 }
+             });
+         });
+     }
+
+     return registration.active;
+ }
+
+ async function loginUser() {
+     const form = document.getElementById('loginForm');
+     if (!form) {
+         console.log('[AUTH.HTML]Login form not found, exiting loginUser function.');
+         return;
+     }
+
+     form.addEventListener('submit', async (event) => {
+         event.preventDefault();
+         console.log('[AUTH.HTML]Form submission prevented, preparing to send login request.');
+
+         const formData = new FormData(form);
+
+         try {
+             const response = await fetch('/login', {
+                 method: 'POST',
+                 body: formData
+             });
+
+             if (!response.ok) {
+                 console.error('Login failed, displaying error message.');
+                 const errorText = await response.text();
+                 document.body.innerHTML = errorText;
+                 return;
+             }
+
+             const data = await response.json();
+             console.log('[AUTH.HTML]Response JSON parsed:', data);
+
+             const { auth_token: authToken, redirect_url: redirectUrl } = data;
+
+             if (authToken && 'serviceWorker' in navigator) {
+                 console.log('[AUTH.HTML]Auth token present and service worker supported.');
+                 
+                 // Initialize Service Worker first
+                 const activeWorker = await initializeServiceWorker();
+                 console.log('[AUTH.HTML]Service Worker ready for message');
+
+                 // Store token and wait for confirmation
+                 await new Promise((resolve, reject) => {
+                     const messageChannel = new MessageChannel();
+                     
+                     // Set timeout for token storage
+                     const timeoutId = setTimeout(() => {
+                         reject(new Error('Token storage timeout'));
+                     }, 5000);
+
+                     messageChannel.port1.onmessage = (event) => {
+                         clearTimeout(timeoutId);
+                         if (event.data.success) {
+                             resolve();
+                         } else {
+                             reject(new Error('Failed to store token'));
+                         }
+                     };
+
+                     activeWorker.postMessage({
+                         type: 'STORE_AUTH_TOKEN',
+                         token: authToken
+                     }, [messageChannel.port2]);
+                 });
+
+                 // Only redirect after confirmed token storage
+                 console.log('[AUTH.HTML]Token stored successfully, redirecting to:', redirectUrl);
+                 window.location.replace(redirectUrl);
+             }
+         } catch (error) {
+             console.error('[AUTH.HTML]Error during login process:', error);
+             alert('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+         }
+     });
+ }
 </script>
