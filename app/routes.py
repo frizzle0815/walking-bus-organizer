@@ -1190,26 +1190,19 @@ def login():
 
 @bp.route("/logout")
 def logout():
-    # Clear all session data
     session.clear()
     
-    # Create response object for redirect
     response = redirect(url_for('main.login'))
     
-    # Remove auth token cookie with all security flags
-    response.delete_cookie(
-        'auth_token',
-        secure=True,
-        httponly=True,
-        samesite='Strict'
-    )
-    
-    # Force browser to clear cache and storage
+    # Erweiterte Header für bessere Mobile-Kompatibilität
     response.headers.update({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',
-        'Expires': '0',
-        'Clear-Site-Data': '"cache", "cookies", "storage"'
+        'Expires': '-1',
+        'Clear-Site-Data': '"cache", "cookies", "storage", "executionContexts"'
     })
+    
+    # Service Worker deregistrieren
+    response.headers['Service-Worker-Allowed'] = '/'
     
     return response

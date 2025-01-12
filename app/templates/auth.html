@@ -4,22 +4,37 @@
     // Make auth functions globally available
     window.fetchWithAuth = async function(url, options = {}) {
         console.log('[AUTH.HTML][FETCH] Starting authenticated request to:', url);
+        
         try {
-            const cache = await caches.open('walking-bus-auth-v1');
-            const tokenResponse = await cache.match('static/auth-token');
+            let token = null;
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             
-            if (!tokenResponse) {
-                console.log('[AUTH.HTML][FETCH] No token found in cache');
+            if (isIOS) {
+                // iOS path: use localStorage
+                console.log('[AUTH.HTML][FETCH] iOS detected, using localStorage');
+                token = localStorage.getItem('auth_token');
+            } else {
+                // Standard path: use cache
+                const cache = await caches.open('walking-bus-auth-v1');
+                const tokenResponse = await cache.match('static/auth-token');
+                
+                if (tokenResponse) {
+                    const tokenData = await tokenResponse.json();
+                    token = tokenData.token;
+                }
+            }
+            
+            if (!token) {
+                console.log('[AUTH.HTML][FETCH] No token found');
                 window.location.href = '/login';
                 return;
             }
             
-            const tokenData = await tokenResponse.json();
-            console.log('[AUTH.HTML][FETCH] Token retrieved from cache');
+            console.log('[AUTH.HTML][FETCH] Token retrieved successfully');
             
             options.headers = {
                 ...options.headers,
-                'Authorization': `Bearer ${tokenData.token}`
+                'Authorization': `Bearer ${token}`
             };
             
             console.log('[AUTH.HTML][FETCH] Sending request with auth header');
@@ -31,8 +46,19 @@
     };
 
     window.getAuthToken = async function() {
-        console.log('[AUTH.HTML] Attempting to retrieve auth token from cache...');
-        if ('caches' in window) {
+        console.log('[AUTH.HTML] Attempting to retrieve auth token...');
+        
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        
+        if (isIOS) {
+            // iOS path
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                console.log('[AUTH.HTML] Successfully retrieved auth token from localStorage');
+                return token;
+            }
+        } else if ('caches' in window) {
+            // Standard path
             try {
                 const cache = await caches.open('walking-bus-auth-v1');
                 const response = await cache.match('static/auth-token');
@@ -45,13 +71,22 @@
                 console.error('[AUTH.HTML] Error accessing cache:', error);
             }
         }
+        
         return null;
     };
 
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
         console.log(`[AUTH.HTML] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
-        const token = await window.getAuthToken();
+        
+        // Try Service Worker first
+        let token = await window.getAuthToken();
+        
+        // Fallback to localStorage for iOS
+        if (!token && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
+            token = localStorage.getItem('auth_token');
+        }
+        
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
         }
@@ -149,60 +184,79 @@
          const formData = new FormData(form);
 
          try {
+             // Add iOS detection
+             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+             console.log('[AUTH.HTML]Device is iOS:', isIOS);
+
              const response = await fetch('/login', {
                  method: 'POST',
-                 body: formData
+                 body: formData,
+                 // Add specific headers for iOS
+                 headers: {
+                     'Accept': 'application/json',
+                     'X-Requested-With': 'XMLHttpRequest'
+                 }
              });
 
              if (!response.ok) {
-                 console.error('[AUTH.HTML]Login failed, displaying error message.');
+                 console.error('[AUTH.HTML]Login failed:', response.status, response.statusText);
                  const errorText = await response.text();
+                 console.error('[AUTH.HTML]Error details:', errorText);
                  document.body.innerHTML = errorText;
                  return;
              }
 
              const data = await response.json();
-             console.log('[AUTH.HTML]Response JSON parsed:', data);
+             console.log('[AUTH.HTML]Response received:', data);
 
              const { auth_token: authToken, redirect_url: redirectUrl } = data;
 
              if (authToken && 'serviceWorker' in navigator) {
-                 console.log('[AUTH.HTML]Auth token present and service worker supported.');
+                 console.log('[AUTH.HTML]Processing auth token');
                  
-                 // Initialize Service Worker first
-                 const activeWorker = await initializeServiceWorker();  // Token storage doesn't work without this - don't know why!
-                 console.log('[AUTH.HTML]Service Worker ready for message');
+                 try {
+                     // Modified Service Worker handling for iOS
+                     if (isIOS) {
+                         // Store token in localStorage as fallback
+                         localStorage.setItem('auth_token', authToken);
+                         window.location.replace(redirectUrl);
+                         return;
+                     }
 
-                 // Store token and wait for confirmation
-                 await new Promise((resolve, reject) => {
-                     const messageChannel = new MessageChannel();
-                     
-                     // Set timeout for token storage
-                     const timeoutId = setTimeout(() => {
-                         reject(new Error('[AUTH.HTML]Token storage timeout'));
-                     }, 5000);
+                     const activeWorker = await initializeServiceWorker();
+                     console.log('[AUTH.HTML]Service Worker initialized');
 
-                     messageChannel.port1.onmessage = (event) => {
-                         clearTimeout(timeoutId);
-                         if (event.data.success) {
-                             resolve();
-                         } else {
-                             reject(new Error('[AUTH.HTML]Failed to store token'));
-                         }
-                     };
+                     await new Promise((resolve, reject) => {
+                         const messageChannel = new MessageChannel();
+                         const timeoutId = setTimeout(() => {
+                             reject(new Error('[AUTH.HTML]Token storage timeout'));
+                         }, 5000);
 
-                     activeWorker.postMessage({
-                         type: 'STORE_AUTH_TOKEN',
-                         token: authToken
-                     }, [messageChannel.port2]);
-                 });
+                         messageChannel.port1.onmessage = (event) => {
+                             clearTimeout(timeoutId);
+                             if (event.data.success) {
+                                 resolve();
+                             } else {
+                                 reject(new Error('[AUTH.HTML]Token storage failed'));
+                             }
+                         };
 
-                 // Only redirect after confirmed token storage
-                 console.log('[AUTH.HTML]Token stored successfully, redirecting to:', redirectUrl);
-                 window.location.replace(redirectUrl);
+                         activeWorker.postMessage({
+                             type: 'STORE_AUTH_TOKEN',
+                             token: authToken
+                         }, [messageChannel.port2]);
+                     });
+
+                     window.location.replace(redirectUrl);
+                 } catch (error) {
+                     console.error('[AUTH.HTML]Service Worker error:', error);
+                     // Fallback for iOS
+                     localStorage.setItem('auth_token', authToken);
+                     window.location.replace(redirectUrl);
+                 }
              }
          } catch (error) {
-             console.error('[AUTH.HTML]Error during login process:', error);
+             console.error('[AUTH.HTML]Login error:', error);
              alert('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
          }
      });
