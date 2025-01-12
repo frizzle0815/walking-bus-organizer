@@ -38,25 +38,43 @@ def calendar_view():
 @bp.route("/api/stations", methods=["GET"])
 @require_auth
 def get_stations():
-    today = get_current_date()
+    # Get target date from request params or use current date
+    target_date = None
+    if request.args.get('date'):
+        try:
+            target_date = datetime.strptime(request.args.get('date'), '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    
+    if not target_date:
+        target_date = get_current_date()
+
     walking_bus_id = get_current_walking_bus_id()
     if not walking_bus_id:
         return jsonify({"error": "No walking bus selected", "redirect": True}), 401
+
     stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
     result = []
     
+    # Batch load calendar entries for efficiency
+    calendar_entries = CalendarStatus.query.filter(
+        CalendarStatus.date == target_date,
+        CalendarStatus.walking_bus_id == walking_bus_id
+    ).all()
+    
+    # Create lookup dictionary for quick access
+    calendar_lookup = {entry.participant_id: entry for entry in calendar_entries}
+
     for station in stations:
-        # Order participants by position
         ordered_participants = sorted(station.participants, key=lambda p: p.position)
         participants = []
         
         for p in ordered_participants:
-            calendar_entry = CalendarStatus.query.filter_by(
-                participant_id=p.id,
-                date=today
-            ).first()
+            # Get calendar entry from lookup
+            calendar_entry = calendar_lookup.get(p.id)
             
-            today_status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[today.weekday()], True)
+            # Determine status for the target date
+            date_status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[target_date.weekday()], True)
             
             participants.append({
                 "id": p.id,
@@ -68,8 +86,9 @@ def get_stations():
                 "friday": p.friday,
                 "saturday": p.saturday,
                 "sunday": p.sunday,
-                "today_status": today_status,
-                "position": p.position
+                "today_status": date_status,
+                "position": p.position,
+                "target_date": target_date.isoformat()
             })
             
         result.append({
@@ -78,9 +97,8 @@ def get_stations():
             "position": station.position,
             "participants": participants
         })
+
     return jsonify(result)
-
-
 
 
 @bp.route("/api/stations", methods=["POST"])
@@ -353,6 +371,8 @@ def delete_participant(participant_id):
 @require_auth
 def toggle_participation(participant_id):
     walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    target_date = datetime.strptime(data['date'], '%Y-%m-%d').date() if data.get('date') else get_current_date()
     
     # Get participant with walking bus verification
     participant = Participant.query.filter_by(
@@ -368,29 +388,34 @@ def toggle_participation(participant_id):
     today = get_current_date()
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
-        date=today,
+        date=target_date,
         walking_bus_id=walking_bus_id
     ).first()
+
+    new_status = not (calendar_entry.status if calendar_entry else getattr(participant, WEEKDAY_MAPPING[target_date.weekday()], True))
     
     if calendar_entry:
-        calendar_entry.status = participant.status_today
+        calendar_entry.status = new_status
         calendar_entry.is_manual_override = True
     else:
         calendar_entry = CalendarStatus(
             participant_id=participant_id,
-            date=today,
-            status=participant.status_today,
+            date=target_date,
+            status=new_status,
             is_manual_override=True,
             walking_bus_id=walking_bus_id
         )
         db.session.add(calendar_entry)
+
+    if target_date == get_current_date():
+        participant.status_today = new_status
     
     db.session.commit()
     return jsonify({
-        "status_today": participant.status_today,
-        "participant_id": participant.id
+        "status_today": new_status,
+        "participant_id": participant.id,
+        "date": target_date.isoformat()
     })
-
 
 
 @bp.route("/api/participant/<int:participant_id>/weekday-status/<string:weekday>")
@@ -412,17 +437,24 @@ def get_participant_weekday_status(participant_id, weekday):
 @require_auth
 def initialize_daily_status():
     try:
-        # Get and check token expiration
+        # Get and validate date from request
+        data = request.get_json()
+        requested_date = None
+        if data and 'date' in data:
+            try:
+                requested_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+        # Token handling remains unchanged
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         payload = jwt.decode(token, options={"verify_signature": False})
         exp_timestamp = payload['exp']
         exp_date = datetime.fromtimestamp(exp_timestamp)
         remaining_days = (exp_date - datetime.utcnow()).days
-        
-        # Create new token if less than 30 days remaining, see auth.html
+
         new_token = None
         if remaining_days < 30:
-            # Verify old token before creating new one
             verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             new_token = jwt.encode({
                 **verified_payload,
@@ -432,37 +464,39 @@ def initialize_daily_status():
             app.logger.info("Created new token with extended expiration")
 
         walking_bus_id = get_current_walking_bus_id()
-        today = get_current_date()
+        target_date = requested_date if requested_date else get_current_date()
         current_time = get_current_time().time()
-        app.logger.info(f"Initializing daily status for {today} at {current_time}")
+        
+        app.logger.info(f"Initializing daily status for {target_date} at {current_time}")
 
-        # Update holiday cache first
+        # Holiday cache update remains unchanged
         holiday_service = HolidayService()
         holiday_service.update_holiday_cache()
 
-        # Delete all calendar entries from past dates for this walking bus
-        deleted_count = CalendarStatus.query.filter(
-            CalendarStatus.date < today,
-            CalendarStatus.walking_bus_id == walking_bus_id
-        ).delete()
-        app.logger.info(f"Deleted {deleted_count} past calendar entries")
-        db.session.commit()
+        # Only delete past entries when checking current date
+        if not requested_date:
+            deleted_count = CalendarStatus.query.filter(
+                CalendarStatus.date < target_date,
+                CalendarStatus.walking_bus_id == walking_bus_id
+            ).delete()
+            app.logger.info(f"Deleted {deleted_count} past calendar entries")
+            db.session.commit()
 
-        # Get the daily note for today for this walking bus
+        # Get daily note for target date
         daily_note = DailyNote.query.filter_by(
-            date=today,
+            date=target_date,
             walking_bus_id=walking_bus_id
         ).first()
 
         app.logger.info("Checking walking bus day status")
-        walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
+        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
-        # Check schedule end time if walking bus is active
-        if walking_bus_day:
+        # Only check schedule end time for current date
+        if walking_bus_day and not requested_date:
             schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
             if schedule:
-                weekday = today.weekday()
+                weekday = target_date.weekday()
                 end_time = getattr(schedule, f"{WEEKDAY_MAPPING[weekday]}_end")
                 
                 if end_time and current_time > end_time:
@@ -475,23 +509,57 @@ def initialize_daily_status():
 
         response = {
             "success": True,
-            "currentDate": today.isoformat(),
+            "currentDate": target_date.isoformat(),
             "isWalkingBusDay": walking_bus_day,
             "reason": display_reason,
             "reason_type": reason_type,
             "note": daily_note.note if daily_note else None
         }
 
-        # Add new token to response if created
         if new_token:
             response["new_auth_token"] = new_token
 
         app.logger.info(f"Returning response: {response}")
         return jsonify(response)
+        
     except Exception as e:
         app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/week-overview")
+@require_auth
+def get_week_overview():
+    walking_bus_id = get_current_walking_bus_id()
+    today = get_current_date()
+    week_start = today - timedelta(days=today.weekday())
+    
+    week_data = []
+    for i in range(14):
+        current_date = week_start + timedelta(days=i)
+        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
+        
+        # Get total confirmations for this day
+        total_confirmed = 0
+        if is_active:
+            calendar_entries = CalendarStatus.query.filter_by(
+                date=current_date,
+                walking_bus_id=walking_bus_id,
+                status=True
+            ).count()
+            total_confirmed = calendar_entries
+            
+        week_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'reason': reason,
+            'reason_type': reason_type,
+            'total_confirmed': total_confirmed,
+            'is_today': current_date == today
+        })
+    
+    return jsonify(week_data)
 
 
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
@@ -584,8 +652,6 @@ def get_schedule():
         }), 500
 
 
-
-
 @bp.route("/api/walking-bus-schedule", methods=["PUT"])
 @require_auth
 def update_schedule():
@@ -619,7 +685,6 @@ def update_schedule():
     
     db.session.commit()
     return jsonify({"success": True})
-
 
 
 @bp.route("/api/calendar-status", methods=["POST"])
@@ -824,7 +889,6 @@ def stream():
             while True:
                 with db.session.begin():
                     current_time = get_current_time()
-                    # Filter stations by walking bus
                     stations = Station.query.filter_by(
                         walking_bus_id=walking_bus_id
                     ).order_by(Station.position).all()

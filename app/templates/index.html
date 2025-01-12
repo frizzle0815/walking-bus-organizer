@@ -417,6 +417,54 @@
         border-bottom: none; /* Remove the border that separates header from content */
     }
 
+    .week-container.participants-list {
+        display: block !important; /* Override grid layout from compact view */
+        padding: 10px;
+    }
+
+    .week-container .week {
+        width: 100%;
+        justify-content: space-between;
+        margin: 0;
+    }
+
+    .week-container .calendar-day {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+
+    .week-container .day-today {
+        border: 2px solid #0d6efd;  /* Keep the highlight border */
+        transform: none;  /* Remove any transform that might affect size */
+        font-size: inherit;  /* Ensure consistent font size */
+    }
+
+    .week-container .selected-day {
+        border: 2px solid #0d6efd !important;
+        transform: scale(1.1);
+        transition: transform 0.2s;
+    }
+
+    .week-container .day-label {
+        font-size: 0.8em;
+        font-weight: bold;
+        color: #000000;
+        order: -1;
+    }
+
+    .week-container .day-number {
+        font-weight: bold;
+        color: #000000;
+        margin-top: -2px;
+        font-size: 1em;
+    }
+
 </style>
 
 <script>
@@ -469,7 +517,6 @@
         await initDB();
         
         // Initialize data and connections
-        await loadStations();
         initializeSSE();
         console.log('SSE initialization completed');
 
@@ -533,7 +580,7 @@
     }
 
 
-    async function loadStations() {
+    async function loadStations(previousStates = null, selectedDate = null) {
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
             return;
@@ -568,16 +615,16 @@
                 }
             }
 
-            // Load and validate live data
-            const dailyStatusResponse = await axios.post('/api/initialize-daily-status');
+            // Load and validate live data with selected date
+            const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
+                date: selectedDate || new Date().toISOString().split('T')[0]
+            });
             const dailyStatus = dailyStatusResponse?.data;
 
-            // More detailed validation
             if (!dailyStatus) {
                 throw new Error('No daily status data received');
             }
 
-            // Create a complete status object with defaults
             const validatedDailyStatus = {
                 currentDate: dailyStatus.currentDate || new Date().toISOString(),
                 isWalkingBusDay: Boolean(dailyStatus.isWalkingBusDay),
@@ -587,7 +634,10 @@
 
             isWalkingBusDay = validatedDailyStatus.isWalkingBusDay;
             
-            const stationsResponse = await axios.get('/api/stations');
+            // Get stations data for selected date
+            const stationsResponse = await axios.get('/api/stations', {
+                params: { date: selectedDate || new Date().toISOString().split('T')[0] }
+            });
             const stations = Array.isArray(stationsResponse?.data) ? stationsResponse.data : [];
             
             if (stations.length === 0) {
@@ -595,6 +645,9 @@
             }
 
             await renderStations(stations, isWalkingBusDay, dailyStatus);
+            
+            // Update week overview while maintaining selected date
+            await renderWeekOverview(selectedDate);
 
             // Cache validated data
             const transaction = db.transaction(['participantStates'], 'readwrite');
@@ -606,7 +659,8 @@
                         if (participant?.id) {
                             store.put({
                                 id: participant.id,
-                                today_status: Boolean(participant.today_status)
+                                today_status: Boolean(participant.today_status),
+                                date: selectedDate || new Date().toISOString().split('T')[0]
                             });
                         }
                     });
@@ -619,7 +673,8 @@
                 timestamp: 'latest',
                 stations: stations,
                 isWalkingBusDay: isWalkingBusDay,
-                dailyStatus: dailyStatus
+                dailyStatus: dailyStatus,
+                selectedDate: selectedDate
             });
 
             updateConnectionStatus('connected');
@@ -644,6 +699,11 @@
                             currentDate: cachedData.dailyStatus?.currentDate || new Date().toISOString()
                         }
                     );
+                    
+                    // Restore selected date in week overview
+                    if (cachedData.selectedDate) {
+                        await renderWeekOverview(cachedData.selectedDate);
+                    }
                 }
             } catch (dbError) {
                 console.error('Error accessing cached data:', dbError);
@@ -651,6 +711,57 @@
         }
     }
 
+
+    async function renderWeekOverview(selectedDate = null) {
+        const response = await axios.get('/api/week-overview');
+        const weekData = response.data;
+        
+        const weekOverview = document.createElement('div');
+        weekOverview.className = 'week d-flex justify-content-between';
+        weekOverview.innerHTML = weekData.map(day => `
+            <div class="calendar-day ${getWeekDayClass(day)} 
+                        ${day.date === selectedDate ? 'selected-day' : ''}"
+                 data-date="${day.date}"
+                 onclick="selectDay('${day.date}')">
+                <div class="day-number">${day.total_confirmed}</div>
+                <div class="day-label">${getDayLabel(day.date)}</div>
+            </div>
+        `).join('');
+        
+        const weekContainer = document.querySelector('.week-container');
+        if (weekContainer) {
+            weekContainer.innerHTML = '';
+            weekContainer.appendChild(weekOverview);
+        }
+    }
+
+    function getWeekDayClass(day) {
+        if (day.is_today) {
+            return 'day-today';
+        }
+        if (!day.is_active) {
+            return 'day-gray';
+        }
+        return day.total_confirmed > 0 ? 'day-green' : 'day-red';
+    }
+
+    function getDayLabel(dateStr) {
+        const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+        const date = new Date(dateStr);
+        return days[date.getDay()];
+    }
+
+    // Funktion zum Auswählen eines Tages
+    async function selectDay(dateStr) {
+        const allDays = document.querySelectorAll('.calendar-day');
+        allDays.forEach(day => day.classList.remove('selected-day'));
+        
+        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+        selectedDay.classList.add('selected-day');
+        
+        // Lade Stationen für das ausgewählte Datum
+        await loadStations(null, dateStr);
+    }
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus) {
@@ -680,6 +791,7 @@
         // Create and add summary card first
         const summaryCard = document.createElement('div');
         summaryCard.classList.add('station-card');
+        summaryCard.id = 'summary-card';
         
         // Calculate total stats
         const totalParticipants = stations.reduce((sum, station) => 
@@ -690,19 +802,23 @@
 
         // Create summary card content
         summaryCard.innerHTML = `
-           <div class="station-header summary-header">
-               <h5 class="d-flex justify-content-between align-items-center mb-0">
-                   <span>
-                       ${formatServerDate(serverDate)}
-                   </span>
-                   <span class="badge bg-light text-dark" id="stats-total">
-                       ${confirmedParticipants} / ${totalParticipants}
-                   </span>
-               </h5>
-           </div>
-       `;
+            <div class="station-header summary-header">
+                <h5 class="d-flex justify-content-between align-items-center mb-0">
+                    <span>
+                        ${formatServerDate(serverDate)}
+                    </span>
+                    <span class="badge bg-light text-dark" id="stats-total">
+                        ${confirmedParticipants} / ${totalParticipants}
+                    </span>
+                </h5>
+            </div>
+            <div class="week-container list-group list-group-flush participants-list">
+                <!-- Week overview will be inserted here -->
+            </div>
+        `;
         
         stationsContainer.appendChild(summaryCard);
+        await renderWeekOverview(serverDate.toISOString().split('T')[0]);
 
         for (const station of stations) {
             const stationDiv = document.createElement('div');
@@ -949,6 +1065,9 @@
 
     async function toggleParticipation(participantId, button) {
         if (isStatusUpdateInProgress) return;
+
+        // Get currently selected date from week overview
+        const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
         
         isStatusUpdateInProgress = true;
         const allStatusButtons = document.querySelectorAll('.status-button');
@@ -958,8 +1077,12 @@
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            const response = await axios.patch(`/api/participation/${participantId}`);
-            await loadStations();
+             const response = await axios.patch(`/api/participation/${participantId}`, {
+                date: selectedDate
+            });
+            
+            // Keep selected date when reloading stations
+            await loadStations(null, selectedDate);
             
             const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
             if (participantItem) {
@@ -987,10 +1110,6 @@
             allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
-
-
-
-
 
     async function openCalendar(participantId) {
         currentParticipantId = participantId;
@@ -1083,8 +1202,12 @@
     }
 
     async function renderCalendar(calendarData) {
+         // Get current selected date or use today's date
+        const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
         // Get daily status from server
-        const dailyStatusResponse = await axios.post('/api/initialize-daily-status');
+        const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
+            date: selectedDate
+        });
         const dailyStatus = dailyStatusResponse.data;
         
         if (!calendarData || !calendarData.length) {
@@ -1261,11 +1384,15 @@
                         document.getElementById('current-time').textContent = data.time;
                     }
 
+                    // Get currently selected date before update
+                    const selectedDate = document.querySelector('.selected-day')?.dataset.date;
+
                     // Get previous states before updating
                     const db = await dbPromise;
                     const previousStates = await getPreviousStates(db);
 
-                    await loadStations(previousStates);
+                    // Pass selected date to loadStations
+                    await loadStations(previousStates, selectedDate);
                     updateConnectionStatus('connected');
                     reconnectAttempts = 0;
                     isReconnecting = false;
