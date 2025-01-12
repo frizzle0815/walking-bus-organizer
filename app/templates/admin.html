@@ -548,7 +548,7 @@ input[type="time"]::-webkit-inner-spin-button {
                      await updateParticipant(participantId, { [day]: e.target.checked });
                      
                      // Update future entries
-                     await fetch('/api/update-future-entries', {
+                     await fetchWithAuth('/api/update-future-entries', {
                          method: 'PUT',
                          headers: { 'Content-Type': 'application/json' },
                          body: JSON.stringify({
@@ -566,7 +566,7 @@ input[type="time"]::-webkit-inner-spin-button {
      document.getElementById('addStationBtn').addEventListener('click', createNewStation);
 
      // Load schedule
-     const response = await fetch('/api/walking-bus-schedule');
+     const response = await fetchWithAuth('/api/walking-bus-schedule');
      const schedule = await response.json();
 
      // Set initial checkbox and time input states
@@ -650,7 +650,7 @@ input[type="time"]::-webkit-inner-spin-button {
              });
 
              try {
-                 await fetch('/api/walking-bus-schedule', {
+                 await fetchWithAuth('/api/walking-bus-schedule', {
                      method: 'PUT',
                      headers: { 'Content-Type': 'application/json' },
                      body: JSON.stringify(newSchedule)
@@ -702,7 +702,7 @@ input[type="time"]::-webkit-inner-spin-button {
              });
 
              try {
-                 await fetch('/api/walking-bus-schedule', {
+                 await fetchWithAuth('/api/walking-bus-schedule', {
                      method: 'PUT',
                      headers: { 'Content-Type': 'application/json' },
                      body: JSON.stringify(newSchedule)
@@ -744,7 +744,7 @@ input[type="time"]::-webkit-inner-spin-button {
 
      async function loadStations() {
          try {
-             const response = await fetch('/api/stations?include=participants');
+             const response = await fetchWithAuth('/api/stations?include=participants');
              const stations = await response.json();
              
              const fragment = document.createDocumentFragment();
@@ -804,10 +804,10 @@ input[type="time"]::-webkit-inner-spin-button {
 
 
 
-       // Fetch schedule once at startup
+       // fetchWithAuth schedule once at startup
        async function initializeSchedule() {
            try {
-               const response = await fetch('/api/walking-bus-schedule');
+               const response = await fetchWithAuth('/api/walking-bus-schedule');
                const schedule = await response.json();
                globalSchedule = schedule;
                
@@ -871,7 +871,7 @@ input[type="time"]::-webkit-inner-spin-button {
                 position: 0 
             };
 
-            fetch('/api/stations', {
+            fetchWithAuth('/api/stations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newStation)
@@ -893,7 +893,7 @@ input[type="time"]::-webkit-inner-spin-button {
 
 
         function updateStation(stationId, data) {
-            fetch(`/api/stations/${stationId}`, {
+            fetchWithAuth(`/api/stations/${stationId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
@@ -901,14 +901,14 @@ input[type="time"]::-webkit-inner-spin-button {
         }
 
         function deleteStation(stationId, element) {
-            fetch(`/api/stations/${stationId}`, {
+            fetchWithAuth(`/api/stations/${stationId}`, {
                 method: 'DELETE'
             }).then(() => element.remove());
         }
 
         function createNewParticipant(stationId, stationElement) {
             // First get the current schedule
-            fetch('/api/walking-bus-schedule')
+            fetchWithAuth('/api/walking-bus-schedule')
                 .then(r => r.json())
                 .then(schedule => {
                     const newParticipant = {
@@ -924,7 +924,7 @@ input[type="time"]::-webkit-inner-spin-button {
                         sunday: schedule.sunday
                     };
 
-                    fetch('/api/participants', {
+                    fetchWithAuth('/api/participants', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(newParticipant)
@@ -955,7 +955,7 @@ input[type="time"]::-webkit-inner-spin-button {
             // If we still don't have a stationId, get it from the server
             if (!stationId) {
                 console.log('Updating participant without station context:', { participantId, data });
-                fetch(`/api/stations/${stationId}/participants/${participantId}`, {
+                fetchWithAuth(`/api/stations/${stationId}/participants/${participantId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -969,7 +969,7 @@ input[type="time"]::-webkit-inner-spin-button {
                 .catch(error => console.error('Update failed:', error));
             } else {
                 console.log('Updating participant:', { participantId, stationId, data });
-                fetch(`/api/stations/${stationId}/participants/${participantId}`, {
+                fetchWithAuth(`/api/stations/${stationId}/participants/${participantId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -993,7 +993,7 @@ input[type="time"]::-webkit-inner-spin-button {
 
             console.log('Deleting participant:', participantId);
 
-            fetch(`/api/participants/${participantId}`, {
+            fetchWithAuth(`/api/participants/${participantId}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1027,7 +1027,7 @@ input[type="time"]::-webkit-inner-spin-button {
 
             console.log('Sending station order update:', stations);
 
-            fetch('/api/stations/order', {
+            fetchWithAuth('/api/stations/order', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(stations)
@@ -1062,7 +1062,7 @@ input[type="time"]::-webkit-inner-spin-button {
 
             // Send all position updates to server
             updates.forEach(update => {
-                fetch(`/api/stations/${update.stationId}/participants/${update.participantId}`, {
+                fetchWithAuth(`/api/stations/${update.stationId}/participants/${update.participantId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

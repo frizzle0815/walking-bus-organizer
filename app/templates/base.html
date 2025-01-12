@@ -11,6 +11,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
@@ -54,6 +55,16 @@
                       <i class="fas fa-download me-2"></i>Als App installieren
                   </a>
               </li>
+              <!-- Logout -->
+              <li class="nav-item">
+                  <hr class="nav-divider">
+              </li>
+              <li class="nav-item">
+                  <a class="nav-link" href="/logout">
+                      <i class="bi bi-box-arrow-right me-2"></i>Abmelden
+                  </a>
+              </li>
+              <!-- Layout options -->
               <li class="nav-item">
                <hr class="nav-divider">
               </li>
@@ -303,134 +314,165 @@
 
 
   </style>
-  <script>
-      let deferredPrompt;
+{% include 'auth.html' %}
+<script>
+let authInitialized = false;
 
-      window.addEventListener('beforeinstallprompt', (e) => {
-          // Prevent Chrome 67 and earlier from automatically showing the prompt
-          e.preventDefault();
-          // Stash the event so it can be triggered later
-          deferredPrompt = e;
-          // Show the install button
-          document.getElementById('install-app-item').style.display = 'block';
-      });
+ // Service Worker registration
+ async function registerServiceWorker() {
+     if ('serviceWorker' in navigator) {
+         try {
+             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+             return registration;
+         } catch (err) {
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed: ', err);
+         }
+     }
+     return null;
+ }
 
-      document.getElementById('install-app').addEventListener('click', async () => {
-          if (!deferredPrompt) return;
-          
-          // Show the install prompt
-          deferredPrompt.prompt();
-          
-          // Wait for the user to respond to the prompt
-          const { outcome } = await deferredPrompt.userChoice;
-          console.log(`User response to the install prompt: ${outcome}`);
-          
-          // Clear the deferredPrompt variable
-          deferredPrompt = null;
-          
-          // Hide the install button
-          document.getElementById('install-app-item').style.display = 'none';
-      });
+async function ensurePersistentStorage() {
+    console.log('[BASE.HTML][STORAGE] Requesting persistent storage');
+    if (navigator.storage && navigator.storage.persist) {
+        const isPersisted = await navigator.storage.persist();
+        console.log('[BASE.HTML][STORAGE] Persistent storage granted:', isPersisted);
+        return isPersisted;
+    }
+    return false;
+}
 
-      // Hide install prompt when app is installed
-      window.addEventListener('appinstalled', () => {
-          document.getElementById('install-app-item').style.display = 'none';
-          console.log('PWA was installed');
-      });
+ // Storage permission request
+ async function requestStoragePermission() {
+     if (navigator.storage && navigator.storage.persist) {
+         const isPersisted = await navigator.storage.persist();
+         console.log(`Persistent storage granted: ${isPersisted}`);
+     }
+ }
 
-      if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/static/service-worker.js')
-                  .then(registration => {
-                      console.log('ServiceWorker registration successful');
-                  })
-                  .catch(err => {
-                      console.log('ServiceWorker registration failed: ', err);
-                  });
-          });
-      }
-  
-      // Create EventSource for server updates
-      const eventSource = new EventSource('/stream');
-      
-      eventSource.onmessage = function(event) {
-          const data = JSON.parse(event.data);
-          // Update time display
-          if (data.time) {
-              document.getElementById('current-time').textContent = data.time;
-          }
-          // Handle other station data as needed
-      };
-  
-      eventSource.onerror = function(error) {
-          console.error('EventSource failed:', error);
-          eventSource.close();
-      };
 
-      // Add to your existing script section
-      document.addEventListener('DOMContentLoaded', () => {
-          const darkModeToggle = document.getElementById('darkModeToggle');
-          const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-          const navbar = document.querySelector('.navbar-collapse');
-          
-          // Size control visibility logic
-          const sizeControlContainer = document.getElementById('size-control-container');
-          const currentPath = window.location.pathname;
-          
-          // Show size control only on index.html
-          if (currentPath === '/') {
-              sizeControlContainer.style.display = 'block';
-          } else {
-              sizeControlContainer.style.display = 'none';
-          }
+ // PWA installation handling
+ let deferredPrompt;
 
-          document.addEventListener('click', (event) => {
-              // Check if navbar is expanded and click is outside navbar
-              if (navbar.classList.contains('show') && 
-                  !navbar.contains(event.target) && 
-                  !event.target.classList.contains('navbar-toggler')) {
-                  // Get the Bootstrap navbar toggler and click it
-                  document.querySelector('.navbar-toggler').click();
-              }
-          });
+ window.addEventListener('beforeinstallprompt', (e) => {
+     e.preventDefault();
+     deferredPrompt = e;
+     const installAppItem = document.getElementById('install-app-item');
+     if (installAppItem) {
+         installAppItem.style.display = 'block';
+     }
+ });
 
-          // Initialize dark mode based on system preference or stored setting
-          const storedTheme = localStorage.getItem('theme');
-          if (storedTheme) {
-              document.documentElement.setAttribute('data-theme', storedTheme);
-              updateDarkModeIcon(storedTheme === 'dark');
-          } else if (prefersDarkScheme.matches) {
-              document.documentElement.setAttribute('data-theme', 'dark');
-              updateDarkModeIcon(true);
-          }
-          
-          // Handle button clicks
-          darkModeToggle.addEventListener('click', () => {
-              const currentTheme = document.documentElement.getAttribute('data-theme');
-              const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-              
-              document.documentElement.setAttribute('data-theme', newTheme);
-              localStorage.setItem('theme', newTheme);
-              updateDarkModeIcon(newTheme === 'dark');
-          });
-          
-          // Listen for system theme changes
-          prefersDarkScheme.addEventListener('change', (e) => {
-              if (!localStorage.getItem('theme')) {
-                  const newTheme = e.matches ? 'dark' : 'light';
-                  document.documentElement.setAttribute('data-theme', newTheme);
-                  updateDarkModeIcon(e.matches);
-              }
-          });
-          
-          function updateDarkModeIcon(isDark) {
-              const icon = darkModeToggle.querySelector('i');
-              icon.classList.remove('fa-sun', 'fa-moon');
-              icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
-          }
-      });
+ const installApp = document.getElementById('install-app');
+ if (installApp) {
+     installApp.addEventListener('click', async () => {
+         if (!deferredPrompt) return;
+         deferredPrompt.prompt();
+         const { outcome } = await deferredPrompt.userChoice;
+         console.log(`User response to the install prompt: ${outcome}`);
+         deferredPrompt = null;
+         const installAppItem = document.getElementById('install-app-item');
+         if (installAppItem) {
+             installAppItem.style.display = 'none';
+         }
+     });
+ }
 
-  </script>
+ // Main initialization
+ document.addEventListener('DOMContentLoaded', async () => {
+     console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
+     console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+
+     // Register service worker
+     await registerServiceWorker();
+
+     // Initialize login functionality
+     loginUser();
+
+     // Initialize event source for real-time updates
+     initializeEventSource();
+
+     // UI Components initialization
+     const darkModeToggle = document.getElementById('darkModeToggle');
+     const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+     const navbar = document.querySelector('.navbar-collapse');
+     
+     // Size control visibility
+     const sizeControlContainer = document.getElementById('size-control-container');
+     if (sizeControlContainer && window.location.pathname === '/') {
+         sizeControlContainer.style.display = 'block';
+     }
+
+     // Navbar click handling
+     if (navbar) {
+         document.addEventListener('click', (event) => {
+             if (navbar.classList.contains('show') && 
+                 !navbar.contains(event.target) && 
+                 !event.target.classList.contains('navbar-toggler')) {
+                 document.querySelector('.navbar-toggler').click();
+             }
+         });
+     }
+
+     // Dark mode initialization and handlers
+     if (darkModeToggle) {
+         const storedTheme = localStorage.getItem('theme');
+         if (storedTheme) {
+             document.documentElement.setAttribute('data-theme', storedTheme);
+             updateDarkModeIcon(storedTheme === 'dark');
+         } else if (prefersDarkScheme.matches) {
+             document.documentElement.setAttribute('data-theme', 'dark');
+             updateDarkModeIcon(true);
+         }
+         
+         darkModeToggle.addEventListener('click', () => {
+             const currentTheme = document.documentElement.getAttribute('data-theme');
+             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+             document.documentElement.setAttribute('data-theme', newTheme);
+             localStorage.setItem('theme', newTheme);
+             updateDarkModeIcon(newTheme === 'dark');
+         });
+
+         prefersDarkScheme.addEventListener('change', (e) => {
+             if (!localStorage.getItem('theme')) {
+                 const newTheme = e.matches ? 'dark' : 'light';
+                 document.documentElement.setAttribute('data-theme', newTheme);
+                 updateDarkModeIcon(e.matches);
+             }
+         });
+     }
+ });
+
+
+ // Server-sent events
+ function initializeEventSource() {
+     if (window.location.pathname !== '/login') {
+         const eventSource = new EventSource('/stream');
+         
+         eventSource.onmessage = function(event) {
+             const data = JSON.parse(event.data);
+             if (data.time) {
+                 document.getElementById('current-time').textContent = data.time;
+             }
+         };
+
+         eventSource.onerror = function(error) {
+             console.error('EventSource failed:', error);
+             eventSource.close();
+         };
+
+         // Store EventSource in window object for global access
+         window.eventSource = eventSource;
+     }
+ }
+
+ function updateDarkModeIcon(isDark) {
+     const icon = darkModeToggle.querySelector('i');
+     icon.classList.remove('fa-sun', 'fa-moon');
+     icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
+ }
+</script>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

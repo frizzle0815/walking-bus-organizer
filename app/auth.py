@@ -1,15 +1,15 @@
 from functools import wraps
-from flask import request, redirect, url_for
+from flask import request, jsonify
 from flask import current_app
 from datetime import datetime, timedelta
 from collections import defaultdict
+from hashlib import sha256
 from math import ceil
 import jwt
 import os
 
 # JWT Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
-APP_PASSWORD = os.getenv('APP_PASSWORD', None)
 
 # Brute Force Protection Configuration
 login_attempts = defaultdict(list)
@@ -30,7 +30,7 @@ def is_ip_allowed():
         newest_attempt = max(login_attempts[ip])
         lockout_end = newest_attempt + LOCKOUT_TIME
         
-        current_app.logger.warning(
+        current_app.logger.info(
             f"IP {ip} locked out due to too many attempts. "
             f"Next attempt allowed after: {lockout_end.strftime('%H:%M:%S')}"
         )
@@ -47,7 +47,7 @@ def record_attempt():
         login_attempts[ip].append(datetime.now())
         
         # Log the failed attempt
-        current_app.logger.warning(
+        current_app.logger.info(
             f"Failed login attempt from IP: {ip}. "
             f"Total attempts: {len(login_attempts[ip])}"
         )
@@ -68,22 +68,54 @@ def get_remaining_lockout_time(ip):
     return 0
 
 
+def get_consistent_hash(text):
+    """
+    Creates a consistent SHA-256 hash for the given text
+    Returns a hex string representation of the hash
+    """
+    return sha256(str(text).encode()).hexdigest()
+
+
 def require_auth(f):
     @wraps(f)
-    def decorated(*args, **kwargs):
-        if APP_PASSWORD is None:
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        
+        if not token:
+            current_app.logger.info(f"[AUTH.PY][AUTH] No token in request headers")
+            return jsonify({"error": "No token provided", "redirect": True}), 401
+        
+        try:
+            # Decode and verify token
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            
+            # Verify walking bus ID from environment
+            walking_bus_id = payload.get('walking_bus_id')
+            buses_env = os.environ.get('WALKING_BUSES', '').strip()
+            
+            if buses_env:
+                bus_configs = dict(
+                    (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
+                    for b in buses_env.split(',')
+                    if len(b.split(':')) == 3
+                )
+                
+                if walking_bus_id not in bus_configs:
+                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid bus ID: {walking_bus_id}")
+                    return jsonify({"error": "Invalid bus ID", "redirect": True}), 401
+                    
+                if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
+                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid password hash")
+                    return jsonify({"error": "Invalid credentials", "redirect": True}), 401
+            
             return f(*args, **kwargs)
             
-        token = request.cookies.get('auth_token')
-        if not token:
-            return redirect(url_for('main.login'))
-        try:
-            jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            return f(*args, **kwargs)
-        except jwt.InvalidTokenError:
-            # Handles all JWT-specific exceptions
-            return redirect(url_for('main.login'))
         except jwt.ExpiredSignatureError:
-            # Optional: handle expired tokens specifically
-            return redirect(url_for('main.login'))
-    return decorated
+            current_app.logger.info(f"[AUTH.PY][AUTH] Token expired")
+            return jsonify({"error": "Token expired", "redirect": True}), 401
+        except jwt.InvalidTokenError:
+            current_app.logger.info(f"[AUTH.PY][AUTH] Invalid token")
+            return jsonify({"error": "Invalid token", "redirect": True}), 401
+    
+    return decorated_function
+

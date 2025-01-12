@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()
+
 # Gunicorn configuration
 worker_class = 'gevent'
 workers = 4

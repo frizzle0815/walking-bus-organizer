@@ -2,10 +2,12 @@ import os
 from app import create_app, db
 from flask_migrate import upgrade, init
 from sqlalchemy import text
+from app.init_buses import init_walking_buses
 
 app = create_app()
 app.app_context().push()
 
+# This migrate script is for productive gunicorn enviroment !
 
 def check_alembic_version():
     """Check if alembic_version table exists and has data"""
@@ -36,3 +38,6 @@ else:
 # Apply any pending migrations
 print("Applying any pending migrations...")
 upgrade()
+
+print("Initializing walking buses...")
+init_walking_buses()

@@ -10,4 +10,4 @@ COPY . .
 ENV FLASK_APP=app
 ENV FLASK_ENV=production
 
-CMD python migrate.py && gunicorn --config gunicorn.conf.py "app:create_app()"
+CMD python migrate.py && gunicorn --preload --config gunicorn.conf.py "app:create_app()"

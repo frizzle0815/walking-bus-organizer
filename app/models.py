@@ -2,7 +2,21 @@ from . import db
 from datetime import time
 
 
+class WalkingBus(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    password = db.Column(db.String(100), nullable=False)
+
+    # Relationships
+    stations = db.relationship('Station', backref='walking_bus', lazy=True)
+    participants = db.relationship('Participant', backref='walking_bus', lazy=True)
+    schedule = db.relationship('WalkingBusSchedule', backref='walking_bus', lazy=True, uselist=False)
+    overrides = db.relationship('WalkingBusOverride', backref='walking_bus', lazy=True)
+    daily_notes = db.relationship('DailyNote', backref='walking_bus', lazy=True)
+
+
 class Station(db.Model):
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     position = db.Column(db.Integer, nullable=False, default=0)  # Reihenfolge
@@ -10,6 +24,7 @@ class Station(db.Model):
 
 
 class Participant(db.Model):
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     position = db.Column(db.Integer, nullable=False, default=0)  # Reihenfolge innerhalb der Station
@@ -26,6 +41,7 @@ class Participant(db.Model):
 
 
 class CalendarStatus(db.Model):
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     id = db.Column(db.Integer, primary_key=True)
     participant_id = db.Column(db.Integer, db.ForeignKey('participant.id'), nullable=False)
     date = db.Column(db.Date, nullable=False)
@@ -36,6 +52,7 @@ class CalendarStatus(db.Model):
 
 
 class WalkingBusSchedule(db.Model):
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     id = db.Column(db.Integer, primary_key=True)
     
     # Default times as Python time objects
@@ -81,6 +98,7 @@ class SchoolHoliday(db.Model):
 
 
 class WalkingBusOverride(db.Model):
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     is_active = db.Column(db.Boolean, nullable=False)
@@ -88,6 +106,7 @@ class WalkingBusOverride(db.Model):
 
 
 class DailyNote(db.Model):
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     note = db.Column(db.String(200), nullable=False)
