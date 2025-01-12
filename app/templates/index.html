@@ -898,8 +898,8 @@
             button.innerHTML = '<i class="fas fa-times"></i>';
             button.disabled = true;
         } else {
-            button.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
-            button.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+            button.classList.add(participant.today_status ? 'btn-outline-success' : 'btn-outline-danger');
+            button.innerHTML = participant.today_status ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
             button.onclick = (e) => {
                 e.preventDefault();  // Prevent any default behavior
                 toggleParticipation(participant.id, button);
