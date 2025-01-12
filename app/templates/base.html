@@ -314,15 +314,29 @@
 
 
   </style>
+{% include 'auth.html' %}
 <script>
 let authInitialized = false;
-let serviceWorkerRegistered = false;
+
+ // Service Worker registration
+ async function registerServiceWorker() {
+     if ('serviceWorker' in navigator) {
+         try {
+             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+             return registration;
+         } catch (err) {
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed: ', err);
+         }
+     }
+     return null;
+ }
 
 async function ensurePersistentStorage() {
-    console.log('[STORAGE] Requesting persistent storage');
+    console.log('[BASE.HTML][STORAGE] Requesting persistent storage');
     if (navigator.storage && navigator.storage.persist) {
         const isPersisted = await navigator.storage.persist();
-        console.log('[STORAGE] Persistent storage granted:', isPersisted);
+        console.log('[BASE.HTML][STORAGE] Persistent storage granted:', isPersisted);
         return isPersisted;
     }
     return false;
@@ -336,38 +350,6 @@ async function ensurePersistentStorage() {
      }
  }
 
- // Authentication handling
- async function initAuth() {
-     if (authInitialized) {
-         return;
-     }
-     authInitialized = true;
-     
-     // Nur noch für initiale Service Worker Registration
-     if ('serviceWorker' in navigator) {
-         try {
-             await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[AUTH] Service Worker registered');
-         } catch (error) {
-             console.error('[AUTH] Service Worker registration failed:', error);
-         }
-     }
- }
-
-
-
- // Axios interceptor
- axios.interceptors.response.use(
-     response => response,
-     error => {
-         if (error.response && error.response.status === 401) {
-             if (error.response.data.redirect) {
-                 window.location.href = '/login';
-             }
-         }
-         return Promise.reject(error);
-     }
- );
 
  // PWA installation handling
  let deferredPrompt;
@@ -396,53 +378,16 @@ async function ensurePersistentStorage() {
      });
  }
 
- // Service Worker registration
- if ('serviceWorker' in navigator) {
-     window.addEventListener('load', () => {
-         navigator.serviceWorker.register('/static/service-worker.js')
-             .then(registration => {
-                 console.log('ServiceWorker registration successful');
-             })
-             .catch(err => {
-                 console.log('ServiceWorker registration failed: ', err);
-             });
-     });
- }
-
- // Server-sent events
- function initializeEventSource() {
-    if (window.location.pathname !== '/login') {
-        const eventSource = new EventSource('/stream');
-        
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if (data.time) {
-                document.getElementById('current-time').textContent = data.time;
-            }
-        };
-
-        eventSource.onerror = function(error) {
-            console.error('EventSource failed:', error);
-            eventSource.close();
-        };
-
-        // Store EventSource in window object for global access
-        window.eventSource = eventSource;
-    }
-}
-
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
-     // Initialize app and service worker
-     if ('serviceWorker' in navigator) {
-         try {
-             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[AUTO LOGIN] Service Worker registered');
-             await initAuth();
-         } catch (error) {
-             console.error('[AUTO LOGIN] Service Worker registration failed:', error);
-         }
-     }
+     console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
+     console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+
+     // Register service worker
+     await registerServiceWorker();
+
+     // Initialize login functionality
+     loginUser();
 
      // Initialize event source for real-time updates
      initializeEventSource();
@@ -497,6 +442,29 @@ async function ensurePersistentStorage() {
          });
      }
  });
+
+
+ // Server-sent events
+ function initializeEventSource() {
+     if (window.location.pathname !== '/login') {
+         const eventSource = new EventSource('/stream');
+         
+         eventSource.onmessage = function(event) {
+             const data = JSON.parse(event.data);
+             if (data.time) {
+                 document.getElementById('current-time').textContent = data.time;
+             }
+         };
+
+         eventSource.onerror = function(error) {
+             console.error('EventSource failed:', error);
+             eventSource.close();
+         };
+
+         // Store EventSource in window object for global access
+         window.eventSource = eventSource;
+     }
+ }
 
  function updateDarkModeIcon(isDark) {
      const icon = darkModeToggle.querySelector('i');

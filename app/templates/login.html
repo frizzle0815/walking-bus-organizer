@@ -3,6 +3,13 @@
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
+        <!-- Version info at the top -->
+        <div class="col-12 text-center mb-2">
+            <small class="text-muted">
+                Version: {{ git_revision.short }}
+            </small>
+        </div>
+
         <!-- Logo section above the card -->
         <div class="col-12 text-center mb-4">
             <img src="{{ url_for('static', filename='icons/icon-192x192.png') }}" 
@@ -61,24 +68,12 @@
                     <i class="bi bi-github me-2" style="font-size: 1.2rem;"></i>
                     <span>Dieses Projekt ist Open Source.</span>
                 </a>
+                <div class="small text-muted mt-1">
+                    Commit: <a href="https://github.com/frizzle0815/walking-bus-organizer/commit/{{ git_revision.full }}" 
+                           target="_blank">{{ git_revision.full }}</a>
+                </div>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
-
-{% block scripts %}
-<script>
- document.addEventListener('DOMContentLoaded', function() {
-     const loginForm = document.getElementById('loginForm');
-     if (loginForm) {
-         loginForm.addEventListener('submit', function(event) {
-             localStorage.removeItem('auth_token');
-             return true;
-         });
-     }
- });
-</script>
-{% endblock %}
-
-

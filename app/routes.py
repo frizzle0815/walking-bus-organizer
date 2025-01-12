@@ -1,17 +1,18 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, jsonify, request, Response, stream_with_context
-from flask import send_from_directory, make_response
+from flask import Blueprint, render_template, session, jsonify, request, Response, stream_with_context
+from flask import send_from_directory
 from flask import current_app as app
 from flask import redirect, url_for
 from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
+from app import get_git_revision
 import json
 import time
-from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time
+from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
+from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
 import jwt
 from os import environ
-from flask import session
 from .init_buses import init_walking_buses
 
 # Create Blueprint
@@ -19,19 +20,16 @@ bp = Blueprint("main", __name__)
 
 # Frontend Routes
 @bp.route('/')
-@require_auth
 def index():
     return render_template('index.html')
 
 
 @bp.route("/admin")
-@require_auth
 def admin():
     return render_template("admin.html")
 
 
 @bp.route("/calendar")
-@require_auth
 def calendar_view():
     return render_template("calendar.html")
 
@@ -409,12 +407,30 @@ def get_participant_weekday_status(participant_id, weekday):
     return jsonify({"status": status})
 
 
-
 # Schedule and Calendar Routes
 @bp.route("/api/initialize-daily-status", methods=["POST"])
 @require_auth
 def initialize_daily_status():
     try:
+        # Get and check token expiration
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp_timestamp = payload['exp']
+        exp_date = datetime.fromtimestamp(exp_timestamp)
+        remaining_days = (exp_date - datetime.utcnow()).days
+        
+        # Create new token if less than 30 days remaining
+        new_token = None
+        if remaining_days < 30:
+            # Verify old token before creating new one
+            verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            new_token = jwt.encode({
+                **verified_payload,
+                'exp': datetime.utcnow() + timedelta(days=60),
+                'iat': datetime.utcnow()
+            }, SECRET_KEY, algorithm="HS256")
+            app.logger.info("Created new token with extended expiration")
+
         walking_bus_id = get_current_walking_bus_id()
         today = get_current_date()
         current_time = get_current_time().time()
@@ -465,6 +481,11 @@ def initialize_daily_status():
             "reason_type": reason_type,
             "note": daily_note.note if daily_note else None
         }
+
+        # Add new token to response if created
+        if new_token:
+            response["new_auth_token"] = new_token
+
         app.logger.info(f"Returning response: {response}")
         return jsonify(response)
     except Exception as e:
@@ -793,7 +814,6 @@ def update_future_entries():
 
 
 @bp.route('/stream')
-@require_auth
 def stream():
     def event_stream():
         try:
@@ -1082,106 +1102,90 @@ def login():
     ip = request.remote_addr
     error_message = None
     is_multi_bus = init_walking_buses()
-    
+
     app.logger.debug(f"Login request from IP: {ip}")
     app.logger.debug(f"Multi-bus mode: {is_multi_bus}")
 
-    # Handle GET request
     if request.method == 'GET':
         configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
         buses = WalkingBus.query.filter(
             WalkingBus.id.in_(configured_bus_ids)
         ).order_by(WalkingBus.id).all() if is_multi_bus else None
-        return render_template('login.html', hide_menu=True, buses=buses, is_multi_bus=is_multi_bus)
-    
-    # Check IP lockout
+        return render_template('login.html', 
+                     hide_menu=True, 
+                     buses=buses, 
+                     is_multi_bus=is_multi_bus,
+                     git_revision=get_git_revision())
+
     if not is_ip_allowed():
         remaining_minutes = get_remaining_lockout_time(ip)
         if remaining_minutes > 0:
             error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
             app.logger.warning(f"IP {ip} is locked out for {remaining_minutes} more minutes")
             return render_template('login.html',
-                                error=error_message,
-                                hide_menu=True,
-                                buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                                is_multi_bus=is_multi_bus)
-    
-    # Handle POST request
+                                   error=error_message,
+                                   git_revision=get_git_revision(),
+                                   hide_menu=True,
+                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
+                                   is_multi_bus=is_multi_bus)
+
     password = request.form.get('password')
     selected_bus_id = request.form.get('walking_bus')
     app.logger.debug(f"POST request - Password received: {'*' * len(password) if password else 'None'}")
 
-    # Get bus based on mode
     if is_multi_bus:
         bus_id = selected_bus_id
         app.logger.debug(f"POST request - Selected bus ID: {bus_id}")
         if not bus_id:
             app.logger.error("No walking bus selected in multi-bus mode")
             return render_template('login.html',
-                                error="Bitte Walking Bus und Passwort eingeben",
-                                hide_menu=True,
-                                buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
-                                is_multi_bus=is_multi_bus)
+                                   error="Bitte Walking Bus und Passwort eingeben",
+                                   git_revision=get_git_revision(),
+                                   hide_menu=True,
+                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
+                                   is_multi_bus=is_multi_bus)
         bus = WalkingBus.query.get(bus_id)
     else:
         configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
         bus = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first()
-    
-    # Validate credentials and create session
+
     if bus and bus.password == password:
         app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
-        
-        # Set session data
+
+        password_hash = get_consistent_hash(bus.password)
+
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
-        session['bus_password_hash'] = hash(bus.password)
+        session['bus_password_hash'] = password_hash
         session.permanent = True
-        
-        # Create JWT token
+
         token = jwt.encode({
             'logged_in': True,
             'walking_bus_id': bus.id,
             'walking_bus_name': bus.name,
-            'bus_password_hash': hash(bus.password),
-            'exp': datetime.utcnow() + timedelta(days=365),
+            'bus_password_hash': password_hash,
+            'exp': datetime.utcnow() + timedelta(days=60),  # Set expiration to 60 days
             'iat': datetime.utcnow(),
             'type': 'pwa_auth'
         }, SECRET_KEY, algorithm="HS256")
-        
-        # Create response with transition page
-        response = make_response(render_template(
-            'auth_transition.html',
-            auth_token=token,
-            redirect_url=url_for('main.index')
-        ))
-        
-        # Set secure cookie
-        response.set_cookie(
-            'auth_token',
-            token,
-            max_age=31536000,
-            secure=True,
-            httponly=True,
-            samesite='Strict'
-        )
-        
-        # Add header for service worker
-        response.headers['X-Auth-Token'] = token
-        response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
-        
-        return response
-    
-    # Handle failed login
+
+        # Send token as JSON response
+        return jsonify({'auth_token': token, 'redirect_url': url_for('main.index')})
+
     record_attempt()
-    error_message = "Ungültiges Passwort"
+    remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
+    lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
+    error_message = f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig."
     app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
-    
+
     return render_template('login.html',
-                         error=error_message,
-                         hide_menu=True,
-                         selected_bus_id=selected_bus_id,
-                         buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                         is_multi_bus=is_multi_bus)
+                           error=error_message,
+                           git_revision=get_git_revision(),
+                           hide_menu=True,
+                           selected_bus_id=selected_bus_id,
+                           buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
+                           is_multi_bus=is_multi_bus)
+
 
 
 @bp.route("/logout")
@@ -1209,48 +1213,3 @@ def logout():
     })
     
     return response
-
-
-@bp.route("/validate-auth", methods=["POST"])
-def validate_auth():
-    try:
-        # Check both cookie and Authorization header
-        token = request.cookies.get('auth_token') or \
-                request.headers.get('Authorization', '').replace('Bearer ', '')
-        
-        if not token:
-            return jsonify({"valid": False, "error": "no_token"}), 401
-            
-        # Decode and verify token
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        
-        # Verify walking bus still exists and is valid
-        walking_bus_id = payload.get('walking_bus_id')
-        bus = WalkingBus.query.get(walking_bus_id)
-        
-        if not bus:
-            return jsonify({
-                "valid": False, 
-                "error": "invalid_bus",
-                "message": "Walking bus no longer exists in configuration"
-            }), 401
-            
-        # Check if password hash matches
-        if payload.get('bus_password_hash') != hash(bus.password):
-            return jsonify({
-                "valid": False, 
-                "error": "password_mismatch",
-                "message": "Password hash does not match current configuration"
-            }), 401
-            
-        return jsonify({
-            "valid": True,
-            "walking_bus_id": bus.id,
-            "walking_bus_name": bus.name
-        })
-        
-    except jwt.ExpiredSignatureError:
-        return jsonify({"valid": False, "error": "token_expired"}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({"valid": False, "error": "invalid_token"}), 401
-

@@ -1,15 +1,15 @@
 from functools import wraps
-from flask import request, redirect, url_for
+from flask import request, jsonify
 from flask import current_app
 from datetime import datetime, timedelta
 from collections import defaultdict
+from hashlib import sha256
 from math import ceil
 import jwt
 import os
 
 # JWT Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
-APP_PASSWORD = os.getenv('APP_PASSWORD', None)
 
 # Brute Force Protection Configuration
 login_attempts = defaultdict(list)
@@ -30,7 +30,7 @@ def is_ip_allowed():
         newest_attempt = max(login_attempts[ip])
         lockout_end = newest_attempt + LOCKOUT_TIME
         
-        current_app.logger.warning(
+        current_app.logger.info(
             f"IP {ip} locked out due to too many attempts. "
             f"Next attempt allowed after: {lockout_end.strftime('%H:%M:%S')}"
         )
@@ -47,7 +47,7 @@ def record_attempt():
         login_attempts[ip].append(datetime.now())
         
         # Log the failed attempt
-        current_app.logger.warning(
+        current_app.logger.info(
             f"Failed login attempt from IP: {ip}. "
             f"Total attempts: {len(login_attempts[ip])}"
         )
@@ -68,39 +68,54 @@ def get_remaining_lockout_time(ip):
     return 0
 
 
+def get_consistent_hash(text):
+    """
+    Creates a consistent SHA-256 hash for the given text
+    Returns a hex string representation of the hash
+    """
+    return sha256(str(text).encode()).hexdigest()
+
+
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        current_app.logger.info('[CENTRAL AUTH] Starting authentication check')
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
         
-        # Check cookies and headers first
-        token = request.cookies.get('auth_token') or \
-                request.headers.get('Authorization', '').replace('Bearer ', '')
-        
-        if token:
-            current_app.logger.info('[CENTRAL AUTH] Token found in cookies/headers')
-        
-        # If no token found, check service worker cache
         if not token:
-            current_app.logger.info('[CENTRAL AUTH] No token in cookies/headers, checking service worker cache')
-            cache = FileSystemCache('cache')
-            cached_token = cache.get('/static/auth-token')
-            if cached_token:
-                token = cached_token.get('token')
-                current_app.logger.info('[CENTRAL AUTH] Token found in service worker cache')
+            current_app.logger.info(f"[AUTH.PY][AUTH] No token in request headers")
+            return jsonify({"error": "No token provided", "redirect": True}), 401
         
-        # If still no token, redirect to login
-        if not token:
-            current_app.logger.info('[CENTRAL AUTH] No token found anywhere, redirecting to login')
-            return redirect(url_for('main.login'))
-            
         try:
-            decoded_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            current_app.logger.info('[CENTRAL AUTH] Token successfully validated')
-            return f(*args, **kwargs)
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-            current_app.logger.info('[CENTRAL AUTH] Token validation failed, redirecting to login')
-            return redirect(url_for('main.login'))
+            # Decode and verify token
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             
+            # Verify walking bus ID from environment
+            walking_bus_id = payload.get('walking_bus_id')
+            buses_env = os.environ.get('WALKING_BUSES', '').strip()
+            
+            if buses_env:
+                bus_configs = dict(
+                    (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
+                    for b in buses_env.split(',')
+                    if len(b.split(':')) == 3
+                )
+                
+                if walking_bus_id not in bus_configs:
+                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid bus ID: {walking_bus_id}")
+                    return jsonify({"error": "Invalid bus ID", "redirect": True}), 401
+                    
+                if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
+                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid password hash")
+                    return jsonify({"error": "Invalid credentials", "redirect": True}), 401
+            
+            return f(*args, **kwargs)
+            
+        except jwt.ExpiredSignatureError:
+            current_app.logger.info(f"[AUTH.PY][AUTH] Token expired")
+            return jsonify({"error": "Token expired", "redirect": True}), 401
+        except jwt.InvalidTokenError:
+            current_app.logger.info(f"[AUTH.PY][AUTH] Invalid token")
+            return jsonify({"error": "Invalid token", "redirect": True}), 401
+    
     return decorated_function
 
