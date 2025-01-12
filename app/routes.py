@@ -419,7 +419,7 @@ def initialize_daily_status():
         exp_date = datetime.fromtimestamp(exp_timestamp)
         remaining_days = (exp_date - datetime.utcnow()).days
         
-        # Create new token if less than 30 days remaining
+        # Create new token if less than 30 days remaining, see auth.html
         new_token = None
         if remaining_days < 30:
             # Verify old token before creating new one
