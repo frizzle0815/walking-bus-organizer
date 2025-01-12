@@ -38,45 +38,38 @@ def calendar_view():
 @bp.route("/api/stations", methods=["GET"])
 @require_auth
 def get_stations():
-    # Get target date from request params or use current date
-    target_date = None
-    if request.args.get('date'):
-        try:
-            target_date = datetime.strptime(request.args.get('date'), '%Y-%m-%d').date()
-        except ValueError:
-            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+    walking_bus_id = get_current_walking_bus_id()
+    selected_date = request.args.get('date')
     
-    if not target_date:
+    if selected_date:
+        target_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+    else:
         target_date = get_current_date()
 
-    walking_bus_id = get_current_walking_bus_id()
-    if not walking_bus_id:
-        return jsonify({"error": "No walking bus selected", "redirect": True}), 401
+    # Get unassigned participants
+    unassigned_participants = Participant.query.filter_by(
+        walking_bus_id=walking_bus_id,
+        station_id=None
+    ).order_by(Participant.position).all()
 
+    # Get regular stations
     stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
-    result = []
-    
-    # Batch load calendar entries for efficiency
-    calendar_entries = CalendarStatus.query.filter(
-        CalendarStatus.date == target_date,
-        CalendarStatus.walking_bus_id == walking_bus_id
-    ).all()
-    
-    # Create lookup dictionary for quick access
-    calendar_lookup = {entry.participant_id: entry for entry in calendar_entries}
 
-    for station in stations:
-        ordered_participants = sorted(station.participants, key=lambda p: p.position)
-        participants = []
-        
-        for p in ordered_participants:
-            # Get calendar entry from lookup
-            calendar_entry = calendar_lookup.get(p.id)
+    result = []
+
+    # Add unassigned section if there are orphaned participants
+    if unassigned_participants:
+        unassigned_data = []
+        for p in unassigned_participants:
+            calendar_entry = CalendarStatus.query.filter_by(
+                participant_id=p.id,
+                date=target_date,
+                walking_bus_id=walking_bus_id
+            ).first()
             
-            # Determine status for the target date
-            date_status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[target_date.weekday()], True)
+            status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[target_date.weekday()], True)
             
-            participants.append({
+            unassigned_data.append({
                 "id": p.id,
                 "name": p.name,
                 "monday": p.monday,
@@ -86,16 +79,48 @@ def get_stations():
                 "friday": p.friday,
                 "saturday": p.saturday,
                 "sunday": p.sunday,
-                "today_status": date_status,
                 "position": p.position,
-                "target_date": target_date.isoformat()
+                "status": status
+            })
+            
+        result.append({
+            "id": "unassigned",
+            "name": "Nicht zugeordnete Teilnehmer",
+            "position": -1,  # Always first
+            "participants": unassigned_data
+        })
+
+    # Add regular stations with date-specific status
+    for station in stations:
+        station_participants = []
+        for p in station.participants:
+            calendar_entry = CalendarStatus.query.filter_by(
+                participant_id=p.id,
+                date=target_date,
+                walking_bus_id=walking_bus_id
+            ).first()
+            
+            status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[target_date.weekday()], True)
+            
+            station_participants.append({
+                "id": p.id,
+                "name": p.name,
+                "monday": p.monday,
+                "tuesday": p.tuesday,
+                "wednesday": p.wednesday,
+                "thursday": p.thursday,
+                "friday": p.friday,
+                "saturday": p.saturday,
+                "sunday": p.sunday,
+                "position": p.position,
+                "status": status
             })
             
         result.append({
             "id": station.id,
             "name": station.name,
             "position": station.position,
-            "participants": participants
+            "participants": station_participants
         })
 
     return jsonify(result)
@@ -374,18 +399,11 @@ def toggle_participation(participant_id):
     data = request.get_json()
     target_date = datetime.strptime(data['date'], '%Y-%m-%d').date() if data.get('date') else get_current_date()
     
-    # Get participant with walking bus verification
     participant = Participant.query.filter_by(
         id=participant_id,
         walking_bus_id=walking_bus_id
     ).first_or_404()
     
-    participant.status_today = not participant.status_today
-    
-    # Add logging
-    app.logger.info(f"Teilnehmer {participant.name} (ID: {participant_id}) Status Heute geändert zu {participant.status_today}")
-    
-    today = get_current_date()
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
         date=target_date,
@@ -411,6 +429,7 @@ def toggle_participation(participant_id):
         participant.status_today = new_status
     
     db.session.commit()
+    
     return jsonify({
         "status_today": new_status,
         "participant_id": participant.id,
@@ -533,28 +552,24 @@ def initialize_daily_status():
 def get_week_overview():
     walking_bus_id = get_current_walking_bus_id()
     today = get_current_date()
-    week_start = today - timedelta(days=today.weekday())
     
     week_data = []
-    for i in range(14):
-        current_date = week_start + timedelta(days=i)
-        is_active, reason, reason_type = check_walking_bus_day(current_date, include_reason=True)
+    # Loop through next 7 days starting from today
+    for i in range(7):
+        current_date = today + timedelta(days=i)
+        is_active = check_walking_bus_day(current_date)
         
-        # Get total confirmations for this day
         total_confirmed = 0
         if is_active:
-            calendar_entries = CalendarStatus.query.filter_by(
-                date=current_date,
+            total_confirmed = CalendarStatus.query.filter_by(
                 walking_bus_id=walking_bus_id,
+                date=current_date,
                 status=True
             ).count()
-            total_confirmed = calendar_entries
-            
+        
         week_data.append({
             'date': current_date.isoformat(),
             'is_active': is_active,
-            'reason': reason,
-            'reason_type': reason_type,
             'total_confirmed': total_confirmed,
             'is_today': current_date == today
         })

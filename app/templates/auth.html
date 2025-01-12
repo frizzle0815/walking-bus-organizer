@@ -51,7 +51,7 @@
     };
 
     window.getAuthToken = async function() {
-        console.log('[AUTH.HTML] Attempting to retrieve auth token...');
+        // console.log('[AUTH.HTML] Attempting to retrieve auth token...');
         
         let token = null;
         
@@ -63,7 +63,7 @@
                 if (response) {
                     const data = await response.json();
                     token = data.token;
-                    console.log('[AUTH.HTML] Successfully retrieved auth token from cache');
+                    // console.log('[AUTH.HTML] Successfully retrieved auth token from cache');
                 }
             } catch (error) {
                 console.log('[AUTH.HTML] Cache access failed, trying localStorage');
@@ -74,7 +74,7 @@
         if (!token) {
             token = localStorage.getItem('auth_token');
             if (token) {
-                console.log('[AUTH.HTML] Successfully retrieved auth token from localStorage');
+                // console.log('[AUTH.HTML] Successfully retrieved auth token from localStorage');
             }
         }
         
@@ -91,14 +91,14 @@
         
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
-            console.log('[AUTH.HTML] Added auth token to request headers');
+            // console.log('[AUTH.HTML] Added auth token to request headers');
         } else {
-            console.log('[AUTH.HTML] No auth token available');
+            // console.log('[AUTH.HTML] No auth token available');
         }
         
         return config;
     }, (error) => {
-        console.error('[AUTH.HTML] Error in request interceptor:', error);
+        // console.error('[AUTH.HTML] Error in request interceptor:', error);
         return Promise.reject(error);
     });
 
@@ -108,11 +108,11 @@
         async response => {
             const newToken = response.data.new_auth_token;
             if (newToken) {
-                console.log('[AUTH.HTML] New auth token received, preparing to update');
+                // console.log('[AUTH.HTML] New auth token received, preparing to update');
                 
                 // Always update localStorage first as fallback
                 localStorage.setItem('auth_token', newToken);
-                console.log('[AUTH.HTML] Token updated in localStorage');
+                // console.log('[AUTH.HTML] Token updated in localStorage');
                 
                 // Try to update Service Worker cache if available
                 if ('serviceWorker' in navigator) {

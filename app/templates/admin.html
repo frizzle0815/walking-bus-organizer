@@ -665,33 +665,21 @@ input[type="time"]::-webkit-inner-spin-button {
 
      // Add event listeners to time inputs
      document.querySelectorAll('.time-input').forEach(timeInput => {
-         // Initial check
-         if (!timeInput.value) {
-             timeInput.classList.add('empty-time');
-         }
-         
-         // Check on input
-         timeInput.addEventListener('input', () => {
-             if (timeInput.value) {
-                 timeInput.classList.remove('empty-time');
-             } else {
-                 timeInput.classList.add('empty-time');
-             }
-         });
-
-         timeInput.addEventListener('change', async () => {
+         // Check on blur (when input loses focus) instead of onChange
+         timeInput.addEventListener('blur', async () => {
              const day = timeInput.dataset.day;
              const startTime = document.getElementById(`${day}-start`).value;
              const endTime = document.getElementById(`${day}-end`).value;
              
+             // Only validate if both times are completely entered
              if (startTime && endTime && startTime >= endTime) {
                  alert('Die Startzeit muss vor der Endzeit liegen.');
                  timeInput.value = timeInput.dataset.savedValue || '';
                  return;
              }
+
+             // Update schedule only after complete valid entry
              const newSchedule = {};
-             
-             // Collect all schedule data
              document.querySelectorAll('.schedule-day').forEach(cb => {
                  const day = cb.dataset.day;
                  newSchedule[day] = {
@@ -719,26 +707,36 @@ input[type="time"]::-webkit-inner-spin-button {
          const newStation = stationTemplate.cloneNode(true);
          newStation.classList.remove('d-none', 'station-template');
          newStation.dataset.stationId = station.id;
-         newStation.querySelector('.station-name').value = station.name;
+         
+         // Special handling for unassigned section
+         if (station.id === "unassigned") {
+             // Remove delete button and drag handle for unassigned section
+             const header = newStation.querySelector('.card-header');
+             header.querySelector('.delete-station').remove();
+             header.querySelector('.drag-handle').remove();
+             
+             // Make name field readonly
+             const nameField = header.querySelector('.station-name');
+             nameField.value = station.name;
+             nameField.readOnly = true;
+             
+             // Add special styling
+             newStation.classList.add('unassigned-section');
+         } else {
+             newStation.querySelector('.station-name').value = station.name;
+         }
 
          const participantsContainer = newStation.querySelector('.participants-container');
          
-         // Create and observe intersection
-         const observer = new IntersectionObserver(async (entries) => {
-             if (entries[0].isIntersecting) {
-                 if (station.participants) {
-                     const fragment = document.createDocumentFragment();
-                     for (const participant of station.participants) {
-                         const participantCard = await createParticipantCard(participant);
-                         fragment.appendChild(participantCard);
-                     }
-                     participantsContainer.appendChild(fragment);
-                 }
-                 observer.disconnect();
+         if (station.participants) {
+             const fragment = document.createDocumentFragment();
+             for (const participant of station.participants) {
+                 const participantCard = await createParticipantCard(participant);
+                 fragment.appendChild(participantCard);
              }
-         }, { threshold: 0.1 });
-         
-         observer.observe(newStation);
+             participantsContainer.appendChild(fragment);
+         }
+
          return newStation;
      }
 
@@ -758,6 +756,7 @@ input[type="time"]::-webkit-inner-spin-button {
              console.error('Failed to load stations:', error);
          }
      }
+
 
      async function createParticipantCard(participant) {
          const schedule = globalSchedule;  // This already contains the active state for each day
@@ -903,7 +902,12 @@ input[type="time"]::-webkit-inner-spin-button {
         function deleteStation(stationId, element) {
             fetchWithAuth(`/api/stations/${stationId}`, {
                 method: 'DELETE'
-            }).then(() => element.remove());
+            }).then(async () => {
+                element.remove();
+                
+                // Reload stations to show unassigned section if needed
+                await loadStations();
+            });
         }
 
         function createNewParticipant(stationId, stationElement) {

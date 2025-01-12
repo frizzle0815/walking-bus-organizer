@@ -446,7 +446,8 @@ async function ensurePersistentStorage() {
 
  // Server-sent events
  function initializeEventSource() {
-     if (window.location.pathname !== '/login') {
+     // Only initialize SSE on index page
+     if (window.location.pathname === '/') {
          const eventSource = new EventSource('/stream');
          
          eventSource.onmessage = function(event) {
