@@ -1083,7 +1083,11 @@
     }
 
     async function renderCalendar(calendarData) {
-         if (!calendarData || !calendarData.length) {
+        // Get daily status from server
+        const dailyStatusResponse = await axios.post('/api/initialize-daily-status');
+        const dailyStatus = dailyStatusResponse.data;
+        
+        if (!calendarData || !calendarData.length) {
             console.error('No calendar data available');
             return;
         }
@@ -1091,7 +1095,7 @@
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
 
-        // Add weekday header row first
+        // Create weekday header row
         const weekdayHeader = document.createElement('div');
         weekdayHeader.className = 'week';
         const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -1104,20 +1108,21 @@
         });
         calendar.appendChild(weekdayHeader);
 
-        // Get the current participant's element from the main view to ensure state consistency
+        // Get current participant's status
         const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
         const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
 
-        // Use the first date from calendar data as reference point
+        // Set up calendar grid starting point
         const firstDate = new Date(calendarData[0].date);
         const startOfWeek = new Date(firstDate);
         startOfWeek.setDate(firstDate.getDate() - firstDate.getDay() + 1);
 
-        // Generate calendar days with synchronized status
+        // Generate calendar weeks
         for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
             const weekDiv = document.createElement('div');
             weekDiv.className = 'week';
 
+            // Generate days within each week
             for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
                 const currentDate = new Date(startOfWeek);
                 currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
@@ -1127,23 +1132,29 @@
                 dayDiv.className = 'calendar-day';
                 dayDiv.textContent = currentDate.getDate();
 
-                // Find matching data for this date
+                // Combine server data with local date checks
                 const dayData = calendarData.find(d => d.date === dateStr) || {
                     date: dateStr,
                     status: false,
                     is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
-                    is_past: false,
-                    is_today: false
+                    is_past: currentDate < new Date(new Date().setHours(0,0,0,0)),
+                    is_today: dateStr === dailyStatus.currentDate
                 };
 
-                if (!dayData.is_schedule_day || dayData.is_past) {
+                // Determine day state using combined logic
+                const shouldDisableDay = 
+                    !dayData.is_schedule_day || 
+                    dayData.is_past || 
+                    (dayData.is_today && !dailyStatus.isWalkingBusDay);
+
+                if (shouldDisableDay) {
                     dayDiv.classList.add('day-gray');
                 } else {
                     dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
                     dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
                 }
 
-                // Use the server-provided is_today flag
+                // Mark today's date
                 if (dayData.is_today) {
                     dayDiv.classList.add('day-today');
                 }
@@ -1153,6 +1164,7 @@
             calendar.appendChild(weekDiv);
         }
     }
+
 
 
 
