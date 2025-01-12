@@ -554,18 +554,37 @@ def get_week_overview():
     today = get_current_date()
     
     week_data = []
-    # Loop through next 7 days starting from today
+    
     for i in range(7):
         current_date = today + timedelta(days=i)
         is_active = check_walking_bus_day(current_date)
         
-        total_confirmed = 0
         if is_active:
-            total_confirmed = CalendarStatus.query.filter_by(
+            weekday = WEEKDAY_MAPPING[current_date.weekday()]
+            
+            # Get only participants that are assigned to stations
+            participants = Participant.query.filter(
+                Participant.walking_bus_id == walking_bus_id,
+                Participant.station_id.isnot(None)  # This ensures we only get assigned participants
+            ).all()
+            
+            # Get all calendar entries for this date
+            calendar_entries = CalendarStatus.query.filter_by(
                 walking_bus_id=walking_bus_id,
-                date=current_date,
-                status=True
-            ).count()
+                date=current_date
+            ).all()
+            
+            calendar_lookup = {entry.participant_id: entry.status for entry in calendar_entries}
+            
+            total_confirmed = 0
+            for participant in participants:
+                if participant.id in calendar_lookup:
+                    if calendar_lookup[participant.id]:
+                        total_confirmed += 1
+                elif getattr(participant, weekday, True):
+                    total_confirmed += 1
+        else:
+            total_confirmed = 0
         
         week_data.append({
             'date': current_date.isoformat(),
