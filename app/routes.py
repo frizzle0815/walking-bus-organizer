@@ -1100,60 +1100,52 @@ def get_current_walking_bus_id():
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     ip = request.remote_addr
-    error_message = None
     is_multi_bus = init_walking_buses()
+    configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
+    buses = WalkingBus.query.filter(
+        WalkingBus.id.in_(configured_bus_ids)
+    ).order_by(WalkingBus.id).all() if is_multi_bus else None
 
-    app.logger.debug(f"Login request from IP: {ip}")
-    app.logger.debug(f"Multi-bus mode: {is_multi_bus}")
+    # Common data needed for both success and error responses
+    common_data = {
+        'git_revision': get_git_revision(),
+        'is_multi_bus': is_multi_bus,
+        'buses': [{'id': bus.id, 'name': bus.name} for bus in (buses or [])],
+        'selected_bus_id': None
+    }
 
     if request.method == 'GET':
-        configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
-        buses = WalkingBus.query.filter(
-            WalkingBus.id.in_(configured_bus_ids)
-        ).order_by(WalkingBus.id).all() if is_multi_bus else None
-        return render_template('login.html', 
-                     hide_menu=True, 
-                     buses=buses, 
-                     is_multi_bus=is_multi_bus,
-                     git_revision=get_git_revision())
+        return render_template('login.html',
+                     hide_menu=True,
+                     **common_data)
 
+    # Handle POST requests
     if not is_ip_allowed():
         remaining_minutes = get_remaining_lockout_time(ip)
         if remaining_minutes > 0:
-            error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
-            app.logger.warning(f"IP {ip} is locked out for {remaining_minutes} more minutes")
-            return render_template('login.html',
-                                   error=error_message,
-                                   git_revision=get_git_revision(),
-                                   hide_menu=True,
-                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                                   is_multi_bus=is_multi_bus)
+            return jsonify({
+                'success': False,
+                'error': f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten.",
+                **common_data
+            }), 401
 
     password = request.form.get('password')
     selected_bus_id = request.form.get('walking_bus')
-    app.logger.debug(f"POST request - Password received: {'*' * len(password) if password else 'None'}")
+    common_data['selected_bus_id'] = selected_bus_id
 
-    if is_multi_bus:
-        bus_id = selected_bus_id
-        app.logger.debug(f"POST request - Selected bus ID: {bus_id}")
-        if not bus_id:
-            app.logger.error("No walking bus selected in multi-bus mode")
-            return render_template('login.html',
-                                   error="Bitte Walking Bus und Passwort eingeben",
-                                   git_revision=get_git_revision(),
-                                   hide_menu=True,
-                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
-                                   is_multi_bus=is_multi_bus)
-        bus = WalkingBus.query.get(bus_id)
-    else:
-        configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
-        bus = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first()
+    if is_multi_bus and not selected_bus_id:
+        return jsonify({
+            'success': False,
+            'error': "Bitte Walking Bus und Passwort eingeben",
+            **common_data
+        }), 400
+
+    bus = (WalkingBus.query.get(selected_bus_id) if is_multi_bus 
+           else WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first())
 
     if bus and bus.password == password:
-        app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
-
+        # Success case - create token and session
         password_hash = get_consistent_hash(bus.password)
-
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
         session['bus_password_hash'] = password_hash
@@ -1164,27 +1156,27 @@ def login():
             'walking_bus_id': bus.id,
             'walking_bus_name': bus.name,
             'bus_password_hash': password_hash,
-            'exp': datetime.utcnow() + timedelta(days=60),  # Set expiration to 60 days
+            'exp': datetime.utcnow() + timedelta(days=60),
             'iat': datetime.utcnow(),
             'type': 'pwa_auth'
         }, SECRET_KEY, algorithm="HS256")
 
-        # Send token as JSON response
-        return jsonify({'auth_token': token, 'redirect_url': url_for('main.index')})
+        return jsonify({
+            'success': True,
+            'auth_token': token,
+            'redirect_url': url_for('main.index')
+        })
 
+    # Handle failed login
     record_attempt()
     remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
     lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
-    error_message = f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig."
-    app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
-
-    return render_template('login.html',
-                           error=error_message,
-                           git_revision=get_git_revision(),
-                           hide_menu=True,
-                           selected_bus_id=selected_bus_id,
-                           buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                           is_multi_bus=is_multi_bus)
+    
+    return jsonify({
+        'success': False,
+        'error': f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig.",
+        **common_data
+    }), 401
 
 
 

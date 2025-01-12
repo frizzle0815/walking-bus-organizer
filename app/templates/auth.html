@@ -203,17 +203,37 @@
                  }
              });
 
-             if (!response.ok) {
-                 console.error('[AUTH.HTML]Login failed:', response.status, response.statusText);
-                 const errorText = await response.text();
-                 console.error('[AUTH.HTML]Error details:', errorText);
-                 document.body.innerHTML = errorText;
-                 return;
-             }
-
              const data = await response.json();
              console.log('[AUTH.HTML]Response received:', data);
 
+             if (!data.success) {
+                 // Update form data if needed
+                 if (data.buses) {
+                     const select = form.querySelector('select[name="walking_bus"]');
+                     if (select) {
+                         select.innerHTML = data.buses.map(bus => 
+                             `<option value="${bus.id}" ${bus.id == data.selected_bus_id ? 'selected' : ''}>${bus.name}</option>`
+                         ).join('');
+                     }
+                 }
+
+                 // Display error message
+                 const errorDiv = document.querySelector('.alert-danger') || 
+                                document.createElement('div');
+                 errorDiv.className = 'alert alert-danger';
+                 errorDiv.textContent = data.error;
+                 
+                 // Insert error before the form
+                 const formContainer = form.parentNode;
+                 const existingError = formContainer.querySelector('.alert-danger');
+                 if (existingError) {
+                     formContainer.removeChild(existingError);
+                 }
+                 formContainer.insertBefore(errorDiv, form);
+                 return;
+             }
+
+             // Handle successful login
              const { auth_token: authToken, redirect_url: redirectUrl } = data;
 
              if (authToken) {
@@ -259,7 +279,12 @@
              }
          } catch (error) {
              console.error('[AUTH.HTML]Login error:', error);
-             alert('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+             // Show error in UI instead of alert
+             const errorDiv = document.querySelector('.alert-danger') || 
+                            document.createElement('div');
+             errorDiv.className = 'alert alert-danger';
+             errorDiv.textContent = 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.';
+             form.parentNode.insertBefore(errorDiv, form);
          }
      });
  }
