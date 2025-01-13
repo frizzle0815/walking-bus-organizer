@@ -35,7 +35,7 @@
     }
 
     .station-card:first-child {
-        margin-bottom: 24px; /* More space between summary and first station */
+        margin-bottom: 12px; /* More space between summary and first station */
     }
 
     .station-card:first-child .station-header {
@@ -502,31 +502,6 @@
 
 
     document.addEventListener('DOMContentLoaded', async () => {
-        // Create and insert alert container
-        const alertsContainer = document.createElement('div');
-        alertsContainer.id = 'alerts-container';
-        alertsContainer.innerHTML = `
-            <div id="connection-alert" class="alert alert-danger d-none" role="alert">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Die Verbindung zum Server wurde unterbrochen. Die angezeigten Daten sind möglicherweise nicht aktuell.
-            </div>
-            <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-info-circle me-2"></i>
-                    <span id="walkingbus-reason"></span>
-                </div>
-            </div>
-            <div id="note-alert" class="alert alert-warning d-none" role="alert">
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-sticky-note me-2"></i>
-                    <span id="walkingbus-note"></span>
-                </div>
-            </div>
-        `;
-
-        const stationsDiv = document.getElementById('stations');
-        stationsDiv.parentNode.insertBefore(alertsContainer, stationsDiv);
-
         // Initialize IndexedDB first
         await initDB();
         
@@ -558,7 +533,6 @@
             updateConnectionStatus('disconnected');
         });
     });
-
 
 
     // First, create a promise for database initialization
@@ -784,57 +758,26 @@
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
-       console.log('Before filtering:', stations);
-       stations = stations.filter(station => station.id !== "unassigned");
-       console.log('After filtering:', stations);
-        const walkingbusAlert = document.getElementById('walkingbus-alert');
-        const walkingbusReason = document.getElementById('walkingbus-reason');
-        const noteAlert = document.getElementById('note-alert');
-        const walkingbusNote = document.getElementById('walkingbus-note');
-
-            // If no selectedDate is provided, get it from the UI or use today's date
-        const effectiveDate = selectedDate || 
-                             document.querySelector('.selected-day')?.dataset.date || 
-                             new Date().toISOString().split('T')[0];
-
-        // Get status with reason from server
-        const serverDate = new Date(dailyStatus.currentDate);
-
-        // Show/hide alert and set reason
-        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-        if (!isWalkingBusDay && dailyStatus.reason) {
-            walkingbusReason.textContent = dailyStatus.reason;
-        }
-
-        // Show/hide note alert and set note
-        noteAlert.classList.toggle('d-none', !dailyStatus.note);
-        if (dailyStatus.note) {
-            walkingbusNote.textContent = dailyStatus.note;
-        }
-
+        // Filter unassigned stations first
         stations = stations.filter(station => station.id !== "unassigned");
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
-        // Create and add summary card first
+        // 1. Create and add summary card with week overview
         const summaryCard = document.createElement('div');
         summaryCard.classList.add('station-card');
         summaryCard.id = 'summary-card';
         
-        // Calculate total stats
         const totalParticipants = stations.reduce((sum, station) => 
             sum + station.participants.length, 0);
         const confirmedParticipants = isWalkingBusDay ? 
             stations.reduce((sum, station) => 
                 sum + station.participants.filter(p => p.today_status).length, 0) : 0;
 
-        // Create summary card content
         summaryCard.innerHTML = `
             <div class="station-header summary-header">
                 <h5 class="d-flex justify-content-between align-items-center mb-0">
-                    <span>
-                        ${formatServerDate(serverDate)}
-                    </span>
+                    <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
                     <span class="badge bg-light text-dark" id="stats-total">
                         ${confirmedParticipants} / ${totalParticipants}
                     </span>
@@ -846,10 +789,51 @@
         `;
         
         stationsContainer.appendChild(summaryCard);
-        await renderWeekOverview(effectiveDate);
+        await renderWeekOverview(selectedDate || 
+                               document.querySelector('.selected-day')?.dataset.date || 
+                               new Date().toISOString().split('T')[0]);
 
+        // 2. Create and add alerts container
+        const alertsContainer = document.createElement('div');
+        alertsContainer.id = 'alerts-container';
+        alertsContainer.innerHTML = `
+            <div id="connection-alert" class="alert alert-danger d-none" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Die Verbindung zum Server wurde unterbrochen. Die angezeigten Daten sind möglicherweise nicht aktuell.
+            </div>
+            <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <span id="walkingbus-reason"></span>
+                </div>
+            </div>
+            <div id="note-alert" class="alert alert-warning d-none" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-sticky-note me-2"></i>
+                    <span id="walkingbus-note"></span>
+                </div>
+            </div>
+        `;
+        stationsContainer.appendChild(alertsContainer);
+
+        // 3. Update alerts visibility and content
+        const walkingbusAlert = document.getElementById('walkingbus-alert');
+        const walkingbusReason = document.getElementById('walkingbus-reason');
+        const noteAlert = document.getElementById('note-alert');
+        const walkingbusNote = document.getElementById('walkingbus-note');
+
+        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+        if (!isWalkingBusDay && dailyStatus.reason) {
+            walkingbusReason.textContent = dailyStatus.reason;
+        }
+
+        noteAlert.classList.toggle('d-none', !dailyStatus.note);
+        if (dailyStatus.note) {
+            walkingbusNote.textContent = dailyStatus.note;
+        }
+
+        // 4. Render individual stations
         for (const station of stations) {
-            console.log('Station participants:', station.participants);
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
             stationDiv.innerHTML = createStationHeader(station, isWalkingBusDay);
@@ -859,7 +843,6 @@
             list.dataset.stationId = station.id;
 
             for (const participant of station.participants) {
-                console.log('Participant data:', participant);
                 const item = await createParticipantItem(participant, isWalkingBusDay);
                 const nameSpan = createNameSpan(participant, isWalkingBusDay);
                 const buttonContainer = document.createElement('div');
@@ -883,6 +866,7 @@
             stationsContainer.appendChild(stationDiv);
         }
     }
+
 
     function formatServerDate(date) {
         const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
