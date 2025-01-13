@@ -486,6 +486,7 @@
         font-size: 1.2em;
         color: #dc3545;
         z-index: 2;
+        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.2));
     }
 
     .week-container .calendar-day .note-icon {
@@ -495,6 +496,7 @@
         font-size: 1.2em;
         color: #ffc107;
         z-index: 2;
+        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.2));
     }
 
     .z-index-top {
@@ -894,7 +896,7 @@
                      data-date="${day.date}">
                     ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
                         '<i class="bi bi-exclamation-triangle-fill override-icon"></i>' : ''}
-                    ${day.has_note ? '<i class="bi bi-chat-text note-icon"></i>' : ''}
+                    ${day.has_note ? '<i class="bi bi-info-circle-fill note-icon"></i>' : ''}
                     <div class="day-number">${day.total_confirmed}</div>
                     <div class="day-label">${getDayLabel(day.date)}</div>
                 </div>
