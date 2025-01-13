@@ -954,22 +954,28 @@
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
+        // Check if time has passed
+        const isTimePassed = dailyStatus.reason_type === "TIME_PASSED";
+        // If time has passed, override the walking bus day status
+        const effectiveWalkingBusDay = isWalkingBusDay && !isTimePassed;
+
         stations = Array.isArray(stations) ? stations : [];
         stations = stations.filter(station => station.id !== "unassigned");
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
-        // 1. Summary Card (keeping your original implementation)
+        // 1. Summary Card
         const summaryCard = document.createElement('div');
         summaryCard.classList.add('station-card');
         summaryCard.id = 'summary-card';
         
         const totalParticipants = stations.reduce((sum, station) =>
             sum + station.participants.length, 0);
-        const confirmedParticipants = isWalkingBusDay ?
+        const confirmedParticipants = effectiveWalkingBusDay ?
             stations.reduce((sum, station) =>
                 sum + station.participants.filter(p => p.status).length, 0) : 0;
 
+        // Rest of summary card creation...
         summaryCard.innerHTML = `
             <div class="station-header summary-header">
                 <h5 class="d-flex justify-content-between align-items-center mb-0">
@@ -980,7 +986,6 @@
                 </h5>
             </div>
             <div class="week-container list-group list-group-flush participants-list">
-                <!-- Week overview will be inserted here -->
             </div>
         `;
         
@@ -989,31 +994,29 @@
                                document.querySelector('.selected-day')?.dataset.date || 
                                new Date().toISOString().split('T')[0]);
 
-        // 2. Alerts Container (keeping your original implementation)
-        const alertsContainer = createAlertsContainer(isWalkingBusDay, dailyStatus);
+        // 2. & 3. Alerts Container and Updates
+        const alertsContainer = createAlertsContainer(effectiveWalkingBusDay, dailyStatus);
         stationsContainer.appendChild(alertsContainer);
+        updateAlerts(effectiveWalkingBusDay, dailyStatus);
 
-        // 3. Update alerts visibility and content
-        updateAlerts(isWalkingBusDay, dailyStatus);
-
-        // 4. Render individual stations (keeping your original implementation)
+        // 4. Render individual stations
         for (const station of stations) {
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
             stationDiv.dataset.stationId = station.id;
-            stationDiv.innerHTML = createStationHeader(station, isWalkingBusDay);
+            stationDiv.innerHTML = createStationHeader(station, effectiveWalkingBusDay);
 
             const list = document.createElement('ul');
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
             for (const participant of station.participants) {
-                const item = await createParticipantItem(participant, isWalkingBusDay);
-                const nameSpan = createNameSpan(participant, isWalkingBusDay);
+                const item = await createParticipantItem(participant, effectiveWalkingBusDay);
+                const nameSpan = createNameSpan(participant, effectiveWalkingBusDay);
                 const buttonContainer = document.createElement('div');
                 buttonContainer.classList.add('d-flex', 'align-items-center');
 
-                const statusButton = createStatusButton(participant, isWalkingBusDay);
+                const statusButton = createStatusButton(participant, effectiveWalkingBusDay);
                 const calendarButton = document.createElement('button');
                 calendarButton.classList.add('calendar-btn');
                 calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
@@ -1031,6 +1034,7 @@
             stationsContainer.appendChild(stationDiv);
         }
     }
+
 
     function createAlertsContainer(isWalkingBusDay, dailyStatus) {
         const alertsContainer = document.createElement('div');

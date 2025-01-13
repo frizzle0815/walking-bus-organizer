@@ -742,7 +742,8 @@ input[type="time"]::-webkit-inner-spin-button {
 
      async function loadStations() {
          try {
-             const response = await fetchWithAuth('/api/stations?include=participants');
+             // Add admin=1 parameter to get full participant data including schedule
+             const response = await fetchWithAuth('/api/stations?admin=1&include=participants');
              const stations = await response.json();
              
              const fragment = document.createDocumentFragment();
@@ -759,7 +760,7 @@ input[type="time"]::-webkit-inner-spin-button {
 
 
      async function createParticipantCard(participant) {
-         const schedule = globalSchedule;  // This already contains the active state for each day
+         const schedule = globalSchedule;
          const newParticipant = participantTemplate.cloneNode(true);
          newParticipant.classList.remove('d-none', 'participant-template');
          
@@ -784,14 +785,16 @@ input[type="time"]::-webkit-inner-spin-button {
          days.forEach(({ key, label }) => {
              const dayCheck = document.createElement('div');
              dayCheck.className = 'form-check';
-             // Check if the day is active in the schedule
-             const isEnabled = schedule[key].active;  // Changed this line to access .active property
+             // Check schedule enabled state
+             const isEnabled = schedule[key] && schedule[key].active;
+             // Check participant's actual schedule for this day
+             const isScheduled = participant[key];
 
              dayCheck.innerHTML = `
                  <input type="checkbox" class="form-check-input ${key}" 
                         id="${key}-${participant.id}" 
                         ${isEnabled ? '' : 'disabled'}
-                        ${participant[key] ? 'checked' : ''}>
+                        ${isScheduled ? 'checked' : ''}>
                  <label class="form-check-label ${isEnabled ? '' : 'text-muted'}" 
                         for="${key}-${participant.id}">${label}</label>
              `;
