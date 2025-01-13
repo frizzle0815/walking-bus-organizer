@@ -539,15 +539,40 @@ def initialize_daily_status():
         walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
-        # Check if walking bus time has passed
-        if walking_bus_day and not requested_date and schedule_data:
-            if schedule_data["end"] and current_time > schedule_data["end"]:
-                walking_bus_day = False
-                reason = "Der Walking Bus hat heute bereits stattgefunden."
-                reason_type = "TIME_PASSED"
-                app.logger.info(f"Walking bus time passed. End time was {schedule_data['end']}")
+        # Initialize time_passed before any checks
+        time_passed = False
 
-        if reason_type == "HOLIDAY" and isinstance(reason, dict):
+        # Get today's date for comparison
+        today = get_current_date()
+
+        # Check walking bus status
+        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
+        app.logger.info(f"Walking bus day status: {walking_bus_day}")
+
+        # Then modify the time check to only apply for current day
+        if walking_bus_day and schedule_data and schedule_data["end"]:
+            end_time = datetime.strptime(schedule_data["end"], "%H:%M").time()
+            app.logger.info(f"Target date: {target_date}, Today: {today}")
+            app.logger.info(f"Parsed end_time: {end_time}")
+            
+            # Ensure target_date is a date object for comparison
+            if isinstance(target_date, str):
+                target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+            
+            # Only check time if we're looking at today
+            if target_date == today:
+                app.logger.info(f"Checking time for today: {current_time} > {end_time}")
+                if current_time > end_time:
+                    app.logger.info("Time check conditions met - updating status")
+                    walking_bus_day = False
+                    reason = "Der Walking Bus hat heute bereits stattgefunden."
+                    reason_type = "TIME_PASSED"
+                    time_passed = True
+
+        # Now handle reason formatting
+        if time_passed:
+            display_reason = reason
+        elif reason_type == "HOLIDAY" and isinstance(reason, dict):
             display_reason = reason.get("full_reason", "")
         else:
             display_reason = str(reason)
@@ -557,17 +582,14 @@ def initialize_daily_status():
             "currentDate": target_date.isoformat(),
             "isWalkingBusDay": walking_bus_day,
             "reason": display_reason,
-            "reason_type": reason_type,
+            "reason_type": reason_type,  # This will now correctly show TIME_PASSED
             "note": daily_note.note if daily_note else None,
             "schedule": schedule_data
         }
 
-        if new_token:
-            response["new_auth_token"] = new_token
-
-        app.logger.info(f"Returning response: {response}")
+        app.logger.info(f"Final response: {response}")
         return jsonify(response)
-        
+
     except Exception as e:
         app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()

@@ -684,13 +684,14 @@
             currentDate: dailyStatus.currentDate || new Date().toISOString(),
             isWalkingBusDay: Boolean(dailyStatus.isWalkingBusDay),
             reason: dailyStatus.reason || '',
+            reason_type: dailyStatus.reason_type || '',  // Added reason_type
             note: dailyStatus.note || ''
         };
 
         isWalkingBusDay = validatedDailyStatus.isWalkingBusDay;
 
         const stationsResponse = await axios.get('/api/stations', {
-            params: { 
+            params: {
                 date: selectedDate || new Date().toISOString().split('T')[0],
                 admin: 0
             }
@@ -703,6 +704,7 @@
 
         return { dailyStatus: validatedDailyStatus, stations };
     }
+
 
     async function updateUI(stations, dailyStatus, selectedDate) {
         const stationsContainer = document.getElementById('stations');
@@ -954,6 +956,8 @@
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
+        console.log('Daily Status:', dailyStatus);
+        console.log('Time Passed:', dailyStatus.reason_type === "TIME_PASSED");
         // Check if time has passed
         const isTimePassed = dailyStatus.reason_type === "TIME_PASSED";
         // If time has passed, override the walking bus day status
