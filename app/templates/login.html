@@ -84,7 +84,10 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+    const isLocalhost = window.location.hostname === 'localhost' 
+                    || window.location.hostname === '127.0.0.1';
+    
+    if (window.location.protocol !== 'https:' && !isLocalhost) {
         const securityAlert = document.getElementById('securityAlert');
         securityAlert.classList.remove('d-none');
         
