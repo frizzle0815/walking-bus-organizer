@@ -710,17 +710,18 @@
         const stationsContainer = document.getElementById('stations');
         const existingStations = stationsContainer.querySelectorAll('.station-card');
 
-        // Update alerts first
-        const alertsContainer = document.getElementById('alerts-container');
-        if (alertsContainer) {
-            alertsContainer.replaceWith(createAlertsContainer(dailyStatus.isWalkingBusDay, dailyStatus));
+        // Only create alerts if they don't exist
+        if (!document.getElementById('alerts-container')) {
+            const alertsContainer = createAlertsContainer(dailyStatus.isWalkingBusDay, dailyStatus);
+            stationsContainer.appendChild(alertsContainer);
         }
+        
+        // Update existing alerts instead of replacing them
+        updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
 
         if (existingStations.length === 0) {
-            // Initial render
             await renderStations(stations, dailyStatus.isWalkingBusDay, dailyStatus, selectedDate);
         } else {
-            // Differential update
             for (const station of stations) {
                 const stationElement = document.querySelector(`[data-station-id="${station.id}"]`);
                 if (stationElement) {
@@ -911,48 +912,58 @@
     let isSelectionInProgress = false;
     
     async function selectDay(dateStr) {
-    if (isSelectionInProgress) {
-        return;
+        if (isSelectionInProgress) {
+            return;
+        }
+
+        isSelectionInProgress = true;
+        
+        const allDays = document.querySelectorAll('.calendar-day');
+        allDays.forEach(day => {
+            day.style.pointerEvents = 'none';
+            day.classList.remove('selected-day');
+        });
+        
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.classList.add('loading-overlay');
+        loadingOverlay.innerHTML = `
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Lade Daten...</span>
+            </div>
+        `;
+        document.body.appendChild(loadingOverlay);
+        
+        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+        if (selectedDay) {
+            selectedDay.classList.add('selected-day');
+        }
+        
+        try {
+            // Get daily status first
+            const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
+                date: dateStr
+            });
+            const dailyStatus = dailyStatusResponse.data;
+
+            // Update alerts with new daily status
+            updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
+            
+            // Wait for all API calls to complete
+            await Promise.all([
+                loadStations(null, dateStr),
+                renderWeekOverview(dateStr)
+            ]);
+        } catch (error) {
+            console.error('Error in selectDay:', error);
+        } finally {
+            allDays.forEach(day => {
+                day.style.pointerEvents = 'auto';
+            });
+            loadingOverlay.remove();
+            isSelectionInProgress = false;
+        }
     }
 
-    isSelectionInProgress = true;
-    
-    const allDays = document.querySelectorAll('.calendar-day');
-    allDays.forEach(day => {
-        day.style.pointerEvents = 'none';
-        day.classList.remove('selected-day');
-    });
-    
-    const loadingOverlay = document.createElement('div');
-    loadingOverlay.classList.add('loading-overlay');
-    loadingOverlay.innerHTML = `
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Lade Daten...</span>
-        </div>
-    `;
-    document.body.appendChild(loadingOverlay);
-    
-    const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
-    if (selectedDay) {
-        selectedDay.classList.add('selected-day');
-    }
-    
-    try {
-        // Wait for all API calls to complete
-        await Promise.all([
-            loadStations(null, dateStr),
-            renderWeekOverview(dateStr)
-        ]);
-    } catch (error) {
-        console.error('Error in selectDay:', error);
-    } finally {
-        allDays.forEach(day => {
-            day.style.pointerEvents = 'auto';
-        });
-        loadingOverlay.remove();
-        isSelectionInProgress = false;
-    }
-}
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
@@ -1074,14 +1085,19 @@
         const noteAlert = document.getElementById('note-alert');
         const walkingbusNote = document.getElementById('walkingbus-note');
 
-        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-        if (!isWalkingBusDay && dailyStatus.reason) {
-            walkingbusReason.textContent = dailyStatus.reason;
+        if (walkingbusAlert && walkingbusReason) {
+            walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+            if (!isWalkingBusDay && dailyStatus.reason) {
+                walkingbusReason.textContent = dailyStatus.reason;
+            }
         }
 
-        noteAlert.classList.toggle('d-none', !dailyStatus.note);
-        if (dailyStatus.note) {
-            walkingbusNote.textContent = dailyStatus.note;
+        if (noteAlert && walkingbusNote) {
+            const hasNote = dailyStatus.note && dailyStatus.note.trim() !== '';
+            noteAlert.classList.toggle('d-none', !hasNote);
+            if (hasNote) {
+                walkingbusNote.textContent = dailyStatus.note;
+            }
         }
     }
 
