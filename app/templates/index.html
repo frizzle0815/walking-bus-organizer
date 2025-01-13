@@ -417,70 +417,88 @@
         border-bottom: none; /* Remove the border that separates header from content */
     }
 
+    /* Basic container layout */
+
     .week-container.participants-list {
-        display: block !important; /* Override grid layout from compact view */
-        padding: 10px;
+        display: block !important;
     }
 
     .week-container .week {
         width: 100%;
+        display: flex;
         justify-content: space-between;
         margin: 0;
+        padding: 0;
     }
 
     .week-container .calendar-day {
+        position: relative;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        width: 40px;
-        height: 40px;
+        width: 60px;
+        height: 50px;
         border-radius: 50%;
         cursor: pointer;
+        border: 1px solid #dee2e6;
+        color: #000; /* Ensure black text */
     }
 
-    .week-container .day-green { 
-        background-color: #a9e6b7; 
-        cursor: pointer;
+    /* Square wrapper with elegant gradient border */
+    .week-container .calendar-day-wrapper {
+        position: relative;
+        padding: 3px;
+        border-radius: 8px;  /* Slightly rounder corners */
+        width: 60px;
+        height: 60px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        transition: all 0.2s ease;
     }
 
-    .week-container .day-red { 
-        background-color: #f8bfc3;
-        cursor: pointer;
-    }
-
-    .week-container .day-gray { 
-        background-color: #e9ecef;
-    }
-
-    .week-container .day-today {
-        border: 2px solid #0d6efd;  /* Keep the highlight border */
-        transform: none;  /* Remove any transform that might affect size */
-        font-size: inherit;  /* Ensure consistent font size */
-    }
-
-    .week-container .selected-day {
-        border: 2px solid #0d6efd !important;
-        transform: scale(1.1);
-        transition: transform 0.2s;
-    }
-
-    .week-container .day-label {
-        font-size: 0.8em;
-        font-weight: bold;
-        color: #000000;
-        order: -1;
-    }
-
+    .week-container .day-label,
     .week-container .day-number {
-        font-weight: bold;
         color: #000000;
-        margin-top: -2px;
-        font-size: 1em;
+        font-weight: bold;
+        z-index: 1; /* Ensure text stays above backgrounds */
+    }
+
+    /* Enhanced selected day styling */
+    .week-container .calendar-day-wrapper.selected-day {
+        background: linear-gradient(
+            to bottom right,
+            rgba(13, 110, 253, 0.1) 30%,
+            rgba(13, 110, 253, 0.2) 50%,
+            rgba(13, 110, 253, 0.3) 100%
+        );
+        transform: scale(1.05);
+        z-index: 1;
+        box-shadow: 0 2px 8px rgba(13, 110, 253, 0.2);
+    }
+
+    /* Status indicators - improved visibility */
+    .week-container .calendar-day .override-icon {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        font-size: 1.2em;
+        color: #dc3545;
+        z-index: 2;
+    }
+
+    .week-container .calendar-day .note-icon {
+        position: absolute;
+        top: -8px;
+        left: -8px;
+        font-size: 1.2em;
+        color: #ffc107;
+        z-index: 2;
     }
 
     .z-index-top {
-        z-index: 9999;
+        z-index: 9999;  /* Alert message on failed loading */
     }
 
     .loading-overlay {
@@ -858,25 +876,37 @@
 
     async function renderWeekOverview(selectedDate = null) {
         const response = await axios.get('/api/week-overview');
+        console.log('Week data:', response.data);
         const weekData = response.data;
         
         const weekOverview = document.createElement('div');
         weekOverview.className = 'week d-flex justify-content-between';
+            
+        // Ensure we have a valid selectedDate
+        if (!selectedDate) {
+            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
+                || new Date().toISOString().split('T')[0];
+        }
         
         weekOverview.innerHTML = weekData.map(day => `
-            <div class="calendar-day ${getWeekDayClass(day)} 
-                        ${day.date === selectedDate ? 'selected-day' : ''}"
-                 data-date="${day.date}">
-                <div class="day-number">${day.total_confirmed}</div>
-                <div class="day-label">${getDayLabel(day.date)}</div>
+            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
+                <div class="calendar-day ${getWeekDayClass(day)}"
+                     data-date="${day.date}">
+                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
+                        '<i class="bi bi-exclamation-triangle-fill override-icon"></i>' : ''}
+                    ${day.has_note ? '<i class="bi bi-chat-text note-icon"></i>' : ''}
+                    <div class="day-number">${day.total_confirmed}</div>
+                    <div class="day-label">${getDayLabel(day.date)}</div>
+                </div>
             </div>
         `).join('');
+
         
-        // Allow clicks on all days, including gray ones
+        // Add click handler to the wrapper instead of the day
         weekOverview.addEventListener('click', (e) => {
-            const dayElement = e.target.closest('.calendar-day');
-            if (dayElement && !isSelectionInProgress) {
-                const dateStr = dayElement.dataset.date;
+            const wrapperElement = e.target.closest('.calendar-day-wrapper');
+            if (wrapperElement && !isSelectionInProgress) {
+                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
                 selectDay(dateStr);
             }
         });
@@ -890,23 +920,25 @@
 
 
     function getWeekDayClass(day) {
-        console.log('Day data received:', day);
+        const classes = [];
+        
+        // First determine background color
+        if (day.is_today && day.reason_type === 'TIME_PASSED') {
+            classes.push('day-gray');
+        } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+            classes.push('day-red');
+        } else if (!day.is_schedule_day || !day.is_active) {
+            classes.push('day-gray');
+        } else {
+            classes.push('day-green');
+        }
+        
+        // Add today marker if applicable
         if (day.is_today) {
-            return 'day-today';
+            classes.push('day-today');
         }
-
-        // First check if it's a manual override cancellation
-        if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
-            return 'day-red';
-        }
-
-        // If it's not an active walking bus day (holiday, no schedule, etc.), show gray
-        if (!day.is_schedule_day || !day.is_active) {
-            return 'day-gray';
-        }
-
-        // If the day is active (walking bus takes place), show green
-        return 'day-green';
+        
+        return classes.join(' ');
     }
 
 
@@ -926,12 +958,14 @@
 
         isSelectionInProgress = true;
         
-        const allDays = document.querySelectorAll('.calendar-day');
-        allDays.forEach(day => {
-            day.style.pointerEvents = 'none';
-            day.classList.remove('selected-day');
+        // Update selection visual state
+        const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
+        allWrappers.forEach(wrapper => {
+            wrapper.style.pointerEvents = 'none';
+            wrapper.classList.remove('selected-day');
         });
         
+        // Create and show loading overlay
         const loadingOverlay = document.createElement('div');
         loadingOverlay.classList.add('loading-overlay');
         loadingOverlay.innerHTML = `
@@ -941,9 +975,10 @@
         `;
         document.body.appendChild(loadingOverlay);
         
+        // Update selected day visual using more reliable DOM traversal
         const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
         if (selectedDay) {
-            selectedDay.classList.add('selected-day');
+            selectedDay.closest('.calendar-day-wrapper').classList.add('selected-day');
         }
         
         try {
@@ -952,6 +987,11 @@
                 date: dateStr
             });
             const dailyStatus = dailyStatusResponse.data;
+
+            const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
+            if (summaryHeader) {
+                summaryHeader.textContent = formatServerDate(new Date(dailyStatus.currentDate));
+            }
 
             // Update alerts with new daily status
             updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
@@ -964,8 +1004,9 @@
         } catch (error) {
             console.error('Error in selectDay:', error);
         } finally {
-            allDays.forEach(day => {
-                day.style.pointerEvents = 'auto';
+            // Restore interaction and clean up
+            allWrappers.forEach(wrapper => {
+                wrapper.style.pointerEvents = 'auto';
             });
             loadingOverlay.remove();
             isSelectionInProgress = false;

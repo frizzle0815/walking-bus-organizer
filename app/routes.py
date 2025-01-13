@@ -596,12 +596,12 @@ def initialize_daily_status():
         return jsonify({"error": str(e)}), 500
 
 
-
 @bp.route("/api/week-overview")
 @require_auth
 def get_week_overview():
     walking_bus_id = get_current_walking_bus_id()
     today = get_current_date()
+    current_time = get_current_time().time()
     
     week_data = []
     
@@ -609,15 +609,38 @@ def get_week_overview():
         current_date = today + timedelta(days=i)
         # Get full walking bus day info including reason and reason_type
         is_active, reason, reason_type = check_walking_bus_day(
-            current_date, 
+            current_date,
             include_reason=True,
             walking_bus_id=walking_bus_id
         )
+        
+        # Check if time has passed for today
+        if current_date == today:
+            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+            if schedule:
+                weekday = WEEKDAY_MAPPING[current_date.weekday()]
+                end_time = getattr(schedule, f"{weekday}_end", None)
+                if end_time and current_time > end_time:
+                    is_active = False
+                    reason = "Der Walking Bus hat heute bereits stattgefunden."
+                    reason_type = "TIME_PASSED"
         
         # Get schedule information
         schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
         weekday = WEEKDAY_MAPPING[current_date.weekday()]
         is_schedule_day = schedule and getattr(schedule, weekday, False)
+        
+        # Check for manual override
+        override = WalkingBusOverride.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        # Check for notes
+        note = DailyNote.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
         
         # Calculate total confirmed participants
         total_confirmed = 0
@@ -648,11 +671,12 @@ def get_week_overview():
             'reason': reason,
             'reason_type': reason_type,
             'total_confirmed': total_confirmed,
-            'is_today': current_date == today
+            'is_today': current_date == today,
+            'has_override': override is not None,
+            'has_note': note is not None and note.note.strip() != ''
         })
     
     return jsonify(week_data)
-
 
 
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
