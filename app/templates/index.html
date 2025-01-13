@@ -1759,8 +1759,9 @@
             const connectionAlert = document.getElementById('connection-alert');
             connectionAlert.classList.add('d-none');
             
-            // Force data refresh
-            loadStations();
+            // Reset to current date and reload data
+            const today = new Date().toISOString().split('T')[0];
+            selectDay(today);
             
             // Reset SSE connection
             if (eventSource) {
@@ -1768,6 +1769,19 @@
             }
             initializeSSE();
             
+        }
+    });
+
+    window.addEventListener('pageshow', (event) => {
+        // Check if page is loaded from cache (bfcache)
+        if (event.persisted) {
+            const today = new Date().toISOString().split('T')[0];
+            selectDay(today);
+            
+            if (globalEventSource) {
+                globalEventSource.close();
+            }
+            initializeSSE();
         }
     });
 
