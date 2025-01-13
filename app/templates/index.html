@@ -890,17 +890,25 @@
 
 
     function getWeekDayClass(day) {
+        console.log('Day data received:', day);
         if (day.is_today) {
             return 'day-today';
         }
 
-        if (!day.is_active) {
+        // First check if it's a manual override cancellation
+        if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+            return 'day-red';
+        }
+
+        // If it's not an active walking bus day (holiday, no schedule, etc.), show gray
+        if (!day.is_schedule_day || !day.is_active) {
             return 'day-gray';
         }
 
-        // For active days, always return green (we don't care about confirmations here)
+        // If the day is active (walking bus takes place), show green
         return 'day-green';
     }
+
 
     function getDayLabel(dateStr) {
         const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];

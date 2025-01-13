@@ -607,18 +607,26 @@ def get_week_overview():
     
     for i in range(7):
         current_date = today + timedelta(days=i)
-        is_active = check_walking_bus_day(current_date)
+        # Get full walking bus day info including reason and reason_type
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
         
+        # Get schedule information
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+        weekday = WEEKDAY_MAPPING[current_date.weekday()]
+        is_schedule_day = schedule and getattr(schedule, weekday, False)
+        
+        # Calculate total confirmed participants
+        total_confirmed = 0
         if is_active:
-            weekday = WEEKDAY_MAPPING[current_date.weekday()]
-            
-            # Get only participants that are assigned to stations
             participants = Participant.query.filter(
                 Participant.walking_bus_id == walking_bus_id,
-                Participant.station_id.isnot(None)  # This ensures we only get assigned participants
+                Participant.station_id.isnot(None)
             ).all()
             
-            # Get all calendar entries for this date
             calendar_entries = CalendarStatus.query.filter_by(
                 walking_bus_id=walking_bus_id,
                 date=current_date
@@ -626,24 +634,25 @@ def get_week_overview():
             
             calendar_lookup = {entry.participant_id: entry.status for entry in calendar_entries}
             
-            total_confirmed = 0
             for participant in participants:
                 if participant.id in calendar_lookup:
                     if calendar_lookup[participant.id]:
                         total_confirmed += 1
                 elif getattr(participant, weekday, True):
                     total_confirmed += 1
-        else:
-            total_confirmed = 0
         
         week_data.append({
             'date': current_date.isoformat(),
             'is_active': is_active,
+            'is_schedule_day': is_schedule_day,
+            'reason': reason,
+            'reason_type': reason_type,
             'total_confirmed': total_confirmed,
             'is_today': current_date == today
         })
     
     return jsonify(week_data)
+
 
 
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
