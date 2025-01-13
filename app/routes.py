@@ -18,6 +18,10 @@ from .init_buses import init_walking_buses
 # Create Blueprint
 bp = Blueprint("main", __name__)
 
+@bp.route('/favicon.ico')
+def favicon():
+    return send_from_directory('static/icons', 'favicon.ico')
+
 # Frontend Routes
 @bp.route('/')
 def index():
@@ -40,90 +44,99 @@ def calendar_view():
 def get_stations():
     walking_bus_id = get_current_walking_bus_id()
     selected_date = request.args.get('date')
+    is_admin = request.args.get('admin', '0') == '1'
     
     if selected_date:
         target_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
     else:
         target_date = get_current_date()
 
-    # Get unassigned participants
-    unassigned_participants = Participant.query.filter_by(
-        walking_bus_id=walking_bus_id,
-        station_id=None
-    ).order_by(Participant.position).all()
-
-    # Get regular stations
-    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
+    # Get regular stations with eager loading of participants
+    stations = (Station.query
+               .filter_by(walking_bus_id=walking_bus_id)
+               .order_by(Station.position)
+               .all())
 
     result = []
 
-    # Add unassigned section if there are orphaned participants
-    if unassigned_participants:
-        unassigned_data = []
-        for p in unassigned_participants:
-            calendar_entry = CalendarStatus.query.filter_by(
-                participant_id=p.id,
-                date=target_date,
-                walking_bus_id=walking_bus_id
-            ).first()
-            
-            status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[target_date.weekday()], True)
-            
-            unassigned_data.append({
-                "id": p.id,
-                "name": p.name,
-                "monday": p.monday,
-                "tuesday": p.tuesday,
-                "wednesday": p.wednesday,
-                "thursday": p.thursday,
-                "friday": p.friday,
-                "saturday": p.saturday,
-                "sunday": p.sunday,
-                "position": p.position,
-                "status": status
-            })
-            
-        result.append({
-            "id": "unassigned",
-            "name": "Nicht zugeordnete Teilnehmer",
-            "position": -1,  # Always first
-            "participants": unassigned_data
-        })
+    # Add unassigned section only for admin view
+    if is_admin:
+        unassigned_participants = Participant.query.filter_by(
+            walking_bus_id=walking_bus_id,
+            station_id=None
+        ).order_by(Participant.position).all()
 
-    # Add regular stations with date-specific status
+        if unassigned_participants:
+            result.append(create_unassigned_section(unassigned_participants, target_date))
+
+    # Process regular stations
     for station in stations:
-        station_participants = []
-        for p in station.participants:
-            calendar_entry = CalendarStatus.query.filter_by(
-                participant_id=p.id,
-                date=target_date,
-                walking_bus_id=walking_bus_id
-            ).first()
-            
-            status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[target_date.weekday()], True)
-            
-            station_participants.append({
-                "id": p.id,
-                "name": p.name,
-                "monday": p.monday,
-                "tuesday": p.tuesday,
-                "wednesday": p.wednesday,
-                "thursday": p.thursday,
-                "friday": p.friday,
-                "saturday": p.saturday,
-                "sunday": p.sunday,
-                "position": p.position,
-                "status": status
-            })
-            
-        result.append({
+        station_data = {
             "id": station.id,
             "name": station.name,
             "position": station.position,
-            "participants": station_participants
-        })
+            "participants": create_participant_list(station.participants, target_date, is_admin)
+        }
+        result.append(station_data)
 
     return jsonify(result)
+
+
+def create_unassigned_section(participants, target_date):
+    """Helper function to create unassigned section data"""
+    unassigned_data = []
+    for p in participants:
+        participant_data = create_participant_data(p, target_date, True)
+        unassigned_data.append(participant_data)
+    
+    return {
+        "id": "unassigned",
+        "name": "Nicht zugeordnete Teilnehmer",
+        "position": -1,
+        "participants": unassigned_data
+    }
+
+
+def create_participant_list(participants, target_date, is_admin):
+    """Helper function to create participant list with appropriate data"""
+    return [create_participant_data(p, target_date, is_admin) for p in participants]
+
+
+def create_participant_data(participant, target_date, is_admin):
+    """Helper function to create participant data based on view type"""
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant.id,
+        date=target_date,
+        walking_bus_id=participant.walking_bus_id
+    ).first()
+    
+    status = calendar_entry.status if calendar_entry else getattr(
+        participant, 
+        WEEKDAY_MAPPING[target_date.weekday()], 
+        True
+    )
+    
+    # Base data for both views
+    data = {
+        "id": participant.id,
+        "name": participant.name,
+        "status": status
+    }
+    
+    # Additional data for admin view
+    if is_admin:
+        data.update({
+            "monday": participant.monday,
+            "tuesday": participant.tuesday,
+            "wednesday": participant.wednesday,
+            "thursday": participant.thursday,
+            "friday": participant.friday,
+            "saturday": participant.saturday,
+            "sunday": participant.sunday,
+            "position": participant.position
+        })
+    
+    return data
 
 
 @bp.route("/api/stations", methods=["POST"])
@@ -465,7 +478,7 @@ def initialize_daily_status():
             except ValueError:
                 return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
-        # Token handling remains unchanged
+        # Token handling
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         payload = jwt.decode(token, options={"verify_signature": False})
         exp_timestamp = payload['exp']
@@ -488,11 +501,11 @@ def initialize_daily_status():
         
         app.logger.info(f"Initializing daily status for {target_date} at {current_time}")
 
-        # Holiday cache update remains unchanged
+        # Update holiday cache
         holiday_service = HolidayService()
         holiday_service.update_holiday_cache()
 
-        # Only delete past entries when checking current date
+        # Clean up past entries for current date only
         if not requested_date:
             deleted_count = CalendarStatus.query.filter(
                 CalendarStatus.date < target_date,
@@ -501,30 +514,43 @@ def initialize_daily_status():
             app.logger.info(f"Deleted {deleted_count} past calendar entries")
             db.session.commit()
 
-        # Get daily note for target date
+        # Get schedule information
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+        schedule_data = None
+        if schedule:
+            weekday = target_date.weekday()
+            weekday_name = WEEKDAY_MAPPING[weekday]
+            start_time = getattr(schedule, f"{weekday_name}_start", None)
+            end_time = getattr(schedule, f"{weekday_name}_end", None)
+            
+            schedule_data = {
+                "active": getattr(schedule, weekday_name, False),
+                "start": start_time.strftime("%H:%M") if start_time else None,
+                "end": end_time.strftime("%H:%M") if end_time else None
+            }
+
+        # Get daily note
         daily_note = DailyNote.query.filter_by(
             date=target_date,
             walking_bus_id=walking_bus_id
         ).first()
 
-        app.logger.info("Checking walking bus day status")
+        # Check walking bus status
         walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
-        # Only check schedule end time for current date
-        if walking_bus_day and not requested_date:
-            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
-            if schedule:
-                weekday = target_date.weekday()
-                end_time = getattr(schedule, f"{WEEKDAY_MAPPING[weekday]}_end")
-                
-                if end_time and current_time > end_time:
-                    walking_bus_day = False
-                    reason = "Der Walking Bus hat heute bereits stattgefunden."
-                    reason_type = "TIME_PASSED"
-                    app.logger.info(f"Walking bus time passed. End time was {end_time}")
+        # Check if walking bus time has passed
+        if walking_bus_day and not requested_date and schedule_data:
+            if schedule_data["end"] and current_time > schedule_data["end"]:
+                walking_bus_day = False
+                reason = "Der Walking Bus hat heute bereits stattgefunden."
+                reason_type = "TIME_PASSED"
+                app.logger.info(f"Walking bus time passed. End time was {schedule_data['end']}")
 
-        display_reason = reason["full_reason"] if reason_type == "HOLIDAY" else reason
+        if reason_type == "HOLIDAY" and isinstance(reason, dict):
+            display_reason = reason.get("full_reason", "")
+        else:
+            display_reason = str(reason)
 
         response = {
             "success": True,
@@ -532,7 +558,8 @@ def initialize_daily_status():
             "isWalkingBusDay": walking_bus_day,
             "reason": display_reason,
             "reason_type": reason_type,
-            "note": daily_note.note if daily_note else None
+            "note": daily_note.note if daily_note else None,
+            "schedule": schedule_data
         }
 
         if new_token:
@@ -545,6 +572,7 @@ def initialize_daily_status():
         app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
 
 
 @bp.route("/api/week-overview")
@@ -914,11 +942,13 @@ def update_future_entries():
 
 @bp.route('/stream')
 def stream():
+    walking_bus_id = get_current_walking_bus_id()
+    if not walking_bus_id:
+        return jsonify({"error": "Unauthorized", "redirect": True}), 401
+
     def event_stream():
         try:
-            walking_bus_id = get_current_walking_bus_id()
-            if not walking_bus_id:
-                return jsonify({"error": "No walking bus selected", "redirect": True}), 401
+
             last_data = None
             while True:
                 with db.session.begin():
