@@ -1557,8 +1557,6 @@
     }
 
 
-
-
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
         if (isStatusUpdateInProgress) return;
         
@@ -1570,48 +1568,46 @@
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            await axios.post('/api/calendar-status', {
+            const response = await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
                 status: !dayDiv.classList.contains('day-green')
             });
             
-            await loadStations();
-            
-            // Instead of reopening the calendar, just update its content
+            // Update calendar view
             const calendarData = await axios.get(`/api/calendar-data/${participantId}`);
             await renderCalendar(calendarData.data);
             
-            // Animate if it's today's change
-            const today = new Date().toISOString().split('T')[0];
-            if (dateString === today) {
+            // Handle main view animation if needed
+            const currentlyDisplayedDate = document.querySelector('.selected-day')?.dataset.date;
+            if (dateString === currentlyDisplayedDate) {
                 const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
                 if (participantItem) {
-                    await animateStatusChange(participantItem, !dayDiv.classList.contains('day-green'));
+                    await loadStations(null, currentlyDisplayedDate);
+                    allStatusButtons.forEach(btn => btn.disabled = true);
+                    await animateStatusChange(participantItem, response.data.status);
+                    allStatusButtons.forEach(btn => btn.disabled = false);
                 }
             }
-            allStatusButtons.forEach(btn => btn.disabled = false);
         } catch (error) {
             console.error('Error updating calendar status:', error);
             dayDiv.textContent = originalContent;
             
-            // Add warning indicator
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-            allStatusButtons.forEach(btn => btn.disabled = false);
-            
             dayDiv.appendChild(warningIcon);
             
-            // Remove warning after 5 seconds
             setTimeout(() => {
                 warningIcon.remove();
                 dayDiv.textContent = originalContent;
             }, 5000);
         } finally {
             isStatusUpdateInProgress = false;
+            allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
+
 
 
     async function animateStatusChange(element, newStatus) {
