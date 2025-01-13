@@ -959,9 +959,11 @@
         console.log('Daily Status:', dailyStatus);
         console.log('Time Passed:', dailyStatus.reason_type === "TIME_PASSED");
         // Check if time has passed
+        const today = new Date().toISOString().split('T')[0];
+        const isCurrentDay = selectedDate === today;
         const isTimePassed = dailyStatus.reason_type === "TIME_PASSED";
-        // If time has passed, override the walking bus day status
-        const effectiveWalkingBusDay = isWalkingBusDay && !isTimePassed;
+        // If time has passed and it is today, override the walking bus day status
+        const effectiveWalkingBusDay = isWalkingBusDay && !(isTimePassed && isCurrentDay);
 
         stations = Array.isArray(stations) ? stations : [];
         stations = stations.filter(station => station.id !== "unassigned");
@@ -1241,6 +1243,11 @@
             'touch-target'
         );
 
+        button.onclick = (e) => {
+            e.preventDefault();
+            toggleParticipation(participant.id, button);
+        };
+
         if (!isWalkingBusDay) {
             button.classList.add('btn-outline-secondary', 'status-button-disabled');
             button.innerHTML = '<i class="fas fa-times"></i>';
@@ -1251,10 +1258,6 @@
             button.innerHTML = participant.status ? 
                 '<i class="fas fa-check"></i>' : 
                 '<i class="fas fa-times"></i>';
-            button.onclick = (e) => {
-                e.preventDefault();
-                toggleParticipation(participant.id, button);
-            };
         }
 
         return button;
@@ -1322,9 +1325,11 @@
             if (response.data && response.status === 200) {
                 await loadStations(null, selectedDate);
                 if (participantItem) {
+                    allStatusButtons.forEach(btn => btn.disabled = true);
                     await animateStatusChange(participantItem, response.data.status_today);
                 }
                 await renderWeekOverview(selectedDate);
+                allStatusButtons.forEach(btn => btn.disabled = false);
             } else {
                 throw new Error('Invalid server response');
             }
@@ -1340,6 +1345,7 @@
             button.classList.remove('btn-outline-success', 'btn-outline-danger');
             button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
             button.innerHTML = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+            allStatusButtons.forEach(btn => btn.disabled = false);
             
             // Add warning triangle next to button
             const warningIcon = document.createElement('i');
@@ -1369,7 +1375,6 @@
             
         } finally {
             isStatusUpdateInProgress = false;
-            allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
 
@@ -1585,6 +1590,7 @@
                     await animateStatusChange(participantItem, !dayDiv.classList.contains('day-green'));
                 }
             }
+            allStatusButtons.forEach(btn => btn.disabled = false);
         } catch (error) {
             console.error('Error updating calendar status:', error);
             dayDiv.textContent = originalContent;
@@ -1593,6 +1599,7 @@
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+            allStatusButtons.forEach(btn => btn.disabled = false);
             
             dayDiv.appendChild(warningIcon);
             
@@ -1603,7 +1610,6 @@
             }, 5000);
         } finally {
             isStatusUpdateInProgress = false;
-            allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
 
