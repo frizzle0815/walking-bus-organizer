@@ -621,6 +621,8 @@
             
             // 4. Perform differential update
             await updateUI(stations, dailyStatus, selectedDate);
+            // Always update week overview after UI update
+            await renderWeekOverview(selectedDate);
 
             // 5. Cache new data
             await updateCache(db, stations, dailyStatus, selectedDate);
@@ -854,23 +856,27 @@
     async function renderWeekOverview(selectedDate = null) {
         const response = await axios.get('/api/week-overview');
         const weekData = response.data;
-        console.log('Week Data:', weekData);
         
-        // weekData.forEach(day => {
-        //     console.log('Day data passed to getWeekDayClass:', day);  // Add this line
-        // });
-
         const weekOverview = document.createElement('div');
         weekOverview.className = 'week d-flex justify-content-between';
+        
         weekOverview.innerHTML = weekData.map(day => `
             <div class="calendar-day ${getWeekDayClass(day)} 
                         ${day.date === selectedDate ? 'selected-day' : ''}"
-                 data-date="${day.date}"
-                 onclick="selectDay('${day.date}')">
+                 data-date="${day.date}">
                 <div class="day-number">${day.total_confirmed}</div>
                 <div class="day-label">${getDayLabel(day.date)}</div>
             </div>
         `).join('');
+        
+        // Allow clicks on all days, including gray ones
+        weekOverview.addEventListener('click', (e) => {
+            const dayElement = e.target.closest('.calendar-day');
+            if (dayElement && !isSelectionInProgress) {
+                const dateStr = dayElement.dataset.date;
+                selectDay(dateStr);
+            }
+        });
         
         const weekContainer = document.querySelector('.week-container');
         if (weekContainer) {
@@ -878,6 +884,7 @@
             weekContainer.appendChild(weekOverview);
         }
     }
+
 
     function getWeekDayClass(day) {
         if (day.is_today) {
@@ -899,35 +906,51 @@
     }
 
     // Funktion zum Auswählen eines Tages
-    function selectDay(dateStr) {
-        // Lade-Indikator anzeigen
-        const loadingOverlay = document.createElement('div');
-        loadingOverlay.classList.add('loading-overlay');
-        loadingOverlay.innerHTML = `
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Lade Daten...</span>
-            </div>
-        `;
-        document.body.appendChild(loadingOverlay);
-
-        const allDays = document.querySelectorAll('.calendar-day');
-        allDays.forEach(day => day.classList.remove('selected-day'));
-        
-        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
-        selectedDay.classList.add('selected-day');
-        
-        // Update header with selected date
-        const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
-        if (summaryHeader) {
-            summaryHeader.textContent = formatServerDate(new Date(dateStr));
-        }
-        
-        loadStations(null, dateStr)
-            .finally(() => {
-                // Lade-Indikator entfernen
-                loadingOverlay.remove();
-            });
+    let isSelectionInProgress = false;
+    
+    async function selectDay(dateStr) {
+    if (isSelectionInProgress) {
+        return;
     }
+
+    isSelectionInProgress = true;
+    
+    const allDays = document.querySelectorAll('.calendar-day');
+    allDays.forEach(day => {
+        day.style.pointerEvents = 'none';
+        day.classList.remove('selected-day');
+    });
+    
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.classList.add('loading-overlay');
+    loadingOverlay.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Lade Daten...</span>
+        </div>
+    `;
+    document.body.appendChild(loadingOverlay);
+    
+    const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+    if (selectedDay) {
+        selectedDay.classList.add('selected-day');
+    }
+    
+    try {
+        // Wait for all API calls to complete
+        await Promise.all([
+            loadStations(null, dateStr),
+            renderWeekOverview(dateStr)
+        ]);
+    } catch (error) {
+        console.error('Error in selectDay:', error);
+    } finally {
+        allDays.forEach(day => {
+            day.style.pointerEvents = 'auto';
+        });
+        loadingOverlay.remove();
+        isSelectionInProgress = false;
+    }
+}
 
 
     async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
