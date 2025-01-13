@@ -1473,10 +1473,10 @@
          // Get current selected date or use today's date
         const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
         // Get daily status from server
-        const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
-            date: selectedDate
+        const todayStatusResponse = await axios.post('/api/initialize-daily-status', {
+            date: new Date().toISOString().split('T')[0]  // Always check current day
         });
-        const dailyStatus = dailyStatusResponse.data;
+        const todayStatus = todayStatusResponse.data;
         
         if (!calendarData || !calendarData.length) {
             console.error('No calendar data available');
@@ -1533,10 +1533,11 @@
                 };
 
                 // Determine day state using combined logic
+                const isToday = dateStr === todayStatus.currentDate;
                 const shouldDisableDay = 
                     !dayData.is_schedule_day || 
                     dayData.is_past || 
-                    (dayData.is_today && !dailyStatus.isWalkingBusDay);
+                    (isToday && todayStatus.reason_type === "TIME_PASSED");
 
                 if (shouldDisableDay) {
                     dayDiv.classList.add('day-gray');
