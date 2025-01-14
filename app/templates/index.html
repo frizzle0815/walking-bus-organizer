@@ -1382,7 +1382,9 @@
     async function toggleParticipation(participantId, button) {
         if (isStatusUpdateInProgress) return;
 
-        const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
+        // Get the currently selected date from the week overview
+        const selectedDayWrapper = document.querySelector('.week-container .selected-day');
+        const selectedDate = selectedDayWrapper?.querySelector('.calendar-day')?.dataset.date;
         
         const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
         const wasActive = participantItem.classList.contains('participant-status-active');
@@ -1400,17 +1402,18 @@
             });
             
             if (response.data && response.status === 200) {
+                // Update the view while maintaining the selected date
                 await loadStations(null, selectedDate);
                 if (participantItem) {
                     allStatusButtons.forEach(btn => btn.disabled = true);
                     await animateStatusChange(participantItem, response.data.status_today);
                 }
+                // Update week overview with the same selected date
                 await renderWeekOverview(selectedDate);
                 allStatusButtons.forEach(btn => btn.disabled = false);
             } else {
                 throw new Error('Invalid server response');
             }
-            
         } catch (error) {
             console.error('Error updating status:', error);
             
@@ -1646,6 +1649,10 @@
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
+            // Get the currently selected date from the week overview
+            const selectedDayWrapper = document.querySelector('.week-container .selected-day');
+            const currentlyDisplayedDate = selectedDayWrapper?.querySelector('.calendar-day')?.dataset.date;
+            
             const response = await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
@@ -1656,15 +1663,15 @@
             const calendarData = await axios.get(`/api/calendar-data/${participantId}`);
             await renderCalendar(calendarData.data);
             
-            // Handle main view animation if needed
-            const currentlyDisplayedDate = document.querySelector('.selected-day')?.dataset.date;
+            // If the modified date matches the displayed date, update main view
             if (dateString === currentlyDisplayedDate) {
+                console.log('Updating main view for date:', dateString);
                 const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
                 if (participantItem) {
-                    await loadStations(null, currentlyDisplayedDate);
-                    allStatusButtons.forEach(btn => btn.disabled = true);
-                    await animateStatusChange(participantItem, response.data.status);
-                    allStatusButtons.forEach(btn => btn.disabled = false);
+                    // Update the main view data
+                    await loadStations(null, dateString);
+                    // Update week overview to reflect changes
+                    await renderWeekOverview(dateString);
                 }
             }
         } catch (error) {
@@ -1685,7 +1692,6 @@
             allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
-
 
 
     async function animateStatusChange(element, newStatus) {
