@@ -12,29 +12,34 @@
 
         <!-- Logo section above the card -->
         <div class="col-12 text-center mb-4">
-            <img src="{{ url_for('static', filename='icons/icon-192x192.png') }}" 
-                 alt="Walking Bus Icon" 
-                 class="img-fluid" 
+            <img src="{{ url_for('static', filename='icons/icon-192x192.png') }}"
+                 alt="Walking Bus Icon"
+                 class="img-fluid"
                  style="max-width: 128px;">
         </div>
-        
+       
         <!-- Card section -->
         <div class="col-md-6 col-lg-4">
             <div class="card">
                 <div class="card-body">
                     <h3 class="card-title text-center mb-4">Walking Bus</h3>
-                    
+                   
                     {% if not buses %}
                     <div class="alert alert-warning" role="alert">
                         Keine Walking Busse konfiguriert. Bitte WALKING_BUSES in den Umgebungsvariablen definieren.
                     </div>
                     {% else %}
+                        <div id="securityAlert" class="alert alert-danger d-none" role="alert">
+                            <i class="bi bi-shield-lock me-2"></i>
+                            Keine sichere Verbindung! Login funktioniert nur über HTTPS oder localhost.
+                        </div>
+                        
                         {% if error %}
                         <div class="alert alert-danger" role="alert">
                             {{ error }}
                         </div>
                         {% endif %}
-                        
+                       
                         <form method="POST" action="{{ url_for('main.login') }}" id="loginForm">
                             {% if is_multi_bus %}
                                 <div class="form-group mb-3">
@@ -46,9 +51,9 @@
                                 </div>
                             {% endif %}
                             <div class="form-group mb-3">
-                                <input type="password" 
-                                       name="password" 
-                                       class="form-control" 
+                                <input type="password"
+                                       name="password"
+                                       class="form-control"
                                        placeholder="Passwort"
                                        required>
                             </div>
@@ -62,18 +67,35 @@
         <!-- GitHub reference section -->
         <div class="col-12 text-center mt-4">
             <div class="github-reference p-3">
-                <a href="https://github.com/frizzle0815/walking-bus-organizer" 
-                   class="text-decoration-none text-dark" 
+                <a href="https://github.com/frizzle0815/walking-bus-organizer"
+                   class="text-decoration-none text-dark"
                    target="_blank">
                     <i class="bi bi-github me-2" style="font-size: 1.2rem;"></i>
                     <span>Dieses Projekt ist Open Source.</span>
                 </a>
                 <div class="small text-muted mt-1">
-                    Commit: <a href="https://github.com/frizzle0815/walking-bus-organizer/commit/{{ git_revision.full }}" 
+                    Commit: <a href="https://github.com/frizzle0815/walking-bus-organizer/commit/{{ git_revision.full }}"
                            target="_blank">{{ git_revision.full }}</a>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const isLocalhost = window.location.hostname === 'localhost' 
+                    || window.location.hostname === '127.0.0.1';
+    
+    if (window.location.protocol !== 'https:' && !isLocalhost) {
+        const securityAlert = document.getElementById('securityAlert');
+        securityAlert.classList.remove('d-none');
+        
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.querySelectorAll('input, button, select').forEach(el => el.disabled = true);
+        }
+    }
+});
+</script>
 {% endblock %}

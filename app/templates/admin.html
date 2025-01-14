@@ -174,7 +174,7 @@
                     <div class="drag-handle me-2">⋮⋮</div>
                     <input type="text" class="form-control station-name" placeholder="Stationsname">
                     <button class="btn btn-danger btn-sm ms-2 delete-station">
-                        <i class="fas fa-trash"></i>
+                        <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
                 <div class="card-body p-2 participants-container">
@@ -195,7 +195,7 @@
                    <div class="flex-grow-1 d-flex align-items-center">
                        <input type="text" class="form-control participant-name" placeholder="Name">
                        <button class="btn btn-danger btn-sm ms-2 delete-participant">
-                           <i class="fas fa-trash"></i>
+                           <i class="fa-solid fa-trash-can"></i>
                        </button>
                    </div>
                </div>
@@ -665,33 +665,21 @@ input[type="time"]::-webkit-inner-spin-button {
 
      // Add event listeners to time inputs
      document.querySelectorAll('.time-input').forEach(timeInput => {
-         // Initial check
-         if (!timeInput.value) {
-             timeInput.classList.add('empty-time');
-         }
-         
-         // Check on input
-         timeInput.addEventListener('input', () => {
-             if (timeInput.value) {
-                 timeInput.classList.remove('empty-time');
-             } else {
-                 timeInput.classList.add('empty-time');
-             }
-         });
-
-         timeInput.addEventListener('change', async () => {
+         // Check on blur (when input loses focus) instead of onChange
+         timeInput.addEventListener('blur', async () => {
              const day = timeInput.dataset.day;
              const startTime = document.getElementById(`${day}-start`).value;
              const endTime = document.getElementById(`${day}-end`).value;
              
+             // Only validate if both times are completely entered
              if (startTime && endTime && startTime >= endTime) {
                  alert('Die Startzeit muss vor der Endzeit liegen.');
                  timeInput.value = timeInput.dataset.savedValue || '';
                  return;
              }
+
+             // Update schedule only after complete valid entry
              const newSchedule = {};
-             
-             // Collect all schedule data
              document.querySelectorAll('.schedule-day').forEach(cb => {
                  const day = cb.dataset.day;
                  newSchedule[day] = {
@@ -719,32 +707,43 @@ input[type="time"]::-webkit-inner-spin-button {
          const newStation = stationTemplate.cloneNode(true);
          newStation.classList.remove('d-none', 'station-template');
          newStation.dataset.stationId = station.id;
-         newStation.querySelector('.station-name').value = station.name;
+         
+         // Special handling for unassigned section
+         if (station.id === "unassigned") {
+             // Remove delete button and drag handle for unassigned section
+             const header = newStation.querySelector('.card-header');
+             header.querySelector('.delete-station').remove();
+             header.querySelector('.drag-handle').remove();
+             
+             // Make name field readonly
+             const nameField = header.querySelector('.station-name');
+             nameField.value = station.name;
+             nameField.readOnly = true;
+             
+             // Add special styling
+             newStation.classList.add('unassigned-section');
+         } else {
+             newStation.querySelector('.station-name').value = station.name;
+         }
 
          const participantsContainer = newStation.querySelector('.participants-container');
          
-         // Create and observe intersection
-         const observer = new IntersectionObserver(async (entries) => {
-             if (entries[0].isIntersecting) {
-                 if (station.participants) {
-                     const fragment = document.createDocumentFragment();
-                     for (const participant of station.participants) {
-                         const participantCard = await createParticipantCard(participant);
-                         fragment.appendChild(participantCard);
-                     }
-                     participantsContainer.appendChild(fragment);
-                 }
-                 observer.disconnect();
+         if (station.participants) {
+             const fragment = document.createDocumentFragment();
+             for (const participant of station.participants) {
+                 const participantCard = await createParticipantCard(participant);
+                 fragment.appendChild(participantCard);
              }
-         }, { threshold: 0.1 });
-         
-         observer.observe(newStation);
+             participantsContainer.appendChild(fragment);
+         }
+
          return newStation;
      }
 
      async function loadStations() {
          try {
-             const response = await fetchWithAuth('/api/stations?include=participants');
+             // Add admin=1 parameter to get full participant data including schedule
+             const response = await fetchWithAuth('/api/stations?admin=1&include=participants');
              const stations = await response.json();
              
              const fragment = document.createDocumentFragment();
@@ -759,8 +758,9 @@ input[type="time"]::-webkit-inner-spin-button {
          }
      }
 
+
      async function createParticipantCard(participant) {
-         const schedule = globalSchedule;  // This already contains the active state for each day
+         const schedule = globalSchedule;
          const newParticipant = participantTemplate.cloneNode(true);
          newParticipant.classList.remove('d-none', 'participant-template');
          
@@ -785,14 +785,16 @@ input[type="time"]::-webkit-inner-spin-button {
          days.forEach(({ key, label }) => {
              const dayCheck = document.createElement('div');
              dayCheck.className = 'form-check';
-             // Check if the day is active in the schedule
-             const isEnabled = schedule[key].active;  // Changed this line to access .active property
+             // Check schedule enabled state
+             const isEnabled = schedule[key] && schedule[key].active;
+             // Check participant's actual schedule for this day
+             const isScheduled = participant[key];
 
              dayCheck.innerHTML = `
                  <input type="checkbox" class="form-check-input ${key}" 
                         id="${key}-${participant.id}" 
                         ${isEnabled ? '' : 'disabled'}
-                        ${participant[key] ? 'checked' : ''}>
+                        ${isScheduled ? 'checked' : ''}>
                  <label class="form-check-label ${isEnabled ? '' : 'text-muted'}" 
                         for="${key}-${participant.id}">${label}</label>
              `;
@@ -845,8 +847,10 @@ input[type="time"]::-webkit-inner-spin-button {
                 handle: '.drag-handle',
                 draggable: '.station-card',
                 delayOnTouchOnly: true,
-                delay: 100,
-                touchStartThreshold: 3,
+                delay: 50,
+                touchStartThreshold: 10,
+                scrollSpeed: 80,
+                scrollSensitivity: 150,
                 onEnd: updateStationOrder
             });
 
@@ -857,8 +861,10 @@ input[type="time"]::-webkit-inner-spin-button {
                     handle: '.drag-handle',
                     group: 'participants',
                     delayOnTouchOnly: true,
-                    delay: 250,
-                    touchStartThreshold: 5,
+                    delay: 50,
+                    touchStartThreshold: 10,
+                    scrollSpeed: 80,
+                    scrollSensitivity: 150,
                     onEnd: updateParticipantOrder
                 });
             });
@@ -903,7 +909,12 @@ input[type="time"]::-webkit-inner-spin-button {
         function deleteStation(stationId, element) {
             fetchWithAuth(`/api/stations/${stationId}`, {
                 method: 'DELETE'
-            }).then(() => element.remove());
+            }).then(async () => {
+                element.remove();
+                
+                // Reload stations to show unassigned section if needed
+                await loadStations();
+            });
         }
 
         function createNewParticipant(stationId, stationElement) {
@@ -1048,37 +1059,59 @@ input[type="time"]::-webkit-inner-spin-button {
             const newStationId = evt.to.closest('.station-card').dataset.stationId;
             const participantsContainer = evt.to;
             
-            // Update positions for ALL participants in the container
-            const participants = Array.from(participantsContainer.children);
-            const updates = participants.map((participantElement, index) => {
-                const participantCard = participantElement.querySelector('.participant-card');
-                const participantId = participantCard.dataset.participantId;
-                return {
-                    participantId,
-                    position: index,
-                    stationId: newStationId
-                };
-            });
-
-            // Send all position updates to server
-            updates.forEach(update => {
-                fetchWithAuth(`/api/stations/${update.stationId}/participants/${update.participantId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        position: update.position
-                    })
+            // Get the specific moved participant
+            const movedParticipantCard = evt.item.querySelector('.participant-card');
+            const movedParticipantId = movedParticipantCard.dataset.participantId;
+            
+            // Get the new position from the Sortable event
+            const newPosition = evt.newIndex;  // This is the key change
+            
+            fetchWithAuth(`/api/stations/${newStationId}/participants/${movedParticipantId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_id: newStationId,
+                    position: newPosition  // Using the correct position from event
                 })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .catch(error => console.error('Update failed:', error));
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Failed to update participant station: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(() => {
+                // Update positions for remaining participants
+                const updatePromises = Array.from(participantsContainer.children)
+                    .map((participantElement, index) => {
+                        const participantCard = participantElement.querySelector('.participant-card');
+                        const participantId = participantCard.dataset.participantId;
+                        
+                        if (participantId !== movedParticipantId) {
+                            return fetchWithAuth(`/api/stations/${newStationId}/participants/${participantId}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    position: index
+                                })
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error(`Failed to update participant position: ${response.status}`);
+                                }
+                                return response.json();
+                            });
+                        }
+                    });
+                
+                return Promise.all(updatePromises);
+            })
+            .catch(error => {
+                console.error('Participant update failed:', error);
+                alert('Fehler beim Aktualisieren der Teilnehmer. Bitte laden Sie die Seite neu.');
+                location.reload();
             });
         }
-
 
     });
 </script>

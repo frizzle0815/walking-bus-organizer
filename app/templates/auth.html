@@ -4,22 +4,42 @@
     // Make auth functions globally available
     window.fetchWithAuth = async function(url, options = {}) {
         console.log('[AUTH.HTML][FETCH] Starting authenticated request to:', url);
+        
         try {
-            const cache = await caches.open('walking-bus-auth-v1');
-            const tokenResponse = await cache.match('static/auth-token');
+            let token = null;
             
-            if (!tokenResponse) {
-                console.log('[AUTH.HTML][FETCH] No token found in cache');
+            // Try Service Worker cache first
+            if ('caches' in window) {
+                try {
+                    const cache = await caches.open('walking-bus-auth-v1');
+                    const tokenResponse = await cache.match('static/auth-token');
+                    if (tokenResponse) {
+                        const tokenData = await tokenResponse.json();
+                        token = tokenData.token;
+                        console.log('[AUTH.HTML][FETCH] Token retrieved from cache');
+                    }
+                } catch (error) {
+                    console.log('[AUTH.HTML][FETCH] Cache access failed, trying localStorage');
+                }
+            }
+            
+            // Fallback to localStorage if cache failed or isn't available
+            if (!token) {
+                token = localStorage.getItem('auth_token');
+                if (token) {
+                    console.log('[AUTH.HTML][FETCH] Token retrieved from localStorage');
+                }
+            }
+            
+            if (!token) {
+                console.log('[AUTH.HTML][FETCH] No token found in any storage');
                 window.location.href = '/login';
                 return;
             }
             
-            const tokenData = await tokenResponse.json();
-            console.log('[AUTH.HTML][FETCH] Token retrieved from cache');
-            
             options.headers = {
                 ...options.headers,
-                'Authorization': `Bearer ${tokenData.token}`
+                'Authorization': `Bearer ${token}`
             };
             
             console.log('[AUTH.HTML][FETCH] Sending request with auth header');
@@ -31,33 +51,54 @@
     };
 
     window.getAuthToken = async function() {
-        console.log('[AUTH.HTML] Attempting to retrieve auth token from cache...');
+        // console.log('[AUTH.HTML] Attempting to retrieve auth token...');
+        
+        let token = null;
+        
+        // Try Service Worker cache first
         if ('caches' in window) {
             try {
                 const cache = await caches.open('walking-bus-auth-v1');
                 const response = await cache.match('static/auth-token');
                 if (response) {
                     const data = await response.json();
-                    console.log('[AUTH.HTML] Successfully retrieved auth token from cache');
-                    return data.token;
+                    token = data.token;
+                    // console.log('[AUTH.HTML] Successfully retrieved auth token from cache');
                 }
             } catch (error) {
-                console.error('[AUTH.HTML] Error accessing cache:', error);
+                console.log('[AUTH.HTML] Cache access failed, trying localStorage');
             }
         }
-        return null;
+        
+        // Fallback to localStorage
+        if (!token) {
+            token = localStorage.getItem('auth_token');
+            if (token) {
+                // console.log('[AUTH.HTML] Successfully retrieved auth token from localStorage');
+            }
+        }
+        
+        return token;
     };
 
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
         console.log(`[AUTH.HTML] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
+        
+        // Get token using our universal getAuthToken function
+        // This already handles both cache and localStorage fallback
         const token = await window.getAuthToken();
+        
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
+            // console.log('[AUTH.HTML] Added auth token to request headers');
+        } else {
+            // console.log('[AUTH.HTML] No auth token available');
         }
+        
         return config;
     }, (error) => {
-        console.error('[AUTH.HTML] Error in request interceptor:', error);
+        // console.error('[AUTH.HTML] Error in request interceptor:', error);
         return Promise.reject(error);
     });
 
@@ -66,40 +107,44 @@
     axios.interceptors.response.use(
         async response => {
             const newToken = response.data.new_auth_token;
-            if (newToken && 'serviceWorker' in navigator) {
-                console.log('[AUTH.HTML] New auth token received, preparing to update');
+            if (newToken) {
+                // console.log('[AUTH.HTML] New auth token received, preparing to update');
                 
-                try {
-                    // Initialize Service Worker first
-                    const activeWorker = await initializeServiceWorker();  // Token storage doesn't work without this - don't know why!
-                    console.log('[AUTH.HTML] Service Worker initialized for token update');
+                // Always update localStorage first as fallback
+                localStorage.setItem('auth_token', newToken);
+                // console.log('[AUTH.HTML] Token updated in localStorage');
+                
+                // Try to update Service Worker cache if available
+                if ('serviceWorker' in navigator) {
+                    try {
+                        const activeWorker = await initializeServiceWorker();  // Token storage doesn't work without this - don't know why!
+                        console.log('[AUTH.HTML] Service Worker initialized for token update');
 
-                    await new Promise((resolve, reject) => {
-                        const messageChannel = new MessageChannel();
-                        const timeoutId = setTimeout(() => {
-                            console.log('[AUTH.HTML] Token update timeout reached');
-                            reject(new Error('Token update timeout'));
-                        }, 5000);
-                        
-                        messageChannel.port1.onmessage = (event) => {
-                            clearTimeout(timeoutId);
-                            if (event.data.success) {
-                                console.log('[AUTH.HTML] Token successfully updated in service worker');
+                        await new Promise((resolve, reject) => {
+                            const messageChannel = new MessageChannel();
+                            const timeoutId = setTimeout(() => {
+                                console.log('[AUTH.HTML] Token update in Service Worker timed out');
+                                resolve(); // Continue with localStorage as fallback
+                            }, 5000);
+                            
+                            messageChannel.port1.onmessage = (event) => {
+                                clearTimeout(timeoutId);
+                                if (event.data.success) {
+                                    console.log('[AUTH.HTML] Token successfully updated in Service Worker');
+                                }
                                 resolve();
-                            } else {
-                                console.error('[AUTH.HTML] Failed to update token in service worker');
-                                reject(new Error('Failed to update token'));
-                            }
-                        };
+                            };
 
-                        console.log('[AUTH.HTML] Sending new token to service worker');
-                        activeWorker.postMessage({
-                            type: 'STORE_AUTH_TOKEN',
-                            token: newToken
-                        }, [messageChannel.port2]);
-                    });
-                } catch (error) {
-                    console.error('[AUTH.HTML] Error during service worker initialization:', error);
+                            console.log('[AUTH.HTML] Sending new token to Service Worker');
+                            activeWorker.postMessage({
+                                type: 'STORE_AUTH_TOKEN',
+                                token: newToken
+                            }, [messageChannel.port2]);
+                        });
+                    } catch (error) {
+                        console.log('[AUTH.HTML] Service Worker update failed, using localStorage:', error);
+                        // Continue with localStorage as fallback
+                    }
                 }
             }
             return response;
@@ -151,59 +196,95 @@
          try {
              const response = await fetch('/login', {
                  method: 'POST',
-                 body: formData
+                 body: formData,
+                 headers: {
+                     'Accept': 'application/json',
+                     'X-Requested-With': 'XMLHttpRequest'
+                 }
              });
 
-             if (!response.ok) {
-                 console.error('[AUTH.HTML]Login failed, displaying error message.');
-                 const errorText = await response.text();
-                 document.body.innerHTML = errorText;
+             const data = await response.json();
+             console.log('[AUTH.HTML]Response received:', data);
+
+             if (!data.success) {
+                 // Update form data if needed
+                 if (data.buses) {
+                     const select = form.querySelector('select[name="walking_bus"]');
+                     if (select) {
+                         select.innerHTML = data.buses.map(bus => 
+                             `<option value="${bus.id}" ${bus.id == data.selected_bus_id ? 'selected' : ''}>${bus.name}</option>`
+                         ).join('');
+                     }
+                 }
+
+                 // Display error message
+                 const errorDiv = document.querySelector('.alert-danger') || 
+                                document.createElement('div');
+                 errorDiv.className = 'alert alert-danger';
+                 errorDiv.textContent = data.error;
+                 
+                 // Insert error before the form
+                 const formContainer = form.parentNode;
+                 const existingError = formContainer.querySelector('.alert-danger');
+                 if (existingError) {
+                     formContainer.removeChild(existingError);
+                 }
+                 formContainer.insertBefore(errorDiv, form);
                  return;
              }
 
-             const data = await response.json();
-             console.log('[AUTH.HTML]Response JSON parsed:', data);
-
+             // Handle successful login
              const { auth_token: authToken, redirect_url: redirectUrl } = data;
 
-             if (authToken && 'serviceWorker' in navigator) {
-                 console.log('[AUTH.HTML]Auth token present and service worker supported.');
+             if (authToken) {
+                 console.log('[AUTH.HTML]Processing auth token');
                  
-                 // Initialize Service Worker first
-                 const activeWorker = await initializeServiceWorker();  // Token storage doesn't work without this - don't know why!
-                 console.log('[AUTH.HTML]Service Worker ready for message');
+                 // Always store in localStorage as backup
+                 localStorage.setItem('auth_token', authToken);
+                 
+                 // Try to store in Service Worker cache if available
+                 if ('serviceWorker' in navigator) {
+                     try {
+                         const activeWorker = await initializeServiceWorker();
+                         console.log('[AUTH.HTML]Service Worker initialized');
 
-                 // Store token and wait for confirmation
-                 await new Promise((resolve, reject) => {
-                     const messageChannel = new MessageChannel();
-                     
-                     // Set timeout for token storage
-                     const timeoutId = setTimeout(() => {
-                         reject(new Error('[AUTH.HTML]Token storage timeout'));
-                     }, 5000);
+                         await new Promise((resolve, reject) => {
+                             const messageChannel = new MessageChannel();
+                             const timeoutId = setTimeout(() => {
+                                 console.log('[AUTH.HTML]Token storage in Service Worker timed out, using localStorage');
+                                 resolve(); // Continue with localStorage as fallback
+                             }, 5000);
 
-                     messageChannel.port1.onmessage = (event) => {
-                         clearTimeout(timeoutId);
-                         if (event.data.success) {
-                             resolve();
-                         } else {
-                             reject(new Error('[AUTH.HTML]Failed to store token'));
-                         }
-                     };
+                             messageChannel.port1.onmessage = (event) => {
+                                 clearTimeout(timeoutId);
+                                 if (event.data.success) {
+                                     console.log('[AUTH.HTML]Token successfully stored in Service Worker');
+                                 }
+                                 resolve();
+                             };
 
-                     activeWorker.postMessage({
-                         type: 'STORE_AUTH_TOKEN',
-                         token: authToken
-                     }, [messageChannel.port2]);
-                 });
+                             activeWorker.postMessage({
+                                 type: 'STORE_AUTH_TOKEN',
+                                 token: authToken
+                             }, [messageChannel.port2]);
+                         });
+                     } catch (error) {
+                         console.log('[AUTH.HTML]Service Worker storage failed, using localStorage:', error);
+                         // Continue with localStorage as fallback
+                     }
+                 }
 
-                 // Only redirect after confirmed token storage
-                 console.log('[AUTH.HTML]Token stored successfully, redirecting to:', redirectUrl);
+                 // Redirect after storage attempts are complete
                  window.location.replace(redirectUrl);
              }
          } catch (error) {
-             console.error('[AUTH.HTML]Error during login process:', error);
-             alert('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+             console.error('[AUTH.HTML]Login error:', error);
+             // Show error in UI instead of alert
+             const errorDiv = document.querySelector('.alert-danger') || 
+                            document.createElement('div');
+             errorDiv.className = 'alert alert-danger';
+             errorDiv.textContent = 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.';
+             form.parentNode.insertBefore(errorDiv, form);
          }
      });
  }

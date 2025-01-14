@@ -35,7 +35,7 @@
     }
 
     .station-card:first-child {
-        margin-bottom: 24px; /* More space between summary and first station */
+        margin-bottom: 12px; /* More space between summary and first station */
     }
 
     .station-card:first-child .station-header {
@@ -166,6 +166,9 @@
         margin: 2px;
         justify-content: center;  /* Center horizontally */
         align-items: center;     /* Center vertically */
+        gap: 2px;                /* Controls space between elements */
+        padding: 4px 0;          /* Adds vertical padding */
+        height: 100%; 
         border-radius: 50%;
         cursor: pointer;
     }
@@ -417,6 +420,118 @@
         border-bottom: none; /* Remove the border that separates header from content */
     }
 
+    /* Basic container layout */
+
+    .week-container.participants-list {
+        display: block !important;
+    }
+
+    .week-container .week {
+        width: 100%;
+        display: flex;
+        justify-content: space-evenly;
+        margin: 0;
+        padding: 0;
+    }
+
+    .week-container .calendar-day {
+        position: relative;
+        font-size: 0.8em;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 1px solid #dee2e6;
+        color: #000; /* Ensure black text */
+        width: 100%;
+        height: 100%;
+    }
+
+    /* Square wrapper with elegant gradient border */
+    .week-container .calendar-day-wrapper {
+        position: relative;
+        padding: 3px;
+        border-radius: 8px;  /* Slightly rounder corners */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        transition: all 0.2s ease;
+        width: 45px; /* Fixed width */
+        height: 45px; /* Fixed height */
+    }
+
+    .week-container .day-label,
+    .week-container .day-number {
+        color: #000000;
+        font-weight: bold;
+        z-index: 1; /* Ensure text stays above backgrounds */
+        line-height: 1;          /* Removes extra line spacing */
+        margin: 0;  
+    }
+
+    /* Enhanced selected day styling */
+    .week-container .calendar-day-wrapper.selected-day {
+        background-color: black;
+        background-image: radial-gradient(
+            circle,
+            white,
+            gray
+        );
+        transform: scale(1.15);
+        z-index: 1;
+        box-shadow: 0 2px 8px rgba(13, 110, 253, 0.2);
+    }
+
+    /* Status indicators - improved visibility */
+    .week-container .calendar-day .override-icon,
+    .week-container .calendar-day .note-icon {
+        position: absolute;
+        top: -2px;
+        font-size: 1.2em;
+        z-index: 2;
+        /* Create circular black background */
+        background-color: black;
+        border-radius: 50%;
+        /* Ensure icon stays visible */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Keep existing styles */
+        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.2));
+        width: 0.5em;  /* Match icon width */
+        height: 0.5em; /* Match icon height */
+        line-height: 0.5; /* Ensure vertical centering */
+    }
+
+    .week-container .calendar-day .override-icon {
+        right: -4px;
+        color: #dc3545;
+    }
+
+    .week-container .calendar-day .note-icon {
+        left: -4px;
+        color: #ffc107;
+    }
+
+    .z-index-top {
+        z-index: 9999;  /* Alert message on failed loading */
+    }
+
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    }
+
 </style>
 
 <script>
@@ -440,36 +555,13 @@
 
 
     document.addEventListener('DOMContentLoaded', async () => {
-        // Create and insert alert container
-        const alertsContainer = document.createElement('div');
-        alertsContainer.id = 'alerts-container';
-        alertsContainer.innerHTML = `
-            <div id="connection-alert" class="alert alert-danger d-none" role="alert">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Die Verbindung zum Server wurde unterbrochen. Die angezeigten Daten sind möglicherweise nicht aktuell.
-            </div>
-            <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-info-circle me-2"></i>
-                    <span id="walkingbus-reason"></span>
-                </div>
-            </div>
-            <div id="note-alert" class="alert alert-warning d-none" role="alert">
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-sticky-note me-2"></i>
-                    <span id="walkingbus-note"></span>
-                </div>
-            </div>
-        `;
-
-        const stationsDiv = document.getElementById('stations');
-        stationsDiv.parentNode.insertBefore(alertsContainer, stationsDiv);
-
         // Initialize IndexedDB first
         await initDB();
+
+        const today = new Date().toISOString().split('T')[0];
+        await loadStations(null, today);
         
         // Initialize data and connections
-        await loadStations();
         initializeSSE();
         console.log('SSE initialization completed');
 
@@ -499,33 +591,21 @@
     });
 
 
-
     // First, create a promise for database initialization
     let dbPromise;
 
-    function initDB() {
+    async function initDB() {
         dbPromise = new Promise((resolve, reject) => {
             const request = indexedDB.open('WalkingBusDB', 3);
-            
             request.onerror = () => reject(request.error);
-            
-            request.onsuccess = (event) => {
-                const db = event.target.result;
-                resolve(db);
-            };
-            
+            request.onsuccess = (event) => resolve(event.target.result);
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
-                // Add existing stores
                 if (!db.objectStoreNames.contains('stationsData')) {
                     db.createObjectStore('stationsData', { keyPath: 'timestamp' });
                 }
                 if (!db.objectStoreNames.contains('participantStates')) {
                     db.createObjectStore('participantStates', { keyPath: 'id' });
-                }
-                // Add new store for calendar data
-                if (!db.objectStoreNames.contains('calendarData')) {
-                    db.createObjectStore('calendarData', { keyPath: ['participantId', 'date'] });
                 }
             };
         });
@@ -533,7 +613,7 @@
     }
 
 
-    async function loadStations() {
+    async function loadStations(previousStates = null, selectedDate = null) {
         const now = Date.now();
         if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
             return;
@@ -541,185 +621,488 @@
         lastUpdateTimestamp = now;
 
         try {
+            // Initialize and validate database connection
             const db = await dbPromise;
-
-            // Schedule validation with error handling
-            const scheduleResponse = await axios.get('/api/walking-bus-schedule');
-            const schedule = scheduleResponse?.data;
-            
-            if (schedule) {
-                const missingTimes = Object.entries(schedule)
-                    .filter(([_, dayData]) => dayData?.active && (!dayData?.start || !dayData?.end))
-                    .map(([day, _]) => day);
-                    
-                if (missingTimes.length > 0) {
-                    const alertsContainer = document.getElementById('alerts-container');
-                    if (alertsContainer) {
-                        alertsContainer.innerHTML = `
-                            <div class="alert alert-warning" role="alert">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                Bitte konfigurieren Sie die Zeiten für folgende Tage: 
-                                ${missingTimes.map(day => day.charAt(0).toUpperCase() + day.slice(1)).join(', ')}
-                            </div>
-                        `;
-                    }
-                    updateConnectionStatus('connected');
-                    return;
-                }
+            if (!db) {
+                throw new Error('Database not initialized');
             }
 
-            // Load and validate live data
-            const dailyStatusResponse = await axios.post('/api/initialize-daily-status');
-            const dailyStatus = dailyStatusResponse?.data;
+            // 1. First load and display cached data
+            const cachedData = await loadCachedData(db);
+            if (cachedData?.stations) {  // Null check with optional chaining
+                // Validate cached data structure
+                const validatedCachedData = {
+                    stations: Array.isArray(cachedData.stations) ? cachedData.stations : [],
+                    isWalkingBusDay: Boolean(cachedData.isWalkingBusDay),
+                    dailyStatus: {
+                        currentDate: cachedData.dailyStatus?.currentDate || new Date().toISOString(),
+                        reason: cachedData.dailyStatus?.reason || '',
+                        note: cachedData.dailyStatus?.note || ''
+                    },
+                    selectedDate: cachedData.selectedDate || new Date().toISOString().split('T')[0]
+                };
 
-            // More detailed validation
-            if (!dailyStatus) {
-                throw new Error('No daily status data received');
+                // Render validated cached data
+                await renderStations(
+                    validatedCachedData.stations,
+                    validatedCachedData.isWalkingBusDay,
+                    validatedCachedData.dailyStatus,
+                    validatedCachedData.selectedDate
+                );
             }
 
-            // Create a complete status object with defaults
-            const validatedDailyStatus = {
-                currentDate: dailyStatus.currentDate || new Date().toISOString(),
-                isWalkingBusDay: Boolean(dailyStatus.isWalkingBusDay),
-                reason: dailyStatus.reason || '',
-                note: dailyStatus.note || ''
-            };
+            // 2. Validate schedule
+            const schedule = await validateSchedule();
+            if (!schedule) return;
 
-            isWalkingBusDay = validatedDailyStatus.isWalkingBusDay;
+            // 3. Get fresh data
+            const { dailyStatus, stations } = await getFreshData(selectedDate);
             
-            const stationsResponse = await axios.get('/api/stations');
-            const stations = Array.isArray(stationsResponse?.data) ? stationsResponse.data : [];
-            
-            if (stations.length === 0) {
-                throw new Error('No valid stations data received');
-            }
+            // 4. Perform differential update
+            await updateUI(stations, dailyStatus, selectedDate);
+            // Always update week overview after UI update
+            await renderWeekOverview(selectedDate);
 
-            await renderStations(stations, isWalkingBusDay, dailyStatus);
-
-            // Cache validated data
-            const transaction = db.transaction(['participantStates'], 'readwrite');
-            const store = transaction.objectStore('participantStates');
-            
-            stations.forEach(station => {
-                if (Array.isArray(station?.participants)) {
-                    station.participants.forEach(participant => {
-                        if (participant?.id) {
-                            store.put({
-                                id: participant.id,
-                                today_status: Boolean(participant.today_status)
-                            });
-                        }
-                    });
-                }
-            });
-
-            const stationsTransaction = db.transaction(['stationsData'], 'readwrite');
-            const stationsStore = stationsTransaction.objectStore('stationsData');
-            await stationsStore.put({
-                timestamp: 'latest',
-                stations: stations,
-                isWalkingBusDay: isWalkingBusDay,
-                dailyStatus: dailyStatus
-            });
+            // 5. Cache new data
+            await updateCache(db, stations, dailyStatus, selectedDate);
 
             updateConnectionStatus('connected');
 
-        } catch (error) {
-            console.error('Error loading stations:', error);
-            updateConnectionStatus('disconnected');
+           } catch (error) {
+               console.error('Error loading stations:', error);
+               updateConnectionStatus('disconnected');
+               
+               // Safe DB access in error handler
+               if (dbPromise) {
+                   try {
+                       const db = await dbPromise;
+                       // Rest of your error handling...
+                   } catch (dbError) {
+                       console.error('Error accessing cached data:', dbError);
+                   }
+               }
+           }
+    }
 
-            // Enhanced cached data handling
-            try {
-                const db = await dbPromise;
-                const tx = db.transaction(['stationsData'], 'readonly');
-                const store = tx.objectStore('stationsData');
-                const cachedData = await store.get('latest');
+    // Helper functions for better organization
+    async function loadCachedData(db) {
+        const tx = db.transaction(['stationsData'], 'readonly');
+        const store = tx.objectStore('stationsData');
+        return await store.get('latest');
+    }
 
-                if (cachedData?.stations && Array.isArray(cachedData.stations)) {
-                    await renderStations(
-                        cachedData.stations,
-                        Boolean(cachedData.isWalkingBusDay),
-                        {
-                            ...cachedData.dailyStatus,
-                            currentDate: cachedData.dailyStatus?.currentDate || new Date().toISOString()
-                        }
+    async function validateSchedule() {
+        const scheduleResponse = await axios.get('/api/walking-bus-schedule');
+        const schedule = scheduleResponse?.data;
+        
+        if (schedule) {
+            const missingTimes = Object.entries(schedule)
+                .filter(([_, dayData]) => dayData?.active && (!dayData?.start || !dayData?.end))
+                .map(([day, _]) => day);
+                
+            if (missingTimes.length > 0) {
+                showScheduleAlert(missingTimes);
+                updateConnectionStatus('connected');
+                return null;
+            }
+        }
+        return schedule;
+    }
+
+    async function getFreshData(selectedDate) {
+        const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
+            date: selectedDate || new Date().toISOString().split('T')[0]
+        });
+        const dailyStatus = dailyStatusResponse?.data;
+
+        if (!dailyStatus) {
+            throw new Error('No daily status data received');
+        }
+
+        const validatedDailyStatus = {
+            currentDate: dailyStatus.currentDate || new Date().toISOString(),
+            isWalkingBusDay: Boolean(dailyStatus.isWalkingBusDay),
+            reason: dailyStatus.reason || '',
+            reason_type: dailyStatus.reason_type || '',  // Added reason_type
+            note: dailyStatus.note || ''
+        };
+
+        isWalkingBusDay = validatedDailyStatus.isWalkingBusDay;
+
+        const stationsResponse = await axios.get('/api/stations', {
+            params: {
+                date: selectedDate || new Date().toISOString().split('T')[0],
+                admin: 0
+            }
+        });
+        const stations = Array.isArray(stationsResponse?.data) ? stationsResponse.data : [];
+
+        if (stations.length === 0) {
+            throw new Error('No valid stations data received');
+        }
+
+        return { dailyStatus: validatedDailyStatus, stations };
+    }
+
+
+    async function updateUI(stations, dailyStatus, selectedDate) {
+        const stationsContainer = document.getElementById('stations');
+        const existingStations = stationsContainer.querySelectorAll('.station-card');
+
+        // Only create alerts if they don't exist
+        if (!document.getElementById('alerts-container')) {
+            const alertsContainer = createAlertsContainer(dailyStatus.isWalkingBusDay, dailyStatus);
+            stationsContainer.appendChild(alertsContainer);
+        }
+        
+        // Update existing alerts instead of replacing them
+        updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
+
+        if (existingStations.length === 0) {
+            await renderStations(stations, dailyStatus.isWalkingBusDay, dailyStatus, selectedDate);
+        } else {
+            for (const station of stations) {
+                const stationElement = document.querySelector(`[data-station-id="${station.id}"]`);
+                if (stationElement) {
+                    await updateStationElement(stationElement, station, dailyStatus.isWalkingBusDay);
+                }
+            }
+        }
+    }
+
+    async function updateCache(db, stations, dailyStatus, selectedDate) {
+        const participantsTransaction = db.transaction(['participantStates'], 'readwrite');
+        const participantsStore = participantsTransaction.objectStore('participantStates');
+
+        stations.forEach(station => {
+            if (Array.isArray(station?.participants)) {
+                station.participants.forEach(participant => {
+                    if (participant?.id) {
+                        participantsStore.put({
+                            id: participant.id,
+                            today_status: Boolean(participant.today_status),
+                            date: selectedDate || new Date().toISOString().split('T')[0]
+                        });
+                    }
+                });
+            }
+        });
+
+        const stationsTransaction = db.transaction(['stationsData'], 'readwrite');
+        const stationsStore = stationsTransaction.objectStore('stationsData');
+        await stationsStore.put({
+            timestamp: 'latest',
+            stations: stations,
+            isWalkingBusDay: isWalkingBusDay,
+            dailyStatus: dailyStatus,
+            selectedDate: selectedDate
+        });
+    }
+
+    async function updateStationElement(stationElement, stationData, isWalkingBusDay) {
+        // Update station header stats with walking bus day awareness
+        const statsElement = stationElement.querySelector(`#stats-station-${stationData.id}`);
+        if (statsElement) {
+            const activeCount = isWalkingBusDay ? 
+                stationData.participants.filter(p => p.status).length : 0;
+            statsElement.textContent = `${activeCount} / ${stationData.participants.length}`;
+        }
+
+        // Update each participant
+        for (const participant of stationData.participants) {
+            const participantElement = stationElement.querySelector(`[data-participant-id="${participant.id}"]`);
+            if (participantElement) {
+                // Remove all possible status classes
+                participantElement.classList.remove(
+                    'participant-status-active', 
+                    'participant-status-inactive',
+                    'participant-status-disabled'
+                );
+                
+                // Add appropriate status class based on walking bus day
+                if (!isWalkingBusDay) {
+                    participantElement.classList.add('participant-status-disabled');
+                } else {
+                    participantElement.classList.add(
+                        participant.status ? 'participant-status-active' : 'participant-status-inactive'
                     );
                 }
-            } catch (dbError) {
-                console.error('Error accessing cached data:', dbError);
+
+                // Update status button with walking bus day awareness
+                const statusButton = participantElement.querySelector('.status-button');
+                if (statusButton) {
+                    statusButton.classList.remove('btn-outline-success', 'btn-outline-danger', 'btn-outline-secondary');
+                    if (!isWalkingBusDay) {
+                        statusButton.classList.add('btn-outline-secondary');
+                        statusButton.innerHTML = '<i class="fas fa-times"></i>';
+                        statusButton.disabled = true;
+                    } else {
+                        statusButton.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
+                        statusButton.innerHTML = participant.status ?
+                            '<i class="fas fa-check"></i>' :
+                            '<i class="fas fa-times"></i>';
+                        statusButton.disabled = false;
+                    }
+                }
+
+                // Update traffic light icon with walking bus day awareness
+                const icon = participantElement.querySelector('.traffic-light.current-icon');
+                if (icon) {
+                    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive', 'icon-disabled');
+                    if (!isWalkingBusDay) {
+                        icon.classList.add('fa-person', 'icon-disabled');
+                    } else {
+                        icon.classList.add(
+                            participant.status ? 'fa-walking' : 'fa-person',
+                            participant.status ? 'icon-active' : 'icon-inactive'
+                        );
+                    }
+                }
             }
+        }
+
+        // Update total stats with walking bus day awareness
+        const totalStats = document.getElementById('stats-total');
+        if (totalStats) {
+            const allParticipants = Array.from(document.querySelectorAll('.participant-item'));
+            const activeParticipants = isWalkingBusDay ? 
+                allParticipants.filter(p => p.classList.contains('participant-status-active')).length : 0;
+            totalStats.textContent = `${activeParticipants} / ${allParticipants.length}`;
+        }
+    }
+
+
+    async function handleOfflineMode(db, selectedDate) {
+        try {
+            const cachedData = await loadCachedData(db);
+            if (cachedData?.stations && Array.isArray(cachedData.stations)) {
+                await renderStations(
+                    cachedData.stations,
+                    Boolean(cachedData.isWalkingBusDay),
+                    {
+                        ...cachedData.dailyStatus,
+                        currentDate: cachedData.dailyStatus?.currentDate || new Date().toISOString()
+                    }
+                );
+                
+                if (cachedData.selectedDate) {
+                    await renderWeekOverview(cachedData.selectedDate);
+                }
+            }
+        } catch (dbError) {
+            console.error('Error accessing cached data:', dbError);
+        }
+    }
+
+
+    async function renderWeekOverview(selectedDate = null) {
+        const response = await axios.get('/api/week-overview');
+        const weekData = response.data;
+        
+        const weekOverview = document.createElement('div');
+        weekOverview.className = 'week d-flex justify-content-between';
+            
+        // Ensure we have a valid selectedDate
+        if (!selectedDate) {
+            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
+                || new Date().toISOString().split('T')[0];
+        }
+        
+        weekOverview.innerHTML = weekData.map(day => `
+            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
+                <div class="calendar-day ${getWeekDayClass(day)}"
+                     data-date="${day.date}">
+                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
+                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
+                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
+                    <div class="day-number">${day.total_confirmed > 0 ? day.total_confirmed : '-'}</div>
+                    <div class="day-label">${getDayLabel(day.date)}</div>
+                </div>
+            </div>
+        `).join('');
+
+        
+        // Add click handler to the wrapper instead of the day
+        weekOverview.addEventListener('click', (e) => {
+            const wrapperElement = e.target.closest('.calendar-day-wrapper');
+            if (wrapperElement && !isSelectionInProgress) {
+                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
+                selectDay(dateStr);
+            }
+        });
+        
+        const weekContainer = document.querySelector('.week-container');
+        if (weekContainer) {
+            weekContainer.innerHTML = '';
+            weekContainer.appendChild(weekOverview);
+        }
+    }
+
+
+    function getWeekDayClass(day) {
+        const classes = [];
+        
+        // First determine background color
+        if (day.is_today && day.reason_type === 'TIME_PASSED') {
+            classes.push('day-gray');
+        } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+            classes.push('day-red');
+        } else if (!day.is_schedule_day || !day.is_active) {
+            classes.push('day-gray');
+        } else {
+            classes.push('day-green');
+        }
+        
+        // Add today marker if applicable
+        if (day.is_today) {
+            classes.push('day-today');
+        }
+        
+        return classes.join(' ');
+    }
+
+
+    function getDayLabel(dateStr) {
+        const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+        const date = new Date(dateStr);
+        return days[date.getDay()];
+    }
+
+    // Funktion zum Auswählen eines Tages
+    let isSelectionInProgress = false;
+    
+    async function selectDay(dateStr) {
+        if (isSelectionInProgress) {
+            return;
+        }
+
+        isSelectionInProgress = true;
+        
+        // Update selection visual state
+        const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
+        allWrappers.forEach(wrapper => {
+            wrapper.style.pointerEvents = 'none';
+            wrapper.classList.remove('selected-day');
+        });
+        
+        // Create and show loading overlay
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.classList.add('loading-overlay');
+        loadingOverlay.innerHTML = `
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Lade Daten...</span>
+            </div>
+        `;
+        document.body.appendChild(loadingOverlay);
+        
+        // Update selected day visual using more reliable DOM traversal
+        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+        if (selectedDay) {
+            selectedDay.closest('.calendar-day-wrapper').classList.add('selected-day');
+        }
+        
+        try {
+            // Get daily status first
+            const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
+                date: dateStr
+            });
+            const dailyStatus = dailyStatusResponse.data;
+
+            const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
+            if (summaryHeader) {
+                summaryHeader.textContent = formatServerDate(new Date(dailyStatus.currentDate));
+            }
+
+            // Update alerts with new daily status
+            updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
+            
+            // Wait for all API calls to complete
+            await Promise.all([
+                loadStations(null, dateStr),
+                renderWeekOverview(dateStr)
+            ]);
+        } catch (error) {
+            console.error('Error in selectDay:', error);
+        } finally {
+            // Restore interaction and clean up
+            allWrappers.forEach(wrapper => {
+                wrapper.style.pointerEvents = 'auto';
+            });
+            loadingOverlay.remove();
+            isSelectionInProgress = false;
         }
     }
 
 
 
-    async function renderStations(stations, isWalkingBusDay, dailyStatus) {
-        const walkingbusAlert = document.getElementById('walkingbus-alert');
-        const walkingbusReason = document.getElementById('walkingbus-reason');
-        const noteAlert = document.getElementById('note-alert');
-        const walkingbusNote = document.getElementById('walkingbus-note');
+    async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
+        console.log('Daily Status:', dailyStatus);
+        console.log('Time Passed:', dailyStatus.reason_type === "TIME_PASSED");
+        // Check if time has passed
+        const today = new Date().toISOString().split('T')[0];
+        const isCurrentDay = selectedDate === today;
+        const isTimePassed = dailyStatus.reason_type === "TIME_PASSED";
+        // If time has passed and it is today, override the walking bus day status
+        const effectiveWalkingBusDay = isWalkingBusDay && !(isTimePassed && isCurrentDay);
 
-        // Get status with reason from server
-        const serverDate = new Date(dailyStatus.currentDate);
-
-        // Show/hide alert and set reason
-        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-        if (!isWalkingBusDay && dailyStatus.reason) {
-            walkingbusReason.textContent = dailyStatus.reason;
-        }
-
-        // Show/hide note alert and set note
-        noteAlert.classList.toggle('d-none', !dailyStatus.note);
-        if (dailyStatus.note) {
-            walkingbusNote.textContent = dailyStatus.note;
-        }
-
+        stations = Array.isArray(stations) ? stations : [];
+        stations = stations.filter(station => station.id !== "unassigned");
         const stationsContainer = document.getElementById('stations');
         stationsContainer.innerHTML = '';
 
-        // Create and add summary card first
+        // 1. Summary Card
         const summaryCard = document.createElement('div');
         summaryCard.classList.add('station-card');
+        summaryCard.id = 'summary-card';
         
-        // Calculate total stats
-        const totalParticipants = stations.reduce((sum, station) => 
+        const totalParticipants = stations.reduce((sum, station) =>
             sum + station.participants.length, 0);
-        const confirmedParticipants = isWalkingBusDay ? 
-            stations.reduce((sum, station) => 
-                sum + station.participants.filter(p => p.today_status).length, 0) : 0;
+        const confirmedParticipants = effectiveWalkingBusDay ?
+            stations.reduce((sum, station) =>
+                sum + station.participants.filter(p => p.status).length, 0) : 0;
 
-        // Create summary card content
+        // Rest of summary card creation...
         summaryCard.innerHTML = `
-           <div class="station-header summary-header">
-               <h5 class="d-flex justify-content-between align-items-center mb-0">
-                   <span>
-                       ${formatServerDate(serverDate)}
-                   </span>
-                   <span class="badge bg-light text-dark" id="stats-total">
-                       ${confirmedParticipants} / ${totalParticipants}
-                   </span>
-               </h5>
-           </div>
-       `;
+            <div class="station-header summary-header">
+                <h5 class="d-flex justify-content-between align-items-center mb-0">
+                    <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
+                    <span class="badge bg-light text-dark" id="stats-total">
+                        ${confirmedParticipants} / ${totalParticipants}
+                    </span>
+                </h5>
+            </div>
+            <div class="week-container list-group list-group-flush participants-list">
+            </div>
+        `;
         
         stationsContainer.appendChild(summaryCard);
+        await renderWeekOverview(selectedDate || 
+                               document.querySelector('.selected-day')?.dataset.date || 
+                               new Date().toISOString().split('T')[0]);
 
+        // 2. & 3. Alerts Container and Updates
+        const alertsContainer = createAlertsContainer(effectiveWalkingBusDay, dailyStatus);
+        stationsContainer.appendChild(alertsContainer);
+        updateAlerts(effectiveWalkingBusDay, dailyStatus);
+
+        // 4. Render individual stations
         for (const station of stations) {
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
-            stationDiv.innerHTML = createStationHeader(station, isWalkingBusDay);
+            stationDiv.dataset.stationId = station.id;
+            stationDiv.innerHTML = createStationHeader(station, effectiveWalkingBusDay);
 
             const list = document.createElement('ul');
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
             for (const participant of station.participants) {
-                const item = await createParticipantItem(participant, isWalkingBusDay);
-                const nameSpan = createNameSpan(participant, isWalkingBusDay);
+                const item = await createParticipantItem(participant, effectiveWalkingBusDay);
+                const nameSpan = createNameSpan(participant, effectiveWalkingBusDay);
                 const buttonContainer = document.createElement('div');
                 buttonContainer.classList.add('d-flex', 'align-items-center');
 
-                const statusButton = createStatusButton(participant, isWalkingBusDay);
+                const statusButton = createStatusButton(participant, effectiveWalkingBusDay);
                 const calendarButton = document.createElement('button');
                 calendarButton.classList.add('calendar-btn');
                 calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
@@ -737,6 +1120,56 @@
             stationsContainer.appendChild(stationDiv);
         }
     }
+
+
+    function createAlertsContainer(isWalkingBusDay, dailyStatus) {
+        const alertsContainer = document.createElement('div');
+        alertsContainer.id = 'alerts-container';
+        alertsContainer.innerHTML = `
+            <div id="connection-alert" class="alert alert-danger d-none" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Die Verbindung zum Server wurde unterbrochen. Die angezeigten Daten sind möglicherweise nicht aktuell.
+            </div>
+            <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <span id="walkingbus-reason"></span>
+                </div>
+            </div>
+            <div id="note-alert" class="alert alert-warning d-none" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-sticky-note me-2"></i>
+                    <span id="walkingbus-note"></span>
+                </div>
+            </div>
+        `;
+
+        return alertsContainer;
+    }
+
+    // Helper function for alerts update
+    function updateAlerts(isWalkingBusDay, dailyStatus) {
+        const walkingbusAlert = document.getElementById('walkingbus-alert');
+        const walkingbusReason = document.getElementById('walkingbus-reason');
+        const noteAlert = document.getElementById('note-alert');
+        const walkingbusNote = document.getElementById('walkingbus-note');
+
+        if (walkingbusAlert && walkingbusReason) {
+            walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+            if (!isWalkingBusDay && dailyStatus.reason) {
+                walkingbusReason.textContent = dailyStatus.reason;
+            }
+        }
+
+        if (noteAlert && walkingbusNote) {
+            const hasNote = dailyStatus.note && dailyStatus.note.trim() !== '';
+            noteAlert.classList.toggle('d-none', !hasNote);
+            if (hasNote) {
+                walkingbusNote.textContent = dailyStatus.note;
+            }
+        }
+    }
+
 
     function formatServerDate(date) {
         const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -771,11 +1204,14 @@
             'd-flex',
             'justify-content-between',
             'align-items-center',
-            'participant-item',
-            isWalkingBusDay
-                ? (participant.today_status ? 'participant-status-active' : 'participant-status-inactive')
-                : 'participant-status-disabled'
+            'participant-item'
         );
+        
+        if (isWalkingBusDay) {
+            item.classList.add(participant.status ? 'participant-status-active' : 'participant-status-inactive');
+        } else {
+            item.classList.add('participant-status-disabled');
+        }
         
         item.dataset.participantId = participant.id;
         return item;
@@ -861,18 +1297,17 @@
         const nextIcon = document.createElement('i');
         nextIcon.classList.add('fas', 'traffic-light', 'next-icon');
 
-        // Rest of the icon class assignments remain the same
         if (!isWalkingBusDay) {
             currentIcon.classList.add('fa-person', 'icon-disabled');
             nextIcon.classList.add('fa-person', 'icon-disabled');
         } else {
             currentIcon.classList.add(
-                participant.today_status ? 'fa-walking' : 'fa-person',
-                participant.today_status ? 'icon-active' : 'icon-inactive'
+                participant.status ? 'fa-walking' : 'fa-person',
+                participant.status ? 'icon-active' : 'icon-inactive'
             );
             nextIcon.classList.add(
-                participant.today_status ? 'fa-person' : 'fa-walking',
-                participant.today_status ? 'icon-inactive' : 'icon-active'
+                participant.status ? 'fa-person' : 'fa-walking',
+                participant.status ? 'icon-inactive' : 'icon-active'
             );
         }
 
@@ -890,24 +1325,29 @@
             'btn-sm', 
             'rounded-pill', 
             'status-button',
-            'touch-target'  // New class for better touch area
+            'touch-target'
         );
+
+        button.onclick = (e) => {
+            e.preventDefault();
+            toggleParticipation(participant.id, button);
+        };
 
         if (!isWalkingBusDay) {
             button.classList.add('btn-outline-secondary', 'status-button-disabled');
             button.innerHTML = '<i class="fas fa-times"></i>';
             button.disabled = true;
         } else {
-            button.classList.add(participant.today_status ? 'btn-outline-danger' : 'btn-outline-success');
-            button.innerHTML = participant.today_status ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
-            button.onclick = (e) => {
-                e.preventDefault();  // Prevent any default behavior
-                toggleParticipation(participant.id, button);
-            };
+            // Use the status field from our API response
+            button.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
+            button.innerHTML = participant.status ? 
+                '<i class="fas fa-check"></i>' : 
+                '<i class="fas fa-times"></i>';
         }
 
         return button;
     }
+
 
     function getStationStats(station) {
         const totalParticipants = station.participants.length;
@@ -949,28 +1389,53 @@
 
     async function toggleParticipation(participantId, button) {
         if (isStatusUpdateInProgress) return;
+
+        // Get the currently selected date from the week overview
+        const selectedDayWrapper = document.querySelector('.week-container .selected-day');
+        const selectedDate = selectedDayWrapper?.querySelector('.calendar-day')?.dataset.date;
         
+        const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+        const wasActive = participantItem.classList.contains('participant-status-active');
+        const originalButtonContent = button.innerHTML;
+
         isStatusUpdateInProgress = true;
         const allStatusButtons = document.querySelectorAll('.status-button');
         allStatusButtons.forEach(btn => btn.disabled = true);
         
-        const originalButtonContent = button.innerHTML;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        
+
         try {
-            const response = await axios.patch(`/api/participation/${participantId}`);
-            await loadStations();
+            const response = await axios.patch(`/api/participation/${participantId}`, {
+                date: selectedDate
+            });
             
-            const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-            if (participantItem) {
-                await animateStatusChange(participantItem, response.data.status_today);
+            if (response.data && response.status === 200) {
+                // Update the view while maintaining the selected date
+                await loadStations(null, selectedDate);
+                if (participantItem) {
+                    allStatusButtons.forEach(btn => btn.disabled = true);
+                    await animateStatusChange(participantItem, response.data.status_today);
+                }
+                // Update week overview with the same selected date
+                await renderWeekOverview(selectedDate);
+                allStatusButtons.forEach(btn => btn.disabled = false);
+            } else {
+                throw new Error('Invalid server response');
             }
         } catch (error) {
             console.error('Error updating status:', error);
-            button.disabled = false;
-            button.innerHTML = originalButtonContent;
             
-            // Add warning indicator
+            // Restore status classes
+            participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+            participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
+            
+            // Restore button appearance
+            button.classList.remove('btn-outline-success', 'btn-outline-danger');
+            button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
+            button.innerHTML = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+            allStatusButtons.forEach(btn => btn.disabled = false);
+            
+            // Add warning triangle next to button
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
@@ -982,14 +1447,24 @@
             setTimeout(() => {
                 warningIcon.remove();
             }, 5000);
+            
+            // Also show the floating alert
+            const errorAlert = document.createElement('div');
+            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
+            errorAlert.innerHTML = `
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Änderung konnte nicht gespeichert werden
+            `;
+            document.body.appendChild(errorAlert);
+            
+            setTimeout(() => {
+                errorAlert.remove();
+            }, 5000);
+            
         } finally {
             isStatusUpdateInProgress = false;
-            allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
-
-
-
 
 
     async function openCalendar(participantId) {
@@ -1083,7 +1558,15 @@
     }
 
     async function renderCalendar(calendarData) {
-         if (!calendarData || !calendarData.length) {
+         // Get current selected date or use today's date
+        const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
+        // Get daily status from server
+        const todayStatusResponse = await axios.post('/api/initialize-daily-status', {
+            date: new Date().toISOString().split('T')[0]  // Always check current day
+        });
+        const todayStatus = todayStatusResponse.data;
+        
+        if (!calendarData || !calendarData.length) {
             console.error('No calendar data available');
             return;
         }
@@ -1091,7 +1574,7 @@
         const calendar = document.getElementById('calendar');
         calendar.innerHTML = '';
 
-        // Add weekday header row first
+        // Create weekday header row
         const weekdayHeader = document.createElement('div');
         weekdayHeader.className = 'week';
         const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -1104,20 +1587,21 @@
         });
         calendar.appendChild(weekdayHeader);
 
-        // Get the current participant's element from the main view to ensure state consistency
+        // Get current participant's status
         const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
         const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
 
-        // Use the first date from calendar data as reference point
+        // Set up calendar grid starting point
         const firstDate = new Date(calendarData[0].date);
         const startOfWeek = new Date(firstDate);
         startOfWeek.setDate(firstDate.getDate() - firstDate.getDay() + 1);
 
-        // Generate calendar days with synchronized status
+        // Generate calendar weeks
         for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
             const weekDiv = document.createElement('div');
             weekDiv.className = 'week';
 
+            // Generate days within each week
             for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
                 const currentDate = new Date(startOfWeek);
                 currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
@@ -1127,23 +1611,30 @@
                 dayDiv.className = 'calendar-day';
                 dayDiv.textContent = currentDate.getDate();
 
-                // Find matching data for this date
+                // Combine server data with local date checks
                 const dayData = calendarData.find(d => d.date === dateStr) || {
                     date: dateStr,
                     status: false,
                     is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
-                    is_past: false,
-                    is_today: false
+                    is_past: currentDate < new Date(new Date().setHours(0,0,0,0)),
+                    is_today: dateStr === dailyStatus.currentDate
                 };
 
-                if (!dayData.is_schedule_day || dayData.is_past) {
+                // Determine day state using combined logic
+                const isToday = dateStr === todayStatus.currentDate;
+                const shouldDisableDay = 
+                    !dayData.is_schedule_day || 
+                    dayData.is_past || 
+                    (isToday && todayStatus.reason_type === "TIME_PASSED");
+
+                if (shouldDisableDay) {
                     dayDiv.classList.add('day-gray');
                 } else {
                     dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
                     dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
                 }
 
-                // Use the server-provided is_today flag
+                // Mark today's date
                 if (dayData.is_today) {
                     dayDiv.classList.add('day-today');
                 }
@@ -1153,7 +1644,6 @@
             calendar.appendChild(weekDiv);
         }
     }
-
 
 
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
@@ -1167,38 +1657,39 @@
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            await axios.post('/api/calendar-status', {
+            // Get the currently selected date from the week overview
+            const selectedDayWrapper = document.querySelector('.week-container .selected-day');
+            const currentlyDisplayedDate = selectedDayWrapper?.querySelector('.calendar-day')?.dataset.date;
+            
+            const response = await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
                 status: !dayDiv.classList.contains('day-green')
             });
             
-            await loadStations();
-            
-            // Instead of reopening the calendar, just update its content
+            // Update calendar view
             const calendarData = await axios.get(`/api/calendar-data/${participantId}`);
             await renderCalendar(calendarData.data);
+            await renderWeekOverview(currentlyDisplayedDate);
             
-            // Animate if it's today's change
-            const today = new Date().toISOString().split('T')[0];
-            if (dateString === today) {
+            // If the modified date matches the displayed date, update main view
+            if (dateString === currentlyDisplayedDate) {
+                console.log('Updating main view for date:', dateString);
                 const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
                 if (participantItem) {
-                    await animateStatusChange(participantItem, !dayDiv.classList.contains('day-green'));
+                    // Update the main view data
+                    await loadStations(null, dateString);
                 }
             }
         } catch (error) {
             console.error('Error updating calendar status:', error);
             dayDiv.textContent = originalContent;
             
-            // Add warning indicator
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-            
             dayDiv.appendChild(warningIcon);
             
-            // Remove warning after 5 seconds
             setTimeout(() => {
                 warningIcon.remove();
                 dayDiv.textContent = originalContent;
@@ -1222,13 +1713,44 @@
     }
 
 
+    function updateWeekOverviewNumbers(weekData, selectedDate) {
+        weekData.forEach(dayData => {
+            const dayElement = document.querySelector(`.calendar-day[data-date="${dayData.date}"]`);
+            if (dayElement) {
+                // Update total confirmed number
+                const dayNumber = dayElement.querySelector('.day-number');
+                if (dayNumber) {
+                    dayNumber.textContent = dayData.total_confirmed > 0 ? 
+                        dayData.total_confirmed : '-';
+                }
+                
+                // Update day status classes if needed
+                updateDayStatusClasses(dayElement, dayData);
+            }
+        });
+    }
+
+    function updateDayStatusClasses(dayElement, dayData) {
+        dayElement.classList.remove('day-green', 'day-red', 'day-gray');
+        
+        if (dayData.reason_type === 'TIME_PASSED') {
+            dayElement.classList.add('day-gray');
+        } else if (!dayData.is_active && dayData.reason_type === 'MANUAL_OVERRIDE') {
+            dayElement.classList.add('day-red');
+        } else if (!dayData.is_active) {
+            dayElement.classList.add('day-gray');
+        } else {
+            dayElement.classList.add('day-green');
+        }
+    }
+
 
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
     let isReconnecting = false;
 
     // Modify initializeSSE to handle mobile focus better
-    function initializeSSE() {
+    async function initializeSSE() {
         console.log('Starting SSE connection...');
         
         if (globalEventSource) {
@@ -1239,21 +1761,46 @@
         const alertDelay = 10000;
         
         try {
+            // First verify authentication using fetchWithAuth
+            const authCheck = await fetchWithAuth('/stream');
+            if (!authCheck.ok) {
+                throw new Error('Authentication check failed');
+            }
+            
+            // Create SSE connection after successful auth check
             globalEventSource = new EventSource('/stream');
+            
+            // Add specific unauthorized event handler
+            globalEventSource.addEventListener('unauthorized', function(e) {
+                window.location.href = '/login';
+            });
             
             globalEventSource.onmessage = function(event) {
                 (async () => {
                     console.log('Received SSE update:', event.data);
                     const data = JSON.parse(event.data);
+                    
+                    // Update time display
                     if (data.time) {
                         document.getElementById('current-time').textContent = data.time;
                     }
 
-                    // Get previous states before updating
-                    const db = await dbPromise;
-                    const previousStates = await getPreviousStates(db);
+                    // Get currently selected date (fixed selector to match your structure)
+                    const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
+                    
+                    // Update week overview if data is available
+                    if (data.week_overview) {
+                        updateWeekOverviewNumbers(data.week_overview, selectedDate);
+                    }
+                    
+                    // Only update station data if viewing current date
+                    if (selectedDate === data.date) {
+                        const db = await dbPromise;
+                        const previousStates = await getPreviousStates(db);
+                        await loadStations(previousStates, selectedDate);
+                    }
 
-                    await loadStations(previousStates);
+                    // Update connection status
                     updateConnectionStatus('connected');
                     reconnectAttempts = 0;
                     isReconnecting = false;
@@ -1272,10 +1819,16 @@
                     isReconnecting = true;
                     reconnectAttempts++;
                     
-                    setTimeout(() => {
+                    setTimeout(async () => {
                         console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
                         isReconnecting = false;
                         globalEventSource.close();
+                        // Verify auth before reconnecting
+                        const authCheck = await fetchWithAuth('/stream');
+                        if (!authCheck.ok) {
+                            window.location.href = '/login';
+                            return;
+                        }
                         initializeSSE();
                     }, 5000 * reconnectAttempts);
                 } else if (reconnectAttempts >= maxReconnectAttempts) {
@@ -1305,6 +1858,9 @@
         } catch (error) {
             console.error('SSE initialization failed:', error);
             updateConnectionStatus('disconnected');
+            if (error.message === 'Authentication check failed') {
+                window.location.href = '/login';
+            }
         }
 
         return globalEventSource;
@@ -1321,8 +1877,9 @@
             const connectionAlert = document.getElementById('connection-alert');
             connectionAlert.classList.add('d-none');
             
-            // Force data refresh
-            loadStations();
+            // Reset to current date and reload data
+            const today = new Date().toISOString().split('T')[0];
+            selectDay(today);
             
             // Reset SSE connection
             if (eventSource) {
@@ -1330,6 +1887,19 @@
             }
             initializeSSE();
             
+        }
+    });
+
+    window.addEventListener('pageshow', (event) => {
+        // Check if page is loaded from cache (bfcache)
+        if (event.persisted) {
+            const today = new Date().toISOString().split('T')[0];
+            selectDay(today);
+            
+            if (globalEventSource) {
+                globalEventSource.close();
+            }
+            initializeSSE();
         }
     });
 

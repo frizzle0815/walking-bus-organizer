@@ -18,6 +18,10 @@ from .init_buses import init_walking_buses
 # Create Blueprint
 bp = Blueprint("main", __name__)
 
+@bp.route('/favicon.ico')
+def favicon():
+    return send_from_directory('static/icons', 'favicon.ico')
+
 # Frontend Routes
 @bp.route('/')
 def index():
@@ -38,49 +42,101 @@ def calendar_view():
 @bp.route("/api/stations", methods=["GET"])
 @require_auth
 def get_stations():
-    today = get_current_date()
     walking_bus_id = get_current_walking_bus_id()
-    if not walking_bus_id:
-        return jsonify({"error": "No walking bus selected", "redirect": True}), 401
-    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
-    result = []
+    selected_date = request.args.get('date')
+    is_admin = request.args.get('admin', '0') == '1'
     
+    if selected_date:
+        target_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+    else:
+        target_date = get_current_date()
+
+    # Get regular stations with eager loading of participants
+    stations = (Station.query
+               .filter_by(walking_bus_id=walking_bus_id)
+               .order_by(Station.position)
+               .all())
+
+    result = []
+
+    # Add unassigned section only for admin view
+    if is_admin:
+        unassigned_participants = Participant.query.filter_by(
+            walking_bus_id=walking_bus_id,
+            station_id=None
+        ).order_by(Participant.position).all()
+
+        if unassigned_participants:
+            result.append(create_unassigned_section(unassigned_participants, target_date))
+
+    # Process regular stations
     for station in stations:
-        # Order participants by position
-        ordered_participants = sorted(station.participants, key=lambda p: p.position)
-        participants = []
-        
-        for p in ordered_participants:
-            calendar_entry = CalendarStatus.query.filter_by(
-                participant_id=p.id,
-                date=today
-            ).first()
-            
-            today_status = calendar_entry.status if calendar_entry else getattr(p, WEEKDAY_MAPPING[today.weekday()], True)
-            
-            participants.append({
-                "id": p.id,
-                "name": p.name,
-                "monday": p.monday,
-                "tuesday": p.tuesday,
-                "wednesday": p.wednesday,
-                "thursday": p.thursday,
-                "friday": p.friday,
-                "saturday": p.saturday,
-                "sunday": p.sunday,
-                "today_status": today_status,
-                "position": p.position
-            })
-            
-        result.append({
+        station_data = {
             "id": station.id,
             "name": station.name,
             "position": station.position,
-            "participants": participants
-        })
+            "participants": create_participant_list(station.participants, target_date, is_admin)
+        }
+        result.append(station_data)
+
     return jsonify(result)
 
 
+def create_unassigned_section(participants, target_date):
+    """Helper function to create unassigned section data"""
+    unassigned_data = []
+    for p in participants:
+        participant_data = create_participant_data(p, target_date, True)
+        unassigned_data.append(participant_data)
+    
+    return {
+        "id": "unassigned",
+        "name": "Nicht zugeordnete Teilnehmer",
+        "position": -1,
+        "participants": unassigned_data
+    }
+
+
+def create_participant_list(participants, target_date, is_admin):
+    """Helper function to create participant list with appropriate data"""
+    return [create_participant_data(p, target_date, is_admin) for p in participants]
+
+
+def create_participant_data(participant, target_date, is_admin):
+    """Helper function to create participant data based on view type"""
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant.id,
+        date=target_date,
+        walking_bus_id=participant.walking_bus_id
+    ).first()
+    
+    status = calendar_entry.status if calendar_entry else getattr(
+        participant, 
+        WEEKDAY_MAPPING[target_date.weekday()], 
+        True
+    )
+    
+    # Base data for both views
+    data = {
+        "id": participant.id,
+        "name": participant.name,
+        "status": status
+    }
+    
+    # Additional data for admin view
+    if is_admin:
+        data.update({
+            "monday": participant.monday,
+            "tuesday": participant.tuesday,
+            "wednesday": participant.wednesday,
+            "thursday": participant.thursday,
+            "friday": participant.friday,
+            "saturday": participant.saturday,
+            "sunday": participant.sunday,
+            "position": participant.position
+        })
+    
+    return data
 
 
 @bp.route("/api/stations", methods=["POST"])
@@ -353,44 +409,45 @@ def delete_participant(participant_id):
 @require_auth
 def toggle_participation(participant_id):
     walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    target_date = datetime.strptime(data['date'], '%Y-%m-%d').date() if data.get('date') else get_current_date()
     
-    # Get participant with walking bus verification
     participant = Participant.query.filter_by(
         id=participant_id,
         walking_bus_id=walking_bus_id
     ).first_or_404()
     
-    participant.status_today = not participant.status_today
-    
-    # Add logging
-    app.logger.info(f"Teilnehmer {participant.name} (ID: {participant_id}) Status Heute geändert zu {participant.status_today}")
-    
-    today = get_current_date()
     calendar_entry = CalendarStatus.query.filter_by(
         participant_id=participant_id,
-        date=today,
+        date=target_date,
         walking_bus_id=walking_bus_id
     ).first()
+
+    new_status = not (calendar_entry.status if calendar_entry else getattr(participant, WEEKDAY_MAPPING[target_date.weekday()], True))
     
     if calendar_entry:
-        calendar_entry.status = participant.status_today
+        calendar_entry.status = new_status
         calendar_entry.is_manual_override = True
     else:
         calendar_entry = CalendarStatus(
             participant_id=participant_id,
-            date=today,
-            status=participant.status_today,
+            date=target_date,
+            status=new_status,
             is_manual_override=True,
             walking_bus_id=walking_bus_id
         )
         db.session.add(calendar_entry)
+
+    if target_date == get_current_date():
+        participant.status_today = new_status
     
     db.session.commit()
+    
     return jsonify({
-        "status_today": participant.status_today,
-        "participant_id": participant.id
+        "status_today": new_status,
+        "participant_id": participant.id,
+        "date": target_date.isoformat()
     })
-
 
 
 @bp.route("/api/participant/<int:participant_id>/weekday-status/<string:weekday>")
@@ -412,17 +469,24 @@ def get_participant_weekday_status(participant_id, weekday):
 @require_auth
 def initialize_daily_status():
     try:
-        # Get and check token expiration
+        # Get and validate date from request
+        data = request.get_json()
+        requested_date = None
+        if data and 'date' in data:
+            try:
+                requested_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+        # Token handling
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         payload = jwt.decode(token, options={"verify_signature": False})
         exp_timestamp = payload['exp']
         exp_date = datetime.fromtimestamp(exp_timestamp)
         remaining_days = (exp_date - datetime.utcnow()).days
-        
-        # Create new token if less than 30 days remaining
+
         new_token = None
         if remaining_days < 30:
-            # Verify old token before creating new one
             verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             new_token = jwt.encode({
                 **verified_payload,
@@ -432,66 +496,187 @@ def initialize_daily_status():
             app.logger.info("Created new token with extended expiration")
 
         walking_bus_id = get_current_walking_bus_id()
-        today = get_current_date()
+        target_date = requested_date if requested_date else get_current_date()
         current_time = get_current_time().time()
-        app.logger.info(f"Initializing daily status for {today} at {current_time}")
+        
+        app.logger.info(f"Initializing daily status for {target_date} at {current_time}")
 
-        # Update holiday cache first
+        # Update holiday cache
         holiday_service = HolidayService()
         holiday_service.update_holiday_cache()
 
-        # Delete all calendar entries from past dates for this walking bus
-        deleted_count = CalendarStatus.query.filter(
-            CalendarStatus.date < today,
-            CalendarStatus.walking_bus_id == walking_bus_id
-        ).delete()
-        app.logger.info(f"Deleted {deleted_count} past calendar entries")
-        db.session.commit()
+        # Clean up past entries for current date only
+        if not requested_date:
+            deleted_count = CalendarStatus.query.filter(
+                CalendarStatus.date < target_date,
+                CalendarStatus.walking_bus_id == walking_bus_id
+            ).delete()
+            app.logger.info(f"Deleted {deleted_count} past calendar entries")
+            db.session.commit()
 
-        # Get the daily note for today for this walking bus
+        # Get schedule information
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+        schedule_data = None
+        if schedule:
+            weekday = target_date.weekday()
+            weekday_name = WEEKDAY_MAPPING[weekday]
+            start_time = getattr(schedule, f"{weekday_name}_start", None)
+            end_time = getattr(schedule, f"{weekday_name}_end", None)
+            
+            schedule_data = {
+                "active": getattr(schedule, weekday_name, False),
+                "start": start_time.strftime("%H:%M") if start_time else None,
+                "end": end_time.strftime("%H:%M") if end_time else None
+            }
+
+        # Get daily note
         daily_note = DailyNote.query.filter_by(
-            date=today,
+            date=target_date,
             walking_bus_id=walking_bus_id
         ).first()
 
-        app.logger.info("Checking walking bus day status")
-        walking_bus_day, reason, reason_type = check_walking_bus_day(today, include_reason=True)
+        # Check walking bus status
+        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
         app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
-        # Check schedule end time if walking bus is active
-        if walking_bus_day:
-            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
-            if schedule:
-                weekday = today.weekday()
-                end_time = getattr(schedule, f"{WEEKDAY_MAPPING[weekday]}_end")
-                
-                if end_time and current_time > end_time:
+        # Initialize time_passed before any checks
+        time_passed = False
+
+        # Get today's date for comparison
+        today = get_current_date()
+
+        # Check walking bus status
+        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
+        app.logger.info(f"Walking bus day status: {walking_bus_day}")
+
+        # Then modify the time check to only apply for current day
+        if walking_bus_day and schedule_data and schedule_data["end"]:
+            end_time = datetime.strptime(schedule_data["end"], "%H:%M").time()
+            app.logger.info(f"Target date: {target_date}, Today: {today}")
+            app.logger.info(f"Parsed end_time: {end_time}")
+            
+            # Ensure target_date is a date object for comparison
+            if isinstance(target_date, str):
+                target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+            
+            # Only check time if we're looking at today
+            if target_date == today:
+                app.logger.info(f"Checking time for today: {current_time} > {end_time}")
+                if current_time > end_time:
+                    app.logger.info("Time check conditions met - updating status")
                     walking_bus_day = False
                     reason = "Der Walking Bus hat heute bereits stattgefunden."
                     reason_type = "TIME_PASSED"
-                    app.logger.info(f"Walking bus time passed. End time was {end_time}")
+                    time_passed = True
 
-        display_reason = reason["full_reason"] if reason_type == "HOLIDAY" else reason
+        # Now handle reason formatting
+        if time_passed:
+            display_reason = reason
+        elif reason_type == "HOLIDAY" and isinstance(reason, dict):
+            display_reason = reason.get("full_reason", "")
+        else:
+            display_reason = str(reason)
 
         response = {
             "success": True,
-            "currentDate": today.isoformat(),
+            "currentDate": target_date.isoformat(),
             "isWalkingBusDay": walking_bus_day,
             "reason": display_reason,
-            "reason_type": reason_type,
-            "note": daily_note.note if daily_note else None
+            "reason_type": reason_type,  # This will now correctly show TIME_PASSED
+            "note": daily_note.note if daily_note else None,
+            "schedule": schedule_data
         }
 
-        # Add new token to response if created
-        if new_token:
-            response["new_auth_token"] = new_token
-
-        app.logger.info(f"Returning response: {response}")
+        app.logger.info(f"Final response: {response}")
         return jsonify(response)
+
     except Exception as e:
         app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/api/week-overview")
+@require_auth
+def get_week_overview():
+    walking_bus_id = get_current_walking_bus_id()
+    today = get_current_date()
+    current_time = get_current_time().time()
+    
+    week_data = []
+    
+    for i in range(6):
+        current_date = today + timedelta(days=i)
+        # Get full walking bus day info including reason and reason_type
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date,
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        
+        # Check if time has passed for today
+        if current_date == today:
+            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+            if schedule:
+                weekday = WEEKDAY_MAPPING[current_date.weekday()]
+                end_time = getattr(schedule, f"{weekday}_end", None)
+                if end_time and current_time > end_time:
+                    is_active = False
+                    reason = "Der Walking Bus hat heute bereits stattgefunden."
+                    reason_type = "TIME_PASSED"
+        
+        # Get schedule information
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+        weekday = WEEKDAY_MAPPING[current_date.weekday()]
+        is_schedule_day = schedule and getattr(schedule, weekday, False)
+        
+        # Check for manual override
+        override = WalkingBusOverride.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        # Check for notes
+        note = DailyNote.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        # Calculate total confirmed participants
+        total_confirmed = 0
+        if is_active:
+            participants = Participant.query.filter(
+                Participant.walking_bus_id == walking_bus_id,
+                Participant.station_id.isnot(None)
+            ).all()
+            
+            calendar_entries = CalendarStatus.query.filter_by(
+                walking_bus_id=walking_bus_id,
+                date=current_date
+            ).all()
+            
+            calendar_lookup = {entry.participant_id: entry.status for entry in calendar_entries}
+            
+            for participant in participants:
+                if participant.id in calendar_lookup:
+                    if calendar_lookup[participant.id]:
+                        total_confirmed += 1
+                elif getattr(participant, weekday, True):
+                    total_confirmed += 1
+        
+        week_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'is_schedule_day': is_schedule_day,
+            'reason': reason,
+            'reason_type': reason_type,
+            'total_confirmed': total_confirmed,
+            'is_today': current_date == today,
+            'has_override': override is not None,
+            'has_note': note is not None and note.note.strip() != ''
+        })
+    
+    return jsonify(week_data)
 
 
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
@@ -584,8 +769,6 @@ def get_schedule():
         }), 500
 
 
-
-
 @bp.route("/api/walking-bus-schedule", methods=["PUT"])
 @require_auth
 def update_schedule():
@@ -619,7 +802,6 @@ def update_schedule():
     
     db.session.commit()
     return jsonify({"success": True})
-
 
 
 @bp.route("/api/calendar-status", methods=["POST"])
@@ -815,38 +997,108 @@ def update_future_entries():
 
 @bp.route('/stream')
 def stream():
+    walking_bus_id = get_current_walking_bus_id()
+    if not walking_bus_id:
+        return jsonify({"error": "Unauthorized", "redirect": True}), 401
+
     def event_stream():
         try:
-            walking_bus_id = get_current_walking_bus_id()
-            if not walking_bus_id:
-                return jsonify({"error": "No walking bus selected", "redirect": True}), 401
             last_data = None
             while True:
                 with db.session.begin():
                     current_time = get_current_time()
-                    # Filter stations by walking bus
+                    current_date = get_current_date()
+                    
+                    # Get schedule for time check
+                    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+                    
+                    # Get stations data
                     stations = Station.query.filter_by(
                         walking_bus_id=walking_bus_id
                     ).order_by(Station.position).all()
                     
+                    # Get week overview data
+                    week_data = []
+                    today = get_current_date()
+                    
+                    # Pre-fetch all participants and calendar entries
+                    participants = Participant.query.filter(
+                        Participant.walking_bus_id == walking_bus_id,
+                        Participant.station_id.isnot(None)
+                    ).all()
+                    
+                    calendar_entries = CalendarStatus.query.filter(
+                        CalendarStatus.walking_bus_id == walking_bus_id,
+                        CalendarStatus.date >= today,
+                        CalendarStatus.date <= today + timedelta(days=5)
+                    ).all()
+                    
+                    # Create lookup dictionary
+                    calendar_lookup = {}
+                    for entry in calendar_entries:
+                        if entry.date not in calendar_lookup:
+                            calendar_lookup[entry.date] = {}
+                        calendar_lookup[entry.date][entry.participant_id] = entry.status
+
+                    # Process each day
+                    for i in range(6):
+                        check_date = today + timedelta(days=i)
+                        is_active, reason, reason_type = check_walking_bus_day(
+                            check_date,
+                            include_reason=True,
+                            walking_bus_id=walking_bus_id
+                        )
+                        
+                        # Check for TIME_PASSED specifically for today
+                        if check_date == today and is_active and schedule:
+                            weekday = WEEKDAY_MAPPING[today.weekday()]
+                            end_time = getattr(schedule, f"{weekday}_end", None)
+                            if end_time:
+                                # Convert current_time to time object for proper comparison
+                                current_time_obj = current_time.time()
+                                if current_time_obj > end_time:
+                                    is_active = False
+                                    reason = "Der Walking Bus hat heute bereits stattgefunden."
+                                    reason_type = "TIME_PASSED"
+                        
+                        # Calculate confirmed participants
+                        total_confirmed = 0
+                        if is_active and reason_type != 'TIME_PASSED':
+                            weekday = WEEKDAY_MAPPING[check_date.weekday()]
+                            for participant in participants:
+                                if check_date in calendar_lookup and participant.id in calendar_lookup[check_date]:
+                                    if calendar_lookup[check_date][participant.id]:
+                                        total_confirmed += 1
+                                elif getattr(participant, weekday, True):
+                                    total_confirmed += 1
+                        
+                        week_data.append({
+                            'date': check_date.isoformat(),
+                            'total_confirmed': total_confirmed,
+                            'is_active': is_active,
+                            'reason': reason,
+                            'reason_type': reason_type
+                        })
+
+                    # Combine all data
                     current_data = {
                         "time": current_time.strftime("%H:%M"),
-                        "stations": []
+                        "date": current_date.isoformat(),
+                        "stations": [
+                            {
+                                "id": station.id,
+                                "name": station.name,
+                                "participants": [
+                                    {
+                                        "id": p.id,
+                                        "name": p.name,
+                                        "status_today": p.status_today
+                                    } for p in station.participants
+                                ]
+                            } for station in stations
+                        ],
+                        "week_overview": week_data
                     }
-                    
-                    for station in stations:
-                        station_data = {
-                            "id": station.id,
-                            "name": station.name,
-                            "participants": [
-                                {
-                                    "id": p.id,
-                                    "name": p.name,
-                                    "status_today": p.status_today
-                                } for p in station.participants
-                            ]
-                        }
-                        current_data["stations"].append(station_data)
                     
                     current_data_str = json.dumps(current_data)
                     
@@ -857,6 +1109,7 @@ def stream():
                         yield f"event: check\ndata: No changes detected at {datetime.now().strftime('%H:%M:%S')}\n\n"
                 
                 time.sleep(5)
+                
         except Exception as e:
             print(f"Stream error: {e}")
             db.session.remove()
@@ -1100,60 +1353,52 @@ def get_current_walking_bus_id():
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     ip = request.remote_addr
-    error_message = None
     is_multi_bus = init_walking_buses()
+    configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
+    buses = WalkingBus.query.filter(
+        WalkingBus.id.in_(configured_bus_ids)
+    ).order_by(WalkingBus.id).all() if is_multi_bus else None
 
-    app.logger.debug(f"Login request from IP: {ip}")
-    app.logger.debug(f"Multi-bus mode: {is_multi_bus}")
+    # Common data needed for both success and error responses
+    common_data = {
+        'git_revision': get_git_revision(),
+        'is_multi_bus': is_multi_bus,
+        'buses': [{'id': bus.id, 'name': bus.name} for bus in (buses or [])],
+        'selected_bus_id': None
+    }
 
     if request.method == 'GET':
-        configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
-        buses = WalkingBus.query.filter(
-            WalkingBus.id.in_(configured_bus_ids)
-        ).order_by(WalkingBus.id).all() if is_multi_bus else None
-        return render_template('login.html', 
-                     hide_menu=True, 
-                     buses=buses, 
-                     is_multi_bus=is_multi_bus,
-                     git_revision=get_git_revision())
+        return render_template('login.html',
+                     hide_menu=True,
+                     **common_data)
 
+    # Handle POST requests
     if not is_ip_allowed():
         remaining_minutes = get_remaining_lockout_time(ip)
         if remaining_minutes > 0:
-            error_message = f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten. Der Zugangsversuch wurde protokolliert."
-            app.logger.warning(f"IP {ip} is locked out for {remaining_minutes} more minutes")
-            return render_template('login.html',
-                                   error=error_message,
-                                   git_revision=get_git_revision(),
-                                   hide_menu=True,
-                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                                   is_multi_bus=is_multi_bus)
+            return jsonify({
+                'success': False,
+                'error': f"Zu viele Versuche. Bitte warten Sie {remaining_minutes} Minuten.",
+                **common_data
+            }), 401
 
     password = request.form.get('password')
     selected_bus_id = request.form.get('walking_bus')
-    app.logger.debug(f"POST request - Password received: {'*' * len(password) if password else 'None'}")
+    common_data['selected_bus_id'] = selected_bus_id
 
-    if is_multi_bus:
-        bus_id = selected_bus_id
-        app.logger.debug(f"POST request - Selected bus ID: {bus_id}")
-        if not bus_id:
-            app.logger.error("No walking bus selected in multi-bus mode")
-            return render_template('login.html',
-                                   error="Bitte Walking Bus und Passwort eingeben",
-                                   git_revision=get_git_revision(),
-                                   hide_menu=True,
-                                   buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all(),
-                                   is_multi_bus=is_multi_bus)
-        bus = WalkingBus.query.get(bus_id)
-    else:
-        configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
-        bus = WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first()
+    if is_multi_bus and not selected_bus_id:
+        return jsonify({
+            'success': False,
+            'error': "Bitte Walking Bus und Passwort eingeben",
+            **common_data
+        }), 400
+
+    bus = (WalkingBus.query.get(selected_bus_id) if is_multi_bus 
+           else WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first())
 
     if bus and bus.password == password:
-        app.logger.info(f"Login successful for walking bus: {bus.name} (ID: {bus.id})")
-
+        # Success case - create token and session
         password_hash = get_consistent_hash(bus.password)
-
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
         session['bus_password_hash'] = password_hash
@@ -1164,52 +1409,45 @@ def login():
             'walking_bus_id': bus.id,
             'walking_bus_name': bus.name,
             'bus_password_hash': password_hash,
-            'exp': datetime.utcnow() + timedelta(days=60),  # Set expiration to 60 days
+            'exp': datetime.utcnow() + timedelta(days=60),
             'iat': datetime.utcnow(),
             'type': 'pwa_auth'
         }, SECRET_KEY, algorithm="HS256")
 
-        # Send token as JSON response
-        return jsonify({'auth_token': token, 'redirect_url': url_for('main.index')})
+        return jsonify({
+            'success': True,
+            'auth_token': token,
+            'redirect_url': url_for('main.index')
+        })
 
+    # Handle failed login
     record_attempt()
     remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
     lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
-    error_message = f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig."
-    app.logger.warning(f"Failed login attempt for bus: {bus.name if bus else 'Unknown'}")
-
-    return render_template('login.html',
-                           error=error_message,
-                           git_revision=get_git_revision(),
-                           hide_menu=True,
-                           selected_bus_id=selected_bus_id,
-                           buses=WalkingBus.query.filter(WalkingBus.id.in_(app.config.get('CONFIGURED_BUS_IDS', []))).all() if is_multi_bus else None,
-                           is_multi_bus=is_multi_bus)
+    
+    return jsonify({
+        'success': False,
+        'error': f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig.",
+        **common_data
+    }), 401
 
 
 
 @bp.route("/logout")
 def logout():
-    # Clear all session data
     session.clear()
     
-    # Create response object for redirect
     response = redirect(url_for('main.login'))
     
-    # Remove auth token cookie with all security flags
-    response.delete_cookie(
-        'auth_token',
-        secure=True,
-        httponly=True,
-        samesite='Strict'
-    )
-    
-    # Force browser to clear cache and storage
+    # Erweiterte Header für bessere Mobile-Kompatibilität
     response.headers.update({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',
-        'Expires': '0',
-        'Clear-Site-Data': '"cache", "cookies", "storage"'
+        'Expires': '-1',
+        'Clear-Site-Data': '"cache", "cookies", "storage", "executionContexts"'
     })
+    
+    # Service Worker deregistrieren
+    response.headers['Service-Worker-Allowed'] = '/'
     
     return response

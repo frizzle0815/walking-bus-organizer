@@ -10,8 +10,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:image" content="{{ url_for('static', filename='icons/icon-512x512.png', _external=True) }}">
+    <meta property="og:description" content="Walking Bus Organizer - Organize and manage walking groups for children">
+    <meta property="og:site_name" content="Walking Bus Organizer">
+
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/favicon.ico') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
@@ -230,7 +240,7 @@
     :root {
         --bg-color: #ffffff;
         --text-color: #212529;
-        --card-bg: #414141;
+        --card-bg: #ffffff;
         --card-text: #ffffff;
         --participants-bg: #ffffff;
         --nav-bg: #f8f9fa;
@@ -355,28 +365,35 @@ async function ensurePersistentStorage() {
  let deferredPrompt;
 
  window.addEventListener('beforeinstallprompt', (e) => {
-     e.preventDefault();
-     deferredPrompt = e;
-     const installAppItem = document.getElementById('install-app-item');
-     if (installAppItem) {
-         installAppItem.style.display = 'block';
-     }
- });
+    deferredPrompt = e;
+    const installAppItem = document.getElementById('install-app-item');
+    if (installAppItem) {
+        installAppItem.style.display = 'block';
+    }
+});
 
- const installApp = document.getElementById('install-app');
- if (installApp) {
-     installApp.addEventListener('click', async () => {
-         if (!deferredPrompt) return;
-         deferredPrompt.prompt();
-         const { outcome } = await deferredPrompt.userChoice;
-         console.log(`User response to the install prompt: ${outcome}`);
-         deferredPrompt = null;
-         const installAppItem = document.getElementById('install-app-item');
-         if (installAppItem) {
-             installAppItem.style.display = 'none';
-         }
-     });
- }
+const installApp = document.getElementById('install-app');
+if (installApp) {
+    installApp.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        
+        // Show the install prompt
+        deferredPrompt.prompt();
+        
+        // Wait for the user to respond to the prompt
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`User response to the install prompt: ${outcome}`);
+        
+        // Clear the deferredPrompt variable
+        deferredPrompt = null;
+        
+        // Hide the install button
+        const installAppItem = document.getElementById('install-app-item');
+        if (installAppItem) {
+            installAppItem.style.display = 'none';
+        }
+    });
+}
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
@@ -446,7 +463,8 @@ async function ensurePersistentStorage() {
 
  // Server-sent events
  function initializeEventSource() {
-     if (window.location.pathname !== '/login') {
+     // Only initialize SSE on index page
+     if (window.location.pathname === '/') {
          const eventSource = new EventSource('/stream');
          
          eventSource.onmessage = function(event) {
@@ -471,6 +489,36 @@ async function ensurePersistentStorage() {
      icon.classList.remove('fa-sun', 'fa-moon');
      icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
  }
+
+ async function handleLogout() {
+     // Deregistriere Service Worker
+     if ('serviceWorker' in navigator) {
+         const registrations = await navigator.serviceWorker.getRegistrations();
+         for(let registration of registrations) {
+             await registration.unregister();
+         }
+     }
+     
+     // Cache leeren
+     if ('caches' in window) {
+         const cacheNames = await caches.keys();
+         await Promise.all(cacheNames.map(name => caches.delete(name)));
+     }
+     
+     // Zum Login weiterleiten
+     window.location.href = '/login';
+ }
+
+ // Event Listener für Logout-Button
+ document.addEventListener('DOMContentLoaded', () => {
+     const logoutLink = document.querySelector('a[href="/logout"]');
+     if (logoutLink) {
+         logoutLink.addEventListener('click', (e) => {
+             e.preventDefault();
+             handleLogout();
+         });
+     }
+ });
 </script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
