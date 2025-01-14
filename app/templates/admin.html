@@ -847,8 +847,8 @@ input[type="time"]::-webkit-inner-spin-button {
                 handle: '.drag-handle',
                 draggable: '.station-card',
                 delayOnTouchOnly: true,
-                delay: 100,
-                touchStartThreshold: 3,
+                delay: 50,
+                touchStartThreshold: 10,
                 onEnd: updateStationOrder
             });
 
@@ -859,8 +859,8 @@ input[type="time"]::-webkit-inner-spin-button {
                     handle: '.drag-handle',
                     group: 'participants',
                     delayOnTouchOnly: true,
-                    delay: 250,
-                    touchStartThreshold: 5,
+                    delay: 50,
+                    touchStartThreshold: 10,
                     onEnd: updateParticipantOrder
                 });
             });
