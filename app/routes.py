@@ -336,42 +336,50 @@ def create_participant():
 def update_participant(station_id, participant_id):
     walking_bus_id = get_current_walking_bus_id()
     
-    # Get participant with walking bus verification
     participant = Participant.query.filter_by(
-        id=participant_id, 
+        id=participant_id,
         walking_bus_id=walking_bus_id
     ).first_or_404()
     
     data = request.get_json()
     old_name = participant.name
-    
-    # Handle position updates
-    if 'position' in data:
-        # Get all participants in the same station within the same walking bus
-        station_participants = Participant.query.filter_by(
-            station_id=station_id,
-            walking_bus_id=walking_bus_id
-        ).all()
-        # Update positions to ensure uniqueness
-        for p in station_participants:
-            if p.id != participant_id and p.position >= data['position']:
-                p.position += 1
+    old_station_id = participant.station_id
     
     # Verify new station belongs to same walking bus if station_id is being updated
     if 'station_id' in data:
         Station.query.filter_by(
-            id=data['station_id'], 
+            id=data['station_id'],
             walking_bus_id=walking_bus_id
         ).first_or_404()
     
+    # Handle position updates
+    if 'position' in data:
+        new_position = data['position']
+        new_station_id = data.get('station_id', old_station_id)
+        
+        # Update positions in new station
+        station_participants = Participant.query.filter_by(
+            station_id=new_station_id,
+            walking_bus_id=walking_bus_id
+        ).order_by(Participant.position).all()
+        
+        # Remove participant from list if it exists
+        station_participants = [p for p in station_participants if p.id != participant_id]
+        
+        # Insert participant at new position
+        station_participants.insert(new_position, participant)
+        
+        # Update all positions
+        for idx, p in enumerate(station_participants):
+            p.position = idx
+    
     # Update participant fields
-    for field in ['name', 'station_id', 'position', 'monday', 'tuesday', 'wednesday',
+    for field in ['name', 'station_id', 'monday', 'tuesday', 'wednesday',
                  'thursday', 'friday', 'saturday', 'sunday']:
         if field in data:
             setattr(participant, field, data[field])
     
     db.session.commit()
-    app.logger.info(f"Teilnehmer aktualisiert von '{old_name}' zu '{participant.name}', '{participant.station_id}', '{participant.position}' (ID: {participant_id})")
     return jsonify({"success": True})
 
 
