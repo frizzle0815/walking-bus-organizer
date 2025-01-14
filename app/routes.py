@@ -1009,6 +1009,9 @@ def stream():
                     current_time = get_current_time()
                     current_date = get_current_date()
                     
+                    # Get schedule for time check
+                    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+                    
                     # Get stations data
                     stations = Station.query.filter_by(
                         walking_bus_id=walking_bus_id
@@ -1018,20 +1021,19 @@ def stream():
                     week_data = []
                     today = get_current_date()
                     
-                    # Pre-fetch all participants and calendar entries for the week
+                    # Pre-fetch all participants and calendar entries
                     participants = Participant.query.filter(
                         Participant.walking_bus_id == walking_bus_id,
                         Participant.station_id.isnot(None)
                     ).all()
                     
-                    # Get calendar entries for the next 6 days
                     calendar_entries = CalendarStatus.query.filter(
                         CalendarStatus.walking_bus_id == walking_bus_id,
                         CalendarStatus.date >= today,
                         CalendarStatus.date <= today + timedelta(days=5)
                     ).all()
                     
-                    # Create lookup dictionary for calendar entries
+                    # Create lookup dictionary
                     calendar_lookup = {}
                     for entry in calendar_entries:
                         if entry.date not in calendar_lookup:
@@ -1047,9 +1049,21 @@ def stream():
                             walking_bus_id=walking_bus_id
                         )
                         
+                        # Check for TIME_PASSED specifically for today
+                        if check_date == today and is_active and schedule:
+                            weekday = WEEKDAY_MAPPING[today.weekday()]
+                            end_time = getattr(schedule, f"{weekday}_end", None)
+                            if end_time:
+                                # Convert current_time to time object for proper comparison
+                                current_time_obj = current_time.time()
+                                if current_time_obj > end_time:
+                                    is_active = False
+                                    reason = "Der Walking Bus hat heute bereits stattgefunden."
+                                    reason_type = "TIME_PASSED"
+                        
                         # Calculate confirmed participants
                         total_confirmed = 0
-                        if is_active:
+                        if is_active and reason_type != 'TIME_PASSED':
                             weekday = WEEKDAY_MAPPING[check_date.weekday()]
                             for participant in participants:
                                 if check_date in calendar_lookup and participant.id in calendar_lookup[check_date]:
