@@ -499,7 +499,7 @@ def initialize_daily_status():
         app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
 
         new_token = None
-        if remaining_days < 90:
+        if remaining_days < 30:
             verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             new_token = jwt.encode({
                 **verified_payload,
