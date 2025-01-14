@@ -605,7 +605,7 @@ def get_week_overview():
     
     week_data = []
     
-    for i in range(7):
+    for i in range(6):
         current_date = today + timedelta(days=i)
         # Get full walking bus day info including reason and reason_type
         is_active, reason, reason_type = check_walking_bus_day(
