@@ -444,6 +444,7 @@
         border-radius: 50%;
         cursor: pointer;
         border: 1px solid #dee2e6;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         color: #000; /* Ensure black text */
         width: 100%;
         height: 100%;
@@ -473,15 +474,19 @@
 
     /* Enhanced selected day styling */
     .week-container .calendar-day-wrapper.selected-day {
-        background-color: black;
         background-image: radial-gradient(
             circle,
-            white,
-            gray
+            white 0%,
+            white 75%,
+            #414141 100%
         );
-        transform: scale(1.15);
         z-index: 1;
-        box-shadow: 0 2px 8px rgba(13, 110, 253, 0.2);
+        transform: scale(1.15);
+        border: 2px solid #414141;  /* Adding black border */
+    }
+
+    .week-container .calendar-day-wrapper.selected-day .calendar-day {
+        transform: scale(1.15);
     }
 
     /* Status indicators - improved visibility */
