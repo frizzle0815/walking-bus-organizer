@@ -490,24 +490,30 @@ if (installApp) {
      icon.classList.add(isDark ? 'fa-sun' : 'fa-moon');
  }
 
- async function handleLogout() {
-     // Deregistriere Service Worker
-     if ('serviceWorker' in navigator) {
-         const registrations = await navigator.serviceWorker.getRegistrations();
-         for(let registration of registrations) {
-             await registration.unregister();
-         }
-     }
-     
-     // Cache leeren
-     if ('caches' in window) {
-         const cacheNames = await caches.keys();
-         await Promise.all(cacheNames.map(name => caches.delete(name)));
-     }
-     
-     // Zum Login weiterleiten
-     window.location.href = '/login';
- }
+ async function logout() {
+    try {
+        // Call backend logout route
+        const response = await fetch('/logout');
+        if (!response.ok) {
+            throw new Error('Logout failed on server');
+        }
+
+        // Clear localStorage token
+        localStorage.removeItem('auth_token');
+
+        // Clear Service Worker cache
+        if ('caches' in window) {
+            const cache = await caches.open('walking-bus-auth-v1');
+            await cache.delete('static/auth-token');
+        }
+
+        // Redirect to login page
+        window.location.href = '/login';
+    } catch (error) {
+        console.error('[LOGOUT] Error:', error);
+        window.location.href = '/login'; // Fallback redirect
+    }
+}
 
  // Event Listener für Logout-Button
  document.addEventListener('DOMContentLoaded', () => {
@@ -515,7 +521,7 @@ if (installApp) {
      if (logoutLink) {
          logoutLink.addEventListener('click', (e) => {
              e.preventDefault();
-             handleLogout();
+             logout();
          });
      }
  });

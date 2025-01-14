@@ -1,6 +1,7 @@
 from functools import wraps
 from flask import request, jsonify
 from flask import current_app
+from flask import session
 from datetime import datetime, timedelta
 from collections import defaultdict
 from hashlib import sha256
@@ -81,8 +82,12 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         
+        if not token and 'auth_token' in session:
+            token = session['auth_token']
+            current_app.logger.info("[AUTH.PY][AUTH] Using token from session")
+        
         if not token:
-            current_app.logger.info(f"[AUTH.PY][AUTH] No token in request headers")
+            current_app.logger.info("[AUTH.PY][AUTH] No token found in any storage")
             return jsonify({"error": "No token provided", "redirect": True}), 401
         
         try:
@@ -107,6 +112,13 @@ def require_auth(f):
                 if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
                     current_app.logger.info(f"[AUTH.PY][AUTH] Invalid password hash")
                     return jsonify({"error": "Invalid credentials", "redirect": True}), 401
+            
+            # Store valid token and walking bus info in session
+            session['auth_token'] = token
+            session['walking_bus_id'] = walking_bus_id
+            session['walking_bus_name'] = payload.get('walking_bus_name')
+            session['bus_password_hash'] = payload.get('bus_password_hash')
+            current_app.logger.info("[AUTH.PY][AUTH] Stored valid token and bus info in session")
             
             return f(*args, **kwargs)
             

@@ -493,8 +493,13 @@ def initialize_daily_status():
         exp_date = datetime.fromtimestamp(exp_timestamp)
         remaining_days = (exp_date - datetime.utcnow()).days
 
+        # Add these logging statements
+        app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
+        app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
+        app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
+
         new_token = None
-        if remaining_days < 30:
+        if remaining_days < 90:
             verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             new_token = jwt.encode({
                 **verified_payload,
@@ -502,6 +507,7 @@ def initialize_daily_status():
                 'iat': datetime.utcnow()
             }, SECRET_KEY, algorithm="HS256")
             app.logger.info("Created new token with extended expiration")
+            app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
 
         walking_bus_id = get_current_walking_bus_id()
         target_date = requested_date if requested_date else get_current_date()
@@ -594,6 +600,9 @@ def initialize_daily_status():
             "note": daily_note.note if daily_note else None,
             "schedule": schedule_data
         }
+
+        if new_token:
+            response['new_auth_token'] = new_token
 
         app.logger.info(f"Final response: {response}")
         return jsonify(response)
@@ -1453,18 +1462,10 @@ def login():
 @bp.route("/logout")
 def logout():
     session.clear()
-    
-    response = redirect(url_for('main.login'))
-    
-    # Erweiterte Header für bessere Mobile-Kompatibilität
-    response.headers.update({
+    return jsonify({
+        "message": "Logged out successfully"
+    }), 200, {
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',
-        'Expires': '-1',
-        'Clear-Site-Data': '"cache", "cookies", "storage", "executionContexts"'
-    })
-    
-    # Service Worker deregistrieren
-    response.headers['Service-Worker-Allowed'] = '/'
-    
-    return response
+        'Expires': '-1'
+    }
