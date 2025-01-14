@@ -913,8 +913,8 @@
                 <div class="calendar-day ${getWeekDayClass(day)}"
                      data-date="${day.date}">
                     ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
-                        '<i class="bi bi-exclamation-triangle-fill override-icon"></i>' : ''}
-                    ${day.has_note ? '<i class="bi bi-info-circle-fill note-icon"></i>' : ''}
+                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
+                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
                     <div class="day-number">${day.total_confirmed > 0 ? day.total_confirmed : '-'}</div>
                     <div class="day-label">${getDayLabel(day.date)}</div>
                 </div>
