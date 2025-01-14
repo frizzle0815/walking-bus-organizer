@@ -515,6 +515,25 @@
         color: #ffc107;
     }
 
+    #calendarModal .calendar-day {
+        display: inline-flex;
+        width: 40px;
+        height: 40px;
+        margin: 2px;
+        justify-content: center;
+        align-items: center;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+
+    /* Status colors for calendar modal */
+    #calendarModal .day-green { background-color: #a9e6b7; }
+    #calendarModal .day-red { background-color: #f8bfc3; }
+    #calendarModal .day-gray {
+        background-color: #e9ecef;
+        cursor: not-allowed;
+    }
+
     .z-index-top {
         z-index: 9999;  /* Alert message on failed loading */
     }
