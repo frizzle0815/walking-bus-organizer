@@ -1005,123 +1005,133 @@ def update_future_entries():
 
 @bp.route('/stream')
 def stream():
-    walking_bus_id = get_current_walking_bus_id()
-    if not walking_bus_id:
-        return jsonify({"error": "Unauthorized", "redirect": True}), 401
-
     def event_stream():
-        try:
-            last_data = None
-            while True:
-                with db.session.begin():
-                    current_time = get_current_time()
-                    current_date = get_current_date()
-                    
-                    # Get schedule for time check
-                    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
-                    
-                    # Get stations data
-                    stations = Station.query.filter_by(
-                        walking_bus_id=walking_bus_id
-                    ).order_by(Station.position).all()
-                    
-                    # Get week overview data
-                    week_data = []
-                    today = get_current_date()
-                    
-                    # Pre-fetch all participants and calendar entries
-                    participants = Participant.query.filter(
-                        Participant.walking_bus_id == walking_bus_id,
-                        Participant.station_id.isnot(None)
-                    ).all()
-                    
-                    calendar_entries = CalendarStatus.query.filter(
-                        CalendarStatus.walking_bus_id == walking_bus_id,
-                        CalendarStatus.date >= today,
-                        CalendarStatus.date <= today + timedelta(days=5)
-                    ).all()
-                    
-                    # Create lookup dictionary
-                    calendar_lookup = {}
-                    for entry in calendar_entries:
-                        if entry.date not in calendar_lookup:
-                            calendar_lookup[entry.date] = {}
-                        calendar_lookup[entry.date][entry.participant_id] = entry.status
+        retry_count = 0
+        max_retries = 3
+        retry_delay = 2
 
-                    # Process each day
-                    for i in range(6):
-                        check_date = today + timedelta(days=i)
-                        is_active, reason, reason_type = check_walking_bus_day(
-                            check_date,
-                            include_reason=True,
-                            walking_bus_id=walking_bus_id
-                        )
-                        
-                        # Check for TIME_PASSED specifically for today
-                        if check_date == today and is_active and schedule:
-                            weekday = WEEKDAY_MAPPING[today.weekday()]
-                            end_time = getattr(schedule, f"{weekday}_end", None)
-                            if end_time:
-                                # Convert current_time to time object for proper comparison
-                                current_time_obj = current_time.time()
-                                if current_time_obj > end_time:
-                                    is_active = False
-                                    reason = "Der Walking Bus hat heute bereits stattgefunden."
-                                    reason_type = "TIME_PASSED"
-                        
-                        # Calculate confirmed participants
-                        total_confirmed = 0
-                        if is_active and reason_type != 'TIME_PASSED':
-                            weekday = WEEKDAY_MAPPING[check_date.weekday()]
-                            for participant in participants:
-                                if check_date in calendar_lookup and participant.id in calendar_lookup[check_date]:
-                                    if calendar_lookup[check_date][participant.id]:
-                                        total_confirmed += 1
-                                elif getattr(participant, weekday, True):
-                                    total_confirmed += 1
-                        
-                        week_data.append({
-                            'date': check_date.isoformat(),
-                            'total_confirmed': total_confirmed,
-                            'is_active': is_active,
-                            'reason': reason,
-                            'reason_type': reason_type
-                        })
+        while retry_count < max_retries:
+            walking_bus_id = get_current_walking_bus_id()
+            if walking_bus_id:
+                try:
+                    last_data = None
+                    while True:
+                        with db.session.begin():
+                            current_time = get_current_time()
+                            current_date = get_current_date()
+                            
+                            # Get schedule for time check
+                            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+                            
+                            # Get stations data
+                            stations = Station.query.filter_by(
+                                walking_bus_id=walking_bus_id
+                            ).order_by(Station.position).all()
+                            
+                            # Get week overview data
+                            week_data = []
+                            today = get_current_date()
+                            
+                            # Pre-fetch all participants and calendar entries
+                            participants = Participant.query.filter(
+                                Participant.walking_bus_id == walking_bus_id,
+                                Participant.station_id.isnot(None)
+                            ).all()
+                            
+                            calendar_entries = CalendarStatus.query.filter(
+                                CalendarStatus.walking_bus_id == walking_bus_id,
+                                CalendarStatus.date >= today,
+                                CalendarStatus.date <= today + timedelta(days=5)
+                            ).all()
+                            
+                            # Create lookup dictionary
+                            calendar_lookup = {}
+                            for entry in calendar_entries:
+                                if entry.date not in calendar_lookup:
+                                    calendar_lookup[entry.date] = {}
+                                calendar_lookup[entry.date][entry.participant_id] = entry.status
 
-                    # Combine all data
-                    current_data = {
-                        "time": current_time.strftime("%H:%M"),
-                        "date": current_date.isoformat(),
-                        "stations": [
-                            {
-                                "id": station.id,
-                                "name": station.name,
-                                "participants": [
+                            # Process each day
+                            for i in range(6):
+                                check_date = today + timedelta(days=i)
+                                is_active, reason, reason_type = check_walking_bus_day(
+                                    check_date,
+                                    include_reason=True,
+                                    walking_bus_id=walking_bus_id
+                                )
+                                
+                                # Check for TIME_PASSED specifically for today
+                                if check_date == today and is_active and schedule:
+                                    weekday = WEEKDAY_MAPPING[today.weekday()]
+                                    end_time = getattr(schedule, f"{weekday}_end", None)
+                                    if end_time:
+                                        current_time_obj = current_time.time()
+                                        if current_time_obj > end_time:
+                                            is_active = False
+                                            reason = "Der Walking Bus hat heute bereits stattgefunden."
+                                            reason_type = "TIME_PASSED"
+                                
+                                # Calculate confirmed participants
+                                total_confirmed = 0
+                                if is_active and reason_type != 'TIME_PASSED':
+                                    weekday = WEEKDAY_MAPPING[check_date.weekday()]
+                                    for participant in participants:
+                                        if check_date in calendar_lookup and participant.id in calendar_lookup[check_date]:
+                                            if calendar_lookup[check_date][participant.id]:
+                                                total_confirmed += 1
+                                        elif getattr(participant, weekday, True):
+                                            total_confirmed += 1
+                                
+                                week_data.append({
+                                    'date': check_date.isoformat(),
+                                    'total_confirmed': total_confirmed,
+                                    'is_active': is_active,
+                                    'reason': reason,
+                                    'reason_type': reason_type
+                                })
+
+                            # Combine all data
+                            current_data = {
+                                "time": current_time.strftime("%H:%M"),
+                                "date": current_date.isoformat(),
+                                "stations": [
                                     {
-                                        "id": p.id,
-                                        "name": p.name,
-                                        "status_today": p.status_today
-                                    } for p in station.participants
-                                ]
-                            } for station in stations
-                        ],
-                        "week_overview": week_data
-                    }
-                    
-                    current_data_str = json.dumps(current_data)
-                    
-                    if current_data_str != last_data:
-                        yield f"data: {current_data_str}\n\n"
-                        last_data = current_data_str
-                    else:
-                        yield f"event: check\ndata: No changes detected at {datetime.now().strftime('%H:%M:%S')}\n\n"
-                
-                time.sleep(5)
-                
-        except Exception as e:
-            print(f"Stream error: {e}")
-            db.session.remove()
-            yield f"event: error\ndata: Connection error occurred\n\n"
+                                        "id": station.id,
+                                        "name": station.name,
+                                        "participants": [
+                                            {
+                                                "id": p.id,
+                                                "name": p.name,
+                                                "status_today": p.status_today
+                                            } for p in station.participants
+                                        ]
+                                    } for station in stations
+                                ],
+                                "week_overview": week_data
+                            }
+                            
+                            current_data_str = json.dumps(current_data)
+                            
+                            if current_data_str != last_data:
+                                yield f"data: {current_data_str}\n\n"
+                                last_data = current_data_str
+                            else:
+                                yield f"event: check\ndata: No changes detected at {datetime.now().strftime('%H:%M:%S')}\n\n"
+                        
+                        time.sleep(5)
+                        
+                except Exception as e:
+                    print(f"Stream error: {e}")
+                    db.session.remove()
+                    yield f"event: error\ndata: Connection error occurred\n\n"
+            else:
+                retry_count += 1
+                time.sleep(retry_delay)
+                yield f"event: retry\ndata: Waiting for authentication...\n\n"
+                continue
+        
+        # After max retries without successful authentication
+        yield f"event: unauthorized\ndata: Authentication failed\n\n"
 
     return Response(
         stream_with_context(event_stream()),

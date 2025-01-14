@@ -1794,8 +1794,15 @@
             // Create SSE connection after successful auth check
             globalEventSource = new EventSource('/stream');
             
-            // Add specific unauthorized event handler
+            // Handle retry events from server
+            globalEventSource.addEventListener('retry', function(e) {
+                console.log('Server waiting for authentication...', e.data);
+                updateConnectionStatus('connecting');
+            });
+            
+            // Handle unauthorized events
             globalEventSource.addEventListener('unauthorized', function(e) {
+                console.log('Authentication failed after retries');
                 window.location.href = '/login';
             });
             
@@ -1809,7 +1816,7 @@
                         document.getElementById('current-time').textContent = data.time;
                     }
 
-                    // Get currently selected date (fixed selector to match your structure)
+                    // Get currently selected date
                     const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
                     
                     // Update week overview if data is available
@@ -1847,6 +1854,7 @@
                         console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
                         isReconnecting = false;
                         globalEventSource.close();
+                        
                         // Verify auth before reconnecting
                         const authCheck = await fetchWithAuth('/stream');
                         if (!authCheck.ok) {
@@ -1889,7 +1897,6 @@
 
         return globalEventSource;
     }
-
 
 
     // Add visibility change handling for mobile users
