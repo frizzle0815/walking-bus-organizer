@@ -364,28 +364,35 @@ async function ensurePersistentStorage() {
  let deferredPrompt;
 
  window.addEventListener('beforeinstallprompt', (e) => {
-     e.preventDefault();
-     deferredPrompt = e;
-     const installAppItem = document.getElementById('install-app-item');
-     if (installAppItem) {
-         installAppItem.style.display = 'block';
-     }
- });
+    deferredPrompt = e;
+    const installAppItem = document.getElementById('install-app-item');
+    if (installAppItem) {
+        installAppItem.style.display = 'block';
+    }
+});
 
- const installApp = document.getElementById('install-app');
- if (installApp) {
-     installApp.addEventListener('click', async () => {
-         if (!deferredPrompt) return;
-         deferredPrompt.prompt();
-         const { outcome } = await deferredPrompt.userChoice;
-         console.log(`User response to the install prompt: ${outcome}`);
-         deferredPrompt = null;
-         const installAppItem = document.getElementById('install-app-item');
-         if (installAppItem) {
-             installAppItem.style.display = 'none';
-         }
-     });
- }
+const installApp = document.getElementById('install-app');
+if (installApp) {
+    installApp.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        
+        // Show the install prompt
+        deferredPrompt.prompt();
+        
+        // Wait for the user to respond to the prompt
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`User response to the install prompt: ${outcome}`);
+        
+        // Clear the deferredPrompt variable
+        deferredPrompt = null;
+        
+        // Hide the install button
+        const installAppItem = document.getElementById('install-app-item');
+        if (installAppItem) {
+            installAppItem.style.display = 'none';
+        }
+    });
+}
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {

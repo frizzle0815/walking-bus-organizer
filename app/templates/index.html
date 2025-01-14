@@ -552,6 +552,9 @@
     document.addEventListener('DOMContentLoaded', async () => {
         // Initialize IndexedDB first
         await initDB();
+
+        const today = new Date().toISOString().split('T')[0];
+        await loadStations(null, today);
         
         // Initialize data and connections
         initializeSSE();
@@ -1705,6 +1708,37 @@
     }
 
 
+    function updateWeekOverviewNumbers(weekData, selectedDate) {
+        weekData.forEach(dayData => {
+            const dayElement = document.querySelector(`.calendar-day[data-date="${dayData.date}"]`);
+            if (dayElement) {
+                // Update total confirmed number
+                const dayNumber = dayElement.querySelector('.day-number');
+                if (dayNumber) {
+                    dayNumber.textContent = dayData.total_confirmed > 0 ? 
+                        dayData.total_confirmed : '-';
+                }
+                
+                // Update day status classes if needed
+                updateDayStatusClasses(dayElement, dayData);
+            }
+        });
+    }
+
+    function updateDayStatusClasses(dayElement, dayData) {
+        dayElement.classList.remove('day-green', 'day-red', 'day-gray');
+        
+        if (dayData.reason_type === 'TIME_PASSED') {
+            dayElement.classList.add('day-gray');
+        } else if (!dayData.is_active && dayData.reason_type === 'MANUAL_OVERRIDE') {
+            dayElement.classList.add('day-red');
+        } else if (!dayData.is_active) {
+            dayElement.classList.add('day-gray');
+        } else {
+            dayElement.classList.add('day-green');
+        }
+    }
+
 
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
@@ -1740,15 +1774,28 @@
                 (async () => {
                     console.log('Received SSE update:', event.data);
                     const data = JSON.parse(event.data);
+                    
+                    // Update time display
                     if (data.time) {
                         document.getElementById('current-time').textContent = data.time;
                     }
 
-                    const selectedDate = document.querySelector('.selected-day')?.dataset.date;
-                    const db = await dbPromise;
-                    const previousStates = await getPreviousStates(db);
+                    // Get currently selected date (fixed selector to match your structure)
+                    const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
+                    
+                    // Update week overview if data is available
+                    if (data.week_overview) {
+                        updateWeekOverviewNumbers(data.week_overview, selectedDate);
+                    }
+                    
+                    // Only update station data if viewing current date
+                    if (selectedDate === data.date) {
+                        const db = await dbPromise;
+                        const previousStates = await getPreviousStates(db);
+                        await loadStations(previousStates, selectedDate);
+                    }
 
-                    await loadStations(previousStates, selectedDate);
+                    // Update connection status
                     updateConnectionStatus('connected');
                     reconnectAttempts = 0;
                     isReconnecting = false;
