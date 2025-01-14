@@ -1055,37 +1055,59 @@ input[type="time"]::-webkit-inner-spin-button {
             const newStationId = evt.to.closest('.station-card').dataset.stationId;
             const participantsContainer = evt.to;
             
-            // Update positions for ALL participants in the container
-            const participants = Array.from(participantsContainer.children);
-            const updates = participants.map((participantElement, index) => {
-                const participantCard = participantElement.querySelector('.participant-card');
-                const participantId = participantCard.dataset.participantId;
-                return {
-                    participantId,
-                    position: index,
-                    stationId: newStationId
-                };
-            });
-
-            // Send all position updates to server
-            updates.forEach(update => {
-                fetchWithAuth(`/api/stations/${update.stationId}/participants/${update.participantId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        position: update.position
-                    })
+            // Get the specific moved participant
+            const movedParticipantCard = evt.item.querySelector('.participant-card');
+            const movedParticipantId = movedParticipantCard.dataset.participantId;
+            
+            // Get the new position from the Sortable event
+            const newPosition = evt.newIndex;  // This is the key change
+            
+            fetchWithAuth(`/api/stations/${newStationId}/participants/${movedParticipantId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    station_id: newStationId,
+                    position: newPosition  // Using the correct position from event
                 })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .catch(error => console.error('Update failed:', error));
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Failed to update participant station: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(() => {
+                // Update positions for remaining participants
+                const updatePromises = Array.from(participantsContainer.children)
+                    .map((participantElement, index) => {
+                        const participantCard = participantElement.querySelector('.participant-card');
+                        const participantId = participantCard.dataset.participantId;
+                        
+                        if (participantId !== movedParticipantId) {
+                            return fetchWithAuth(`/api/stations/${newStationId}/participants/${participantId}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    position: index
+                                })
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error(`Failed to update participant position: ${response.status}`);
+                                }
+                                return response.json();
+                            });
+                        }
+                    });
+                
+                return Promise.all(updatePromises);
+            })
+            .catch(error => {
+                console.error('Participant update failed:', error);
+                alert('Fehler beim Aktualisieren der Teilnehmer. Bitte laden Sie die Seite neu.');
+                location.reload();
             });
         }
-
 
     });
 </script>
