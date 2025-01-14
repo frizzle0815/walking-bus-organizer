@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, session, jsonify, request, Response, stream_with_context
 from flask import send_from_directory
-from flask import app as app
+from flask import current_app as app
 from flask import redirect, url_for
 from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
 from .services.holiday_service import HolidayService
@@ -12,7 +12,6 @@ import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
 from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
 import jwt
-import os
 from os import environ
 from .init_buses import init_walking_buses
 
@@ -1449,47 +1448,6 @@ def login():
         'error': f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig.",
         **common_data
     }), 401
-
-
-@bp.route('/api/verify-token', methods=['GET'])  # Changed to GET since we're not modifying data
-def verify_token():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        app.logger.info("[AUTH.PY][VERIFY] No valid auth header")
-        return jsonify({'valid': False}), 401
-    
-    token = auth_header.split(' ')[1]
-    
-    try:
-        # Use existing JWT verification logic from your auth.py
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        
-        walking_bus_id = payload.get('walking_bus_id')
-        buses_env = os.environ.get('WALKING_BUSES', '').strip()
-        
-        if buses_env:
-            bus_configs = dict(
-                (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
-                for b in buses_env.split(',')
-                if len(b.split(':')) == 3
-            )
-            
-            if walking_bus_id not in bus_configs:
-                app.logger.info(f"[AUTH.PY][VERIFY] Invalid bus ID: {walking_bus_id}")
-                return jsonify({'valid': False}), 401
-                
-            if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
-                app.logger.info(f"[AUTH.PY][VERIFY] Invalid password hash")
-                return jsonify({'valid': False}), 401
-        
-        return jsonify({'valid': True}), 200
-        
-    except jwt.ExpiredSignatureError:
-        app.logger.info("[AUTH.PY][VERIFY] Token expired")
-        return jsonify({'valid': False, 'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        app.logger.info("[AUTH.PY][VERIFY] Invalid token")
-        return jsonify({'valid': False, 'error': 'Invalid token'}), 401
 
 
 @bp.route("/logout")

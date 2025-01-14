@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (loginForm) {
             loginForm.querySelectorAll('input, button, select').forEach(el => el.disabled = true);
         }
-        return; // Exit early if connection is not secure
+        return;
     }
 
     // Auth token verification functions
@@ -138,15 +138,12 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         if (token) {
             try {
-                const response = await fetch('/api/verify-token', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
+                // Use existing fetchWithAuth from base.html
+                const response = await window.fetchWithAuth('/api/walking-bus-schedule');
+                
                 if (response.ok) {
                     console.log('[LOGIN] Token is valid, performing auto-login');
-                    window.location.href = '/dashboard';
+                    window.location.href = '/';
                     return true;
                 }
             } catch (error) {
