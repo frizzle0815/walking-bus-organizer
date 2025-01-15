@@ -11,6 +11,7 @@ import json
 import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
 from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
+from .auth import generate_temp_token, temp_login, get_active_temp_tokens, temp_tokens
 import jwt
 from os import environ
 from .init_buses import init_walking_buses
@@ -36,6 +37,46 @@ def admin():
 @bp.route("/calendar")
 def calendar_view():
     return render_template("calendar.html")
+
+
+@bp.route("/share")
+@require_auth
+def share():
+    token_data = get_active_temp_tokens()
+    return render_template("share.html", 
+                         active_tokens=token_data['tokens'],
+                         token_count=token_data['count'],
+                         max_tokens=token_data['max'])
+
+
+@bp.route("/api/generate-temp-token")
+@require_auth
+def generate_temp_token_route():
+    return generate_temp_token()
+
+
+@bp.route("/temp-login/<token>")
+def temp_login_route(token):
+    if request.headers.get('Accept') == 'application/json':
+        return temp_login(token)
+    return render_template('temp-login.html')
+
+
+@bp.route("/api/temp-token/<token>", methods=["DELETE"])
+@require_auth
+def delete_temp_token(token):
+    try:
+        app.logger.info(f"Attempting to delete token: {token}")
+        if token in temp_tokens:
+            del temp_tokens[token]
+            app.logger.info(f"Token {token} successfully deleted")
+            return jsonify({"success": True})
+        else:
+            app.logger.warning(f"Token {token} not found")
+            return jsonify({"error": "Token not found"}), 404
+    except Exception as e:
+        app.logger.error(f"Error deleting token: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 # Station Routes
@@ -1463,7 +1504,8 @@ def login():
 def logout():
     session.clear()
     return jsonify({
-        "message": "Logged out successfully"
+        "message": "Logged out successfully",
+        "clear_cache": True
     }), 200, {
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',

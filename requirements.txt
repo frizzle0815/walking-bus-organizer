@@ -7,3 +7,4 @@ gunicorn
 gevent
 requests
 PyJWT
+qrcode[pil]

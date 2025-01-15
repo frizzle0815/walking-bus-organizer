@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3">Automatische Anmeldung läuft...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Get token from URL
+        const urlParts = window.location.pathname.split('/');
+        const token = urlParts[urlParts.length - 1];
+        
+        // Call temp-login endpoint with correct headers
+        const response = await fetch(`/temp-login/${token}`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        const data = await response.json();
+        
+        if (data.success && data.auth_token) {
+            // Store auth token in localStorage
+            localStorage.setItem('auth_token', data.auth_token);
+            
+            // Redirect to main page
+            window.location.replace(data.redirect_url);
+        } else {
+            throw new Error(data.error || 'Login fehlgeschlagen');
+        }
+    } catch (error) {
+        // Show error message
+        document.querySelector('.container').innerHTML = `
+            <div class="row justify-content-center">
+                <div class="col-md-6 text-center">
+                    <div class="alert alert-danger">
+                        ${error.message}
+                    </div>
+                    <a href="/login" class="btn btn-primary">Zum Login</a>
+                </div>
+            </div>
+        `;
+    }
+});
+</script>
+{% endblock %}
