@@ -1,5 +1,5 @@
 from . import db
-from datetime import time
+from datetime import datetime, time
 
 
 class WalkingBus(db.Model):
@@ -110,3 +110,17 @@ class DailyNote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     note = db.Column(db.String(200), nullable=False)
+
+
+class TempToken(db.Model):
+    __tablename__ = 'temp_tokens'
+    id = db.Column(db.String(10), primary_key=True)
+    expiry = db.Column(db.DateTime, nullable=False)
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    walking_bus_name = db.Column(db.String(100), nullable=False)
+    bus_password_hash = db.Column(db.String(256), nullable=False)
+    created_by = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Add relationship to WalkingBus
+    walking_bus = db.relationship('WalkingBus', backref='temp_tokens')
