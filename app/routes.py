@@ -1487,7 +1487,8 @@ def login():
 def logout():
     session.clear()
     return jsonify({
-        "message": "Logged out successfully"
+        "message": "Logged out successfully",
+        "clear_cache": True
     }), 200, {
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',

@@ -79,7 +79,7 @@
                   <hr class="nav-divider">
               </li>
               <li class="nav-item">
-                  <a class="nav-link" href="/logout">
+                  <a class="nav-link" href="#" onclick="handleLogout(); return false;">
                       <i class="bi bi-box-arrow-right me-2"></i>Abmelden
                   </a>
               </li>
@@ -343,13 +343,48 @@ let authInitialized = false;
          try {
              const registration = await navigator.serviceWorker.register('/static/service-worker.js');
              console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+             
+             // Log current service worker state
+             console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');
+             
+             // Force check for updates immediately
+             console.log('[BASE.HTML][UPDATE] Checking for service worker updates...');
+             
+             try {
+                 await registration.update();
+                 console.log('[BASE.HTML][UPDATE] Update check completed - No new version found');
+             } catch (updateError) {
+                 console.log('[BASE.HTML][UPDATE] Update check failed:', updateError);
+             }
+             
+             // Listen for new service worker installation
+             registration.addEventListener('updatefound', () => {
+                 console.log('[BASE.HTML][UPDATE] New service worker found and installing');
+                 const newWorker = registration.installing;
+                 
+                 newWorker.addEventListener('statechange', () => {
+                     console.log('[BASE.HTML][UPDATE] Service worker state changed to:', newWorker.state);
+                     
+                     if (newWorker.state === 'installed') {
+                         if (navigator.serviceWorker.controller) {
+                             console.log('[BASE.HTML][UPDATE] New service worker installed and ready to take over');
+                             console.log('[BASE.HTML][UPDATE] Reloading page to activate new service worker');
+                             window.location.reload();
+                         } else {
+                             console.log('[BASE.HTML][UPDATE] Service worker installed for the first time');
+                         }
+                     }
+                 });
+             });
+             
              return registration;
          } catch (err) {
-             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed: ', err);
+             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed:', err);
          }
      }
      return null;
  }
+
 
 async function ensurePersistentStorage() {
     console.log('[BASE.HTML][STORAGE] Requesting persistent storage');
