@@ -177,10 +177,10 @@ def generate_temp_token():
         }), 400
     
     expiry_time = datetime.now() + timedelta(minutes=TOKEN_VALIDITY_MINUTES)
-    short_token = generate_short_token()
+    token = generate_short_token()
     
     # Store token info with all necessary data
-    temp_tokens[short_token] = {
+    temp_tokens[token] = {
         'expiry': expiry_time,
         'walking_bus_id': session['walking_bus_id'],
         'walking_bus_name': session['walking_bus_name'],
@@ -189,7 +189,7 @@ def generate_temp_token():
     }
     
     # Generate share URL and QR code
-    share_url = url_for('main.temp_login_route', token=short_token, _external=True)
+    share_url = url_for('main.temp_login_route', token=token, _external=True)
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(share_url)
     qr.make(fit=True)
@@ -201,6 +201,7 @@ def generate_temp_token():
     qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
     
     return jsonify({
+        'token': token,  # Add token to response
         'share_url': share_url,
         'qr_code': qr_code_base64,
         'expires_in': TOKEN_VALIDITY_MINUTES
@@ -232,6 +233,7 @@ def get_active_temp_tokens():
         qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
         
         active_tokens.append({
+            'token': token,  # Include token in response
             'url': url,
             'remaining_minutes': int(remaining_time),
             'created_at': data['expiry'] - timedelta(minutes=TOKEN_VALIDITY_MINUTES),
