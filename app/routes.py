@@ -1,18 +1,29 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, session, jsonify, request, Response, stream_with_context
-from flask import send_from_directory
-from flask import current_app as app
-from flask import redirect, url_for
-from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote, TempToken
+from flask import (
+    Blueprint, render_template, session, jsonify, 
+    request, Response, stream_with_context,
+    send_from_directory, current_app as app, 
+    redirect, url_for
+)
+from .models import (
+    db, WalkingBus, Station, Participant, 
+    CalendarStatus, WalkingBusSchedule, 
+    SchoolHoliday, WalkingBusOverride, 
+    DailyNote, TempToken, AuthToken
+)
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from app import get_git_revision
+from .auth import (
+    require_auth, SECRET_KEY, is_ip_allowed, 
+    record_attempt, get_remaining_lockout_time, 
+    get_consistent_hash, login_attempts, 
+    MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
+    temp_login, get_active_temp_tokens, create_auth_token
+)
+import jwt
 import json
 import time
-from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
-from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
-from .auth import generate_temp_token, temp_login, get_active_temp_tokens
-import jwt
 from os import environ
 from .init_buses import init_walking_buses
 
@@ -90,6 +101,30 @@ def delete_temp_token(token):
         app.logger.error(f"Error deleting token: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/auth-tokens")
+@require_auth
+def list_auth_tokens():
+    tokens = AuthToken.query.filter_by(
+        walking_bus_id=session['walking_bus_id']
+    ).order_by(AuthToken.last_used.desc()).all()
+    
+    return render_template(
+        "auth_tokens.html",
+        tokens=tokens
+    )
+
+
+@bp.route("/api/auth-token/<token_id>", methods=["DELETE"])
+@require_auth
+def revoke_auth_token(token_id):
+    token = AuthToken.query.get(token_id)
+    if token and token.walking_bus_id == session['walking_bus_id']:
+        token.invalidate("Manually revoked")
+        db.session.commit()
+        return jsonify({"success": True})
+    return jsonify({"error": "Token not found"}), 404
 
 
 # Station Routes
@@ -1440,7 +1475,6 @@ def login():
         WalkingBus.id.in_(configured_bus_ids)
     ).order_by(WalkingBus.id).all() if is_multi_bus else None
 
-    # Common data needed for both success and error responses
     common_data = {
         'git_revision': get_git_revision(),
         'is_multi_bus': is_multi_bus,
@@ -1474,30 +1508,26 @@ def login():
             **common_data
         }), 400
 
-    bus = (WalkingBus.query.get(selected_bus_id) if is_multi_bus 
+    bus = (WalkingBus.query.get(selected_bus_id) if is_multi_bus
            else WalkingBus.query.filter(WalkingBus.id.in_(configured_bus_ids)).first())
 
     if bus and bus.password == password:
         # Success case - create token and session
         password_hash = get_consistent_hash(bus.password)
+        auth_token = create_auth_token(
+            bus.id,
+            bus.name,
+            password_hash
+        )
+           
         session['walking_bus_id'] = bus.id
         session['walking_bus_name'] = bus.name
         session['bus_password_hash'] = password_hash
         session.permanent = True
 
-        token = jwt.encode({
-            'logged_in': True,
-            'walking_bus_id': bus.id,
-            'walking_bus_name': bus.name,
-            'bus_password_hash': password_hash,
-            'exp': datetime.utcnow() + timedelta(days=60),
-            'iat': datetime.utcnow(),
-            'type': 'pwa_auth'
-        }, SECRET_KEY, algorithm="HS256")
-
         return jsonify({
             'success': True,
-            'auth_token': token,
+            'auth_token': auth_token,
             'redirect_url': url_for('main.index')
         })
 
@@ -1505,7 +1535,7 @@ def login():
     record_attempt()
     remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
     lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
-    
+   
     return jsonify({
         'success': False,
         'error': f"Ungültiges Passwort. Noch {remaining_attempts} Versuche innerhalb von {int(lockout_minutes)} Minuten übrig.",

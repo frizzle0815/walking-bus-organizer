@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    {% for bus_id, tokens in tokens|groupby('walking_bus_id') %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>Walking Bus ID: {{ bus_id }}</h4>
+        </div>
+        
+        <!-- Active Tokens Section -->
+        <div class="card-body">
+            <h5 class="mb-3">Aktive Tokens</h5>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Token Identifier</th>
+                            <th>Erstellt am</th>
+                            <th>Zuletzt verwendet</th>
+                            <th>Läuft ab am</th>
+                            <th>Aktionen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for token in tokens if token.is_active %}
+                        <tr>
+                            <td>{{ token.token_identifier[:16] }}...</td>
+                            <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>{{ token.last_used.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                <button class="btn btn-danger btn-sm" 
+                                        onclick="revokeToken('{{ token.id }}')">
+                                    <i class="fas fa-ban"></i> Deaktivieren
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center">Keine aktiven Tokens vorhanden</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Inactive Tokens Section -->
+        <div class="card-body border-top">
+            <h5 class="mb-3">Inaktive Tokens</h5>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Token Identifier</th>
+                            <th>Erstellt am</th>
+                            <th>Deaktiviert am</th>
+                            <th>Grund</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for token in tokens if not token.is_active %}
+                        <tr>
+                            <td>{{ token.token_identifier[:16] }}...</td>
+                            <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>{{ token.invalidated_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>{{ token.invalidation_reason }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center">Keine inaktiven Tokens vorhanden</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+async function revokeToken(tokenId) {
+    if (confirm('Möchten Sie diesen Token wirklich deaktivieren?')) {
+        try {
+            const response = await window.fetchWithAuth(`/api/auth-token/${tokenId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                location.reload();
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Fehler beim Deaktivieren des Tokens');
+            }
+        } catch (error) {
+            alert('Ein Fehler ist aufgetreten');
+        }
+    }
+}
+
+// Auto-refresh every 5 minutes to show current token states
+setInterval(() => {
+    location.reload();
+}, 300000);
+</script>
+{% endblock %}
