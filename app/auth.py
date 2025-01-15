@@ -136,9 +136,12 @@ def require_auth(f):
     return decorated_function
 
 
+# Configuration constants
+MAX_TEMP_TOKENS = 3
+TOKEN_VALIDITY_MINUTES = 30
+
 # Global storage for temporary tokens
 temp_tokens = {}
-
 
 def cleanup_expired_tokens():
     """Remove expired temporary tokens"""
@@ -148,21 +151,21 @@ def cleanup_expired_tokens():
     for token in expired:
         del temp_tokens[token]
 
-
 @require_auth
 def generate_temp_token():
     """Generate a temporary token for sharing"""
     cleanup_expired_tokens()
     
-    # Check if max token limit is reached
-    if len(temp_tokens) >= 20:
+    if len(temp_tokens) >= MAX_TEMP_TOKENS:
         return jsonify({
-            "error": "Die maximale Anzahl an temporären Links wurde erreicht. Bitte warten Sie, bis ein bestehender Link abläuft, bevor Sie einen neuen erstellen.",
+            "error": f"Die maximale Anzahl von {MAX_TEMP_TOKENS} temporären Links wurde erreicht. Bitte warten Sie, bis ein bestehender Link abläuft, bevor Sie einen neuen erstellen.",
         }), 400
+    
+    expiry_time = datetime.now() + timedelta(minutes=TOKEN_VALIDITY_MINUTES)
     
     # Generate temporary token
     temp_token = jwt.encode({
-        'exp': datetime.now() + timedelta(minutes=30),
+        'exp': expiry_time,
         'walking_bus_id': session['walking_bus_id'],
         'walking_bus_name': session['walking_bus_name'],
         'bus_password_hash': session['bus_password_hash'],
@@ -171,14 +174,12 @@ def generate_temp_token():
     
     # Store token info
     temp_tokens[temp_token] = {
-        'expiry': datetime.now() + timedelta(minutes=30),
+        'expiry': expiry_time,
         'created_by': session['walking_bus_id']
     }
     
-    # Generate share URL
+    # Generate share URL and QR code
     share_url = url_for('main.temp_login_route', token=temp_token, _external=True)
-    
-    # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(share_url)
     qr.make(fit=True)
@@ -192,8 +193,42 @@ def generate_temp_token():
     return jsonify({
         'share_url': share_url,
         'qr_code': qr_code_base64,
-        'expires_in': 30
+        'expires_in': TOKEN_VALIDITY_MINUTES
     })
+
+def get_active_temp_tokens():
+    """Get all active temporary tokens with remaining validity time"""
+    cleanup_expired_tokens()
+    current_time = datetime.now()
+    
+    active_tokens = []
+    for token, data in temp_tokens.items():
+        remaining_time = (data['expiry'] - current_time).total_seconds() / 60
+        url = url_for('main.temp_login_route', token=token, _external=True)
+        
+        # Generate QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(url)
+        qr.make(fit=True)
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to base64
+        buffered = io.BytesIO()
+        qr_img.save(buffered, format="PNG")
+        qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
+        
+        active_tokens.append({
+            'url': url,
+            'remaining_minutes': int(remaining_time),
+            'created_at': data['expiry'] - timedelta(minutes=TOKEN_VALIDITY_MINUTES),
+            'qr_code': qr_code_base64
+        })
+    
+    return {
+        'tokens': sorted(active_tokens, key=lambda x: x['remaining_minutes'], reverse=True),
+        'count': len(temp_tokens),
+        'max': MAX_TEMP_TOKENS
+    }
 
 
 def temp_login(token):
@@ -207,7 +242,7 @@ def temp_login(token):
         
         # Generate regular auth token
         auth_token = jwt.encode({
-            'exp': datetime.now() + timedelta(hours=24),
+            'exp': datetime.now() + timedelta(hours=72),
             'walking_bus_id': payload['walking_bus_id'],
             'walking_bus_name': payload['walking_bus_name'],
             'bus_password_hash': payload['bus_password_hash']

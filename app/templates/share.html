@@ -5,33 +5,69 @@
     <div class="row justify-content-center">
         <div class="col-md-8">
             <div class="card">
-                <div class="card-header">
-                    <h4>Temporären Login Link generieren</h4>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">Temporären Login Link generieren</h4>
                 </div>
                 <div class="card-body">
                     <div id="errorMessage" class="alert alert-danger d-none"></div>
-                    
-                    <div id="shareContent" class="d-none">
-                        <div class="mb-4">
-                            <label class="form-label">Login Link:</label>
-                            <div class="input-group">
-                                <input type="text" id="shareUrl" class="form-control" readonly>
-                                <button class="btn btn-primary" onclick="copyToClipboard()">
-                                    <i class="bi bi-clipboard"></i> Kopieren
-                                </button>
-                            </div>
-                            <small class="text-muted">Dieser Link wird ungültig in <span id="expiryTime">30</span> Minuten</small>
-                        </div>
-                        
-                        <div class="text-center mb-4">
-                            <img id="qrCode" class="img-fluid" style="max-width: 300px;">
-                        </div>
-                    </div>
-                    
-                    <button id="generateBtn" class="btn btn-primary w-100">
-                        Neuen Link generieren
+                    <button id="generateBtn" class="btn btn-primary w-100" {% if token_count >= max_tokens %}disabled{% endif %}>
+                        {% if token_count >= max_tokens %}
+                            Maximale Anzahl an Links erreicht
+                        {% else %}
+                            Neuen Link generieren
+                        {% endif %}
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Aktive Links Bereich -->
+        <div class="col-md-8 mt-4" id="activeLinksSection">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4>Aktive Links</h4>
+                    <span class="badge bg-secondary">{{ token_count }} / {{ max_tokens }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="list-group" id="activeTokensList">
+                        {% for token in active_tokens %}
+                        <div class="list-group-item">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <small class="text-muted">Erstellt: {{ token.created_at.strftime('%H:%M') }} Uhr</small>
+                                        <span class="badge bg-primary">{{ token.remaining_minutes }} Min.</span>
+                                    </div>
+                                    <div class="input-group mb-3">
+                                        <input type="text" class="form-control" value="{{ token.url }}" readonly>
+                                        <button class="btn btn-outline-primary" onclick="copyUrl(this)">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 text-center">
+                                    <img src="data:image/png;base64,{{ token.qr_code }}" 
+                                         class="img-fluid qr-code-img" 
+                                         style="max-width: 150px; cursor: pointer;" 
+                                         onclick="showQrModal(this)"
+                                         alt="QR Code">
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal für QR Code Vergrößerung -->
+<div class="modal fade" id="qrModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center p-4">
+                <img id="modalQrCode" class="img-fluid" style="max-width: 100%;">
             </div>
         </div>
     </div>
@@ -40,7 +76,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const generateBtn = document.getElementById('generateBtn');
-    const shareContent = document.getElementById('shareContent');
     const errorMessage = document.getElementById('errorMessage');
     
     generateBtn.addEventListener('click', async function() {
@@ -49,16 +84,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             
             if (response.ok) {
-                errorMessage.classList.add('d-none');
-                shareContent.classList.remove('d-none');
-                
-                document.getElementById('shareUrl').value = data.share_url;
-                document.getElementById('qrCode').src = 'data:image/png;base64,' + data.qr_code;
-                document.getElementById('expiryTime').textContent = data.expires_in;
+                // Nach erfolgreicher Generierung Seite neu laden
+                location.reload();
             } else {
                 errorMessage.textContent = data.error;
                 errorMessage.classList.remove('d-none');
-                shareContent.classList.add('d-none');
             }
         } catch (error) {
             errorMessage.textContent = 'Beim Generieren des Links ist ein Fehler aufgetreten.';
@@ -67,16 +97,26 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function copyToClipboard() {
-    const shareUrl = document.getElementById('shareUrl');
-    shareUrl.select();
+function copyUrl(button) {
+    const input = button.parentElement.querySelector('input');
+    input.select();
     document.execCommand('copy');
     
-    // Visual feedback
-    const copyBtn = shareUrl.nextElementSibling;
-    const originalText = copyBtn.innerHTML;
-    copyBtn.innerHTML = '<i class="bi bi-check"></i> Kopiert!';
-    setTimeout(() => copyBtn.innerHTML = originalText, 2000);
+    const originalHTML = button.innerHTML;
+    button.innerHTML = '<i class="bi bi-check"></i>';
+    setTimeout(() => button.innerHTML = originalHTML, 2000);
 }
+
+function showQrModal(img) {
+    const modalImg = document.getElementById('modalQrCode');
+    modalImg.src = img.src;
+    const modal = new bootstrap.Modal(document.getElementById('qrModal'));
+    modal.show();
+}
+
+// Automatische Aktualisierung
+setInterval(() => {
+    location.reload();
+}, 60000);
 </script>
 {% endblock %}

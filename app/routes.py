@@ -11,7 +11,7 @@ import json
 import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
 from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
-from .auth import generate_temp_token, temp_login
+from .auth import generate_temp_token, temp_login, get_active_temp_tokens
 import jwt
 from os import environ
 from .init_buses import init_walking_buses
@@ -42,7 +42,11 @@ def calendar_view():
 @bp.route("/share")
 @require_auth
 def share():
-    return render_template("share.html")
+    token_data = get_active_temp_tokens()
+    return render_template("share.html", 
+                         active_tokens=token_data['tokens'],
+                         token_count=token_data['count'],
+                         max_tokens=token_data['max'])
 
 
 @bp.route("/api/generate-temp-token")
