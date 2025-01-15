@@ -107,9 +107,7 @@ def delete_temp_token(token):
 @bp.route("/auth-tokens")
 @require_auth
 def list_auth_tokens():
-    tokens = AuthToken.query.filter_by(
-        walking_bus_id=session['walking_bus_id']
-    ).order_by(AuthToken.last_used.desc()).all()
+    tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
     
     return render_template(
         "auth_tokens.html",
