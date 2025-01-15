@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from hashlib import sha256
 from math import ceil
+from . import db
+from .models import TempToken
 import jwt
 import os
 import qrcode
@@ -143,50 +145,46 @@ MAX_TEMP_TOKENS = 3
 TOKEN_VALIDITY_MINUTES = 30
 TOKEN_LENGTH = 10
 
-# Global storage for temporary tokens
-temp_tokens = {}
-
 
 def generate_short_token(length=TOKEN_LENGTH):
     """Generate a random token of specified length"""
     alphabet = string.ascii_letters + string.digits
     while True:
         token = ''.join(secrets.choice(alphabet) for _ in range(length))
-        if token not in temp_tokens:  # Ensure uniqueness
+        # Check database for uniqueness instead of temp_tokens
+        if not TempToken.query.get(token):
             return token
 
 
-def cleanup_expired_tokens():
-    """Remove expired temporary tokens"""
-    current_time = datetime.now()
-    expired = [token for token, data in temp_tokens.items() 
-              if current_time > data['expiry']]
-    for token in expired:
-        del temp_tokens[token]
-
-
-@require_auth
 def generate_temp_token():
     """Generate a temporary token for sharing"""
     cleanup_expired_tokens()
     
-    if len(temp_tokens) >= MAX_TEMP_TOKENS:
+    # Check existing tokens count for current walking bus
+    current_tokens = TempToken.query.filter(
+        TempToken.walking_bus_id == session['walking_bus_id'],
+        TempToken.expiry > datetime.now()
+    ).count()
+    
+    if current_tokens >= MAX_TEMP_TOKENS:
         return jsonify({
-            "error": f"Die maximale Anzahl von {MAX_TEMP_TOKENS} temporären Links wurde erreicht. "
-                    f"Bitte warten Sie, bis ein bestehender Link abläuft, bevor Sie einen neuen erstellen.",
+            "error": f"Die maximale Anzahl von {MAX_TEMP_TOKENS} temporären Links wurde erreicht."
         }), 400
     
-    expiry_time = datetime.now() + timedelta(minutes=TOKEN_VALIDITY_MINUTES)
     token = generate_short_token()
+    expiry_time = datetime.now() + timedelta(minutes=TOKEN_VALIDITY_MINUTES)
     
-    # Store token info with all necessary data
-    temp_tokens[token] = {
-        'expiry': expiry_time,
-        'walking_bus_id': session['walking_bus_id'],
-        'walking_bus_name': session['walking_bus_name'],
-        'bus_password_hash': session['bus_password_hash'],
-        'created_by': session['walking_bus_id']
-    }
+    # Create new token in database
+    new_token = TempToken(
+        id=token,
+        expiry=expiry_time,
+        walking_bus_id=session['walking_bus_id'],
+        walking_bus_name=session['walking_bus_name'],
+        bus_password_hash=session['bus_password_hash'],
+        created_by=session['walking_bus_id']
+    )
+    db.session.add(new_token)
+    db.session.commit()
     
     # Generate share URL and QR code
     share_url = url_for('main.temp_login_route', token=token, _external=True)
@@ -195,13 +193,12 @@ def generate_temp_token():
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white")
     
-    # Convert QR code to base64
     buffered = io.BytesIO()
     qr_img.save(buffered, format="PNG")
     qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
     
     return jsonify({
-        'token': token,  # Add token to response
+        'token': token,
         'share_url': share_url,
         'qr_code': qr_code_base64,
         'expires_in': TOKEN_VALIDITY_MINUTES
@@ -212,37 +209,38 @@ def get_active_temp_tokens():
     """Get all active temporary tokens with remaining validity time"""
     cleanup_expired_tokens()
     current_time = datetime.now()
-    current_bus_id = session['walking_bus_id']
+    
+    tokens = TempToken.query.filter(
+        TempToken.walking_bus_id == session['walking_bus_id'],
+        TempToken.expiry > current_time
+    ).all()
     
     active_tokens = []
-    for token, data in temp_tokens.items():
-        if data['walking_bus_id'] != current_bus_id:
-            continue
-        remaining_time = (data['expiry'] - current_time).total_seconds() / 60
-        url = url_for('main.temp_login_route', token=token, _external=True)
+    for token in tokens:
+        remaining_time = (token.expiry - current_time).total_seconds() / 60
+        url = url_for('main.temp_login_route', token=token.id, _external=True)
         
-        # Generate QR code
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
         qr.add_data(url)
         qr.make(fit=True)
         qr_img = qr.make_image(fill_color="black", back_color="white")
         
-        # Convert to base64
         buffered = io.BytesIO()
         qr_img.save(buffered, format="PNG")
         qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
         
         active_tokens.append({
-            'token': token,  # Include token in response
+            'token': token.id,
             'url': url,
             'remaining_minutes': int(remaining_time),
-            'created_at': data['expiry'] - timedelta(minutes=TOKEN_VALIDITY_MINUTES),
+            'created_at': token.created_at,
             'qr_code': qr_code_base64
         })
     
+    # Return dictionary instead of jsonify response
     return {
         'tokens': sorted(active_tokens, key=lambda x: x['remaining_minutes'], reverse=True),
-        'count': len(temp_tokens),
+        'count': len(tokens),
         'max': MAX_TEMP_TOKENS
     }
 
@@ -250,21 +248,20 @@ def get_active_temp_tokens():
 def temp_login(token):
     """Handle temporary token login"""
     try:
-        # Get stored token data
-        token_data = temp_tokens.get(token)
+        token_data = TempToken.query.get(token)
         if not token_data:
             return jsonify({"error": "Ungültiger Login Link"}), 401
-            
-        if datetime.now() > token_data['expiry']:
-            del temp_tokens[token]
+        
+        if datetime.now() > token_data.expiry:
+            db.session.delete(token_data)
+            db.session.commit()
             return jsonify({"error": "Der Login Link ist bereits abgelaufen"}), 401
         
-        # Generate regular auth token from stored data
         auth_token = jwt.encode({
             'exp': datetime.now() + timedelta(hours=72),
-            'walking_bus_id': token_data['walking_bus_id'],
-            'walking_bus_name': token_data['walking_bus_name'],
-            'bus_password_hash': token_data['bus_password_hash']
+            'walking_bus_id': token_data.walking_bus_id,
+            'walking_bus_name': token_data.walking_bus_name,
+            'bus_password_hash': token_data.bus_password_hash
         }, SECRET_KEY, algorithm='HS256')
         
         return jsonify({
@@ -272,6 +269,12 @@ def temp_login(token):
             "auth_token": auth_token,
             "redirect_url": "/"
         })
-        
+    
     except Exception as e:
         return jsonify({"error": "Ungültiger Login Link"}), 401
+
+
+def cleanup_expired_tokens():
+    """Remove expired temporary tokens from database"""
+    TempToken.query.filter(TempToken.expiry < datetime.now()).delete()
+    db.session.commit()

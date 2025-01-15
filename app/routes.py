@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, session, jsonify, request, Respons
 from flask import send_from_directory
 from flask import current_app as app
 from flask import redirect, url_for
-from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote
+from .models import db, WalkingBus, Station, Participant, CalendarStatus, WalkingBusSchedule, SchoolHoliday, WalkingBusOverride, DailyNote, TempToken
 from .services.holiday_service import HolidayService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from app import get_git_revision
@@ -11,7 +11,7 @@ import json
 import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
 from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
-from .auth import generate_temp_token, temp_login, get_active_temp_tokens, temp_tokens
+from .auth import generate_temp_token, temp_login, get_active_temp_tokens
 import jwt
 from os import environ
 from .init_buses import init_walking_buses
@@ -42,11 +42,19 @@ def calendar_view():
 @bp.route("/share")
 @require_auth
 def share():
+    """Template route that uses dictionary directly"""
     token_data = get_active_temp_tokens()
-    return render_template("share.html", 
+    return render_template("share.html",
                          active_tokens=token_data['tokens'],
                          token_count=token_data['count'],
                          max_tokens=token_data['max'])
+
+
+@bp.route("/api/temp-tokens")
+@require_auth
+def get_active_temp_tokens_route():
+    """API endpoint that returns JSON response"""
+    return jsonify(get_active_temp_tokens())
 
 
 @bp.route("/api/generate-temp-token")
@@ -67,15 +75,20 @@ def temp_login_route(token):
 def delete_temp_token(token):
     try:
         app.logger.info(f"Attempting to delete token: {token}")
-        if token in temp_tokens:
-            del temp_tokens[token]
+        token_data = TempToken.query.get(token)
+        
+        if token_data and token_data.walking_bus_id == session['walking_bus_id']:
+            db.session.delete(token_data)
+            db.session.commit()
             app.logger.info(f"Token {token} successfully deleted")
             return jsonify({"success": True})
         else:
             app.logger.warning(f"Token {token} not found")
             return jsonify({"error": "Token not found"}), 404
+            
     except Exception as e:
         app.logger.error(f"Error deleting token: {str(e)}")
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
