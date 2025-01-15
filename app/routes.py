@@ -11,6 +11,7 @@ import json
 import time
 from .auth import require_auth, SECRET_KEY, is_ip_allowed, record_attempt, get_remaining_lockout_time, get_consistent_hash
 from .auth import login_attempts, MAX_ATTEMPTS, LOCKOUT_TIME
+from .auth import generate_temp_token, temp_login
 import jwt
 from os import environ
 from .init_buses import init_walking_buses
@@ -36,6 +37,23 @@ def admin():
 @bp.route("/calendar")
 def calendar_view():
     return render_template("calendar.html")
+
+
+@bp.route("/share")
+@require_auth
+def share():
+    return render_template("share.html")
+
+
+@bp.route("/api/generate-temp-token")
+@require_auth
+def generate_temp_token_route():
+    return generate_temp_token()
+
+
+@bp.route("/temp-login/<token>")
+def temp_login_route(token):
+    return temp_login(token)
 
 
 # Station Routes
