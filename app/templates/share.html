@@ -9,6 +9,10 @@
                     <h4 class="mb-0">Temporären Login Link generieren</h4>
                 </div>
                 <div class="card-body">
+                    <div class="alert alert-info mb-3">
+                        <p class="mb-2">Wenn einer neuer Benutzer Zugang zur App erhalten soll, dann kann hier ein Link generiert werden. Dieser ist für 30 Minuten gültig.</p>
+                        <p class="mb-0">Teile den Link z.B. über WhatsApp oder lasse den QR Code über die Kamera scannen.</p>
+                    </div>
                     <div id="errorMessage" class="alert alert-danger d-none"></div>
                     <button id="generateBtn" class="btn btn-primary w-100" {% if token_count >= max_tokens %}disabled{% endif %}>
                         {% if token_count >= max_tokens %}
@@ -41,10 +45,10 @@
                                     <div class="input-group mb-3">
                                         <input type="text" class="form-control" value="{{ token.url }}" readonly>
                                         <button class="btn btn-outline-primary" onclick="copyUrl(this)">
-                                            <i class="bi bi-clipboard"></i>
+                                            <i class="fas fa-copy"></i>
                                         </button>
                                         <button class="btn btn-outline-danger" onclick="deleteToken('{{ token.token }}')">
-                                            <i class="bi bi-trash"></i>
+                                            <i class="fas fa-trash-alt"></i>
                                         </button>
                                     </div>
                                 </div>
