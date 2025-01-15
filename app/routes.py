@@ -19,7 +19,8 @@ from .auth import (
     record_attempt, get_remaining_lockout_time, 
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
-    temp_login, get_active_temp_tokens, create_auth_token
+    temp_login, get_active_temp_tokens, create_auth_token,
+    renew_auth_token
 )
 import jwt
 import json
@@ -590,11 +591,7 @@ def initialize_daily_status():
         new_token = None
         if remaining_days < 30:
             verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            new_token = jwt.encode({
-                **verified_payload,
-                'exp': datetime.utcnow() + timedelta(days=60),
-                'iat': datetime.utcnow()
-            }, SECRET_KEY, algorithm="HS256")
+            new_token = renew_auth_token(token, verified_payload)
             app.logger.info("Created new token with extended expiration")
             app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
 
@@ -1513,11 +1510,13 @@ def login():
 
     if bus and bus.password == password:
         # Success case - create token and session
+        user_agent = request.headers.get('User-Agent')
         password_hash = get_consistent_hash(bus.password)
         auth_token = create_auth_token(
             bus.id,
             bus.name,
-            password_hash
+            password_hash,
+            client_info=user_agent
         )
            
         session['walking_bus_id'] = bus.id
@@ -1545,6 +1544,18 @@ def login():
 
 @bp.route("/logout")
 def logout():
+    # Get current token from header or session
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token and 'auth_token' in session:
+        token = session['auth_token']
+    
+    if token:
+        # Invalidate token in database
+        token_record = AuthToken.query.get(token)
+        if token_record:
+            token_record.invalidate("User logout")
+            db.session.commit()
+    
     session.clear()
     return jsonify({
         "message": "Logged out successfully",

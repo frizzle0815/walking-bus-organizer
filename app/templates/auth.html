@@ -102,6 +102,30 @@
         return Promise.reject(error);
     });
 
+
+    axios.interceptors.response.use(
+        response => response,
+        error => {
+            if (error.response?.status === 401) {
+                if (error.response?.data?.code === 'PASSWORD_CHANGED') {
+                    console.log('[AUTH] Password changed, clearing all tokens');
+                    localStorage.removeItem('auth_token');
+                    
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.ready.then(registration => {
+                            registration.active.postMessage({
+                                type: 'CLEAR_AUTH_TOKEN'
+                            });
+                        });
+                    }
+                }
+                window.location.href = '/login';
+            }
+            return Promise.reject(error);
+        }
+    );
+
+
     // Der Token wird über die route initialize-daily-status geprüft und die hier definierte Aktualisierung durchgeführt
     // wenn die Restlaufzeit zu gering ist
     axios.interceptors.response.use(
@@ -289,9 +313,13 @@ async function loginUser() {
     });
 }
 
+// Add this at the end of the auth.html script section
 window.handleLogout = async function() {
     try {
         console.log('[LOGOUT] Starting logout process');
+        
+        // Get current token before clearing storage
+        const token = await window.getAuthToken();
         
         localStorage.removeItem('auth_token');
         console.log('[LOGOUT] Cleared localStorage');
@@ -318,8 +346,13 @@ window.handleLogout = async function() {
             });
         }
         
+        // Send token in logout request for server-side invalidation
         console.log('[LOGOUT] Calling server logout endpoint');
-        await fetch('/logout');
+        await fetch('/logout', {
+            headers: token ? {
+                'Authorization': `Bearer ${token}`
+            } : {}
+        });
         
         console.log('[LOGOUT] Redirecting to login');
         window.location.href = '/login';

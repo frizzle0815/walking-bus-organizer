@@ -1,8 +1,8 @@
 """Add Auth Token Database
 
-Revision ID: 1c8955683387
+Revision ID: de31609f2965
 Revises: 002de5366907
-Create Date: 2025-01-15 12:51:57.163635
+Create Date: 2025-01-15 15:53:14.253631
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '1c8955683387'
+revision = 'de31609f2965'
 down_revision = '002de5366907'
 branch_labels = None
 depends_on = None
@@ -25,9 +25,14 @@ def upgrade():
     sa.Column('last_used', sa.DateTime(), nullable=True),
     sa.Column('expires_at', sa.DateTime(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('client_info', sa.String(length=500), nullable=True),
+    sa.Column('renewed_from', sa.String(length=512), nullable=True),
+    sa.Column('renewed_to', sa.String(length=512), nullable=True),
     sa.Column('invalidated_at', sa.DateTime(), nullable=True),
     sa.Column('invalidation_reason', sa.String(length=100), nullable=True),
     sa.Column('token_identifier', sa.String(length=64), nullable=False),
+    sa.ForeignKeyConstraint(['renewed_from'], ['auth_tokens.id'], ),
+    sa.ForeignKeyConstraint(['renewed_to'], ['auth_tokens.id'], ),
     sa.ForeignKeyConstraint(['walking_bus_id'], ['walking_bus.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('token_identifier')

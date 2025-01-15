@@ -16,6 +16,7 @@
                     <thead>
                         <tr>
                             <th>Token Identifier</th>
+                            <th>Client</th>
                             <th>Erstellt am</th>
                             <th>Zuletzt verwendet</th>
                             <th>Läuft ab am</th>
@@ -26,6 +27,7 @@
                         {% for token in tokens if token.is_active %}
                         <tr>
                             <td>{{ token.token_identifier[:16] }}...</td>
+                            <td>{{ token.client_info or 'Unknown' }}</td>
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.last_used.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
@@ -54,6 +56,7 @@
                     <thead>
                         <tr>
                             <th>Token Identifier</th>
+                            <th>Client</th>
                             <th>Erstellt am</th>
                             <th>Deaktiviert am</th>
                             <th>Grund</th>
@@ -63,6 +66,7 @@
                         {% for token in tokens if not token.is_active %}
                         <tr>
                             <td>{{ token.token_identifier[:16] }}...</td>
+                            <td>{{ token.client_info or 'Unknown' }}</td>
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.invalidated_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.invalidation_reason }}</td>

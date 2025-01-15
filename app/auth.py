@@ -82,7 +82,7 @@ def get_consistent_hash(text):
     return sha256(str(text).encode()).hexdigest()
 
 
-def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash):
+def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None):
     token_identifier = secrets.token_hex(32)
     exp_time = datetime.now() + timedelta(days=60)
     token_payload = {
@@ -102,7 +102,8 @@ def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash):
         walking_bus_id=walking_bus_id,
         token_identifier=token_identifier,
         expires_at=exp_time,
-        is_active=True
+        is_active=True,
+        client_info=client_info
     )
 
     try:
@@ -116,23 +117,44 @@ def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash):
         raise
 
 
-def invalidate_tokens_for_bus(walking_bus_id):
-    """Invalidiert alle Tokens eines Buses bei Passwortänderung"""
-    AuthToken.query.filter_by(
+def renew_auth_token(old_token, verified_payload):
+    # Create new token with extended expiration
+    new_token = create_auth_token(
+        verified_payload['walking_bus_id'],
+        verified_payload['walking_bus_name'],
+        verified_payload['bus_password_hash']
+    )
+    
+    # Update old token record
+    old_token_record = AuthToken.query.get(old_token)
+    new_token_record = AuthToken.query.get(new_token)
+    
+    old_token_record.renewed_to = new_token
+    new_token_record.renewed_from = old_token
+    
+    # Mark old token as inactive
+    old_token_record.invalidate("Renewed with new token")
+    
+    db.session.commit()
+    return new_token
+
+
+def invalidate_all_tokens_for_bus(walking_bus_id, reason="Password changed"):
+    """Invalidate all active tokens for a specific walking bus"""
+    active_tokens = AuthToken.query.filter_by(
         walking_bus_id=walking_bus_id,
         is_active=True
-    ).update({
-        'is_active': False,
-        'invalidation_reason': 'Password changed',
-        'invalidated_at': datetime.now()
-    })
+    ).all()
+    
+    for token in active_tokens:
+        token.invalidate(reason)
+    
     db.session.commit()
 
 
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Get token from header or session
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token and 'auth_token' in session:
             token = session['auth_token']
@@ -171,16 +193,18 @@ def require_auth(f):
                 # Verify bus ID exists
                 if walking_bus_id not in bus_configs:
                     current_app.logger.info(f"[AUTH.PY][AUTH] Invalid bus ID: {walking_bus_id}")
-                    token_record.invalidate("Invalid bus ID")
-                    db.session.commit()
+                    invalidate_all_tokens_for_bus(walking_bus_id, "Invalid bus ID")
                     return jsonify({"error": "Invalid bus ID", "redirect": True}), 401
 
                 # Verify password hash matches current configuration
                 if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
                     current_app.logger.info("[AUTH.PY][AUTH] Password hash mismatch")
-                    token_record.invalidate("Password changed")
-                    db.session.commit()
-                    return jsonify({"error": "Password changed", "redirect": True}), 401
+                    invalidate_all_tokens_for_bus(walking_bus_id, "Password changed")
+                    return jsonify({
+                        "error": "Password changed",
+                        "code": "PASSWORD_CHANGED",
+                        "redirect": True
+                    }), 401
 
                 # Verify token identifier matches database record
                 if token_identifier != token_record.token_identifier:
