@@ -12,6 +12,8 @@ import os
 import qrcode
 import io
 import base64
+import secrets
+import string
 
 # JWT Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
@@ -139,9 +141,20 @@ def require_auth(f):
 # Configuration constants
 MAX_TEMP_TOKENS = 3
 TOKEN_VALIDITY_MINUTES = 30
+TOKEN_LENGTH = 10
 
 # Global storage for temporary tokens
 temp_tokens = {}
+
+
+def generate_short_token(length=TOKEN_LENGTH):
+    """Generate a random token of specified length"""
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        token = ''.join(secrets.choice(alphabet) for _ in range(length))
+        if token not in temp_tokens:  # Ensure uniqueness
+            return token
+
 
 def cleanup_expired_tokens():
     """Remove expired temporary tokens"""
@@ -151,6 +164,7 @@ def cleanup_expired_tokens():
     for token in expired:
         del temp_tokens[token]
 
+
 @require_auth
 def generate_temp_token():
     """Generate a temporary token for sharing"""
@@ -158,28 +172,24 @@ def generate_temp_token():
     
     if len(temp_tokens) >= MAX_TEMP_TOKENS:
         return jsonify({
-            "error": f"Die maximale Anzahl von {MAX_TEMP_TOKENS} temporären Links wurde erreicht. Bitte warten Sie, bis ein bestehender Link abläuft, bevor Sie einen neuen erstellen.",
+            "error": f"Die maximale Anzahl von {MAX_TEMP_TOKENS} temporären Links wurde erreicht. "
+                    f"Bitte warten Sie, bis ein bestehender Link abläuft, bevor Sie einen neuen erstellen.",
         }), 400
     
     expiry_time = datetime.now() + timedelta(minutes=TOKEN_VALIDITY_MINUTES)
+    short_token = generate_short_token()
     
-    # Generate temporary token
-    temp_token = jwt.encode({
-        'exp': expiry_time,
+    # Store token info with all necessary data
+    temp_tokens[short_token] = {
+        'expiry': expiry_time,
         'walking_bus_id': session['walking_bus_id'],
         'walking_bus_name': session['walking_bus_name'],
         'bus_password_hash': session['bus_password_hash'],
-        'temp_token': True
-    }, SECRET_KEY, algorithm='HS256')
-    
-    # Store token info
-    temp_tokens[temp_token] = {
-        'expiry': expiry_time,
         'created_by': session['walking_bus_id']
     }
     
     # Generate share URL and QR code
-    share_url = url_for('main.temp_login_route', token=temp_token, _external=True)
+    share_url = url_for('main.temp_login_route', token=short_token, _external=True)
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(share_url)
     qr.make(fit=True)
@@ -196,13 +206,17 @@ def generate_temp_token():
         'expires_in': TOKEN_VALIDITY_MINUTES
     })
 
+
 def get_active_temp_tokens():
     """Get all active temporary tokens with remaining validity time"""
     cleanup_expired_tokens()
     current_time = datetime.now()
+    current_bus_id = session['walking_bus_id']
     
     active_tokens = []
     for token, data in temp_tokens.items():
+        if data['walking_bus_id'] != current_bus_id:
+            continue
         remaining_time = (data['expiry'] - current_time).total_seconds() / 60
         url = url_for('main.temp_login_route', token=token, _external=True)
         
@@ -234,18 +248,21 @@ def get_active_temp_tokens():
 def temp_login(token):
     """Handle temporary token login"""
     try:
-        # Verify token
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        # Get stored token data
+        token_data = temp_tokens.get(token)
+        if not token_data:
+            return jsonify({"error": "Ungültiger Login Link"}), 401
+            
+        if datetime.now() > token_data['expiry']:
+            del temp_tokens[token]
+            return jsonify({"error": "Der Login Link ist bereits abgelaufen"}), 401
         
-        if not payload.get('temp_token'):
-            return jsonify({"error": "Invalid temporary token"}), 401
-        
-        # Generate regular auth token
+        # Generate regular auth token from stored data
         auth_token = jwt.encode({
             'exp': datetime.now() + timedelta(hours=72),
-            'walking_bus_id': payload['walking_bus_id'],
-            'walking_bus_name': payload['walking_bus_name'],
-            'bus_password_hash': payload['bus_password_hash']
+            'walking_bus_id': token_data['walking_bus_id'],
+            'walking_bus_name': token_data['walking_bus_name'],
+            'bus_password_hash': token_data['bus_password_hash']
         }, SECRET_KEY, algorithm='HS256')
         
         return jsonify({
@@ -254,7 +271,5 @@ def temp_login(token):
             "redirect_url": "/"
         })
         
-    except jwt.ExpiredSignatureError:
-        return jsonify({"error": "Der Login Link ist bereits abgelaufen"}), 401
-    except jwt.InvalidTokenError:
+    except Exception as e:
         return jsonify({"error": "Ungültiger Login Link"}), 401

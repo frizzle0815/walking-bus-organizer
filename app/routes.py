@@ -57,7 +57,9 @@ def generate_temp_token_route():
 
 @bp.route("/temp-login/<token>")
 def temp_login_route(token):
-    return temp_login(token)
+    if request.headers.get('Accept') == 'application/json':
+        return temp_login(token)
+    return render_template('temp-login.html')
 
 
 # Station Routes
