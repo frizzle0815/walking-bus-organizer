@@ -353,7 +353,6 @@ def get_active_temp_tokens():
 
 
 def temp_login(token):
-    """Handle temporary token login"""
     try:
         token_data = TempToken.query.get(token)
         if not token_data:
@@ -364,12 +363,18 @@ def temp_login(token):
             db.session.commit()
             return jsonify({"error": "Der Login Link ist bereits abgelaufen"}), 401
         
+        # Get user agent info from request
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        
+        # Create detailed client info string
+        client_info = f"Created from temp token: {token} | User-Agent: {user_agent}"
+        
         # Create proper auth token with database record
         auth_token = create_auth_token(
             walking_bus_id=token_data.walking_bus_id,
             walking_bus_name=token_data.walking_bus_name,
             bus_password_hash=token_data.bus_password_hash,
-            client_info=f"Created from temp token: {token}"
+            client_info=client_info
         )
         
         return jsonify({
