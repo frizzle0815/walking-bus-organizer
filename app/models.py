@@ -124,3 +124,27 @@ class TempToken(db.Model):
 
     # Add relationship to WalkingBus
     walking_bus = db.relationship('WalkingBus', backref='temp_tokens')
+
+
+class AuthToken(db.Model):
+    __tablename__ = 'auth_tokens'
+    
+    id = db.Column(db.String(512), primary_key=True)  # The JWT token itself
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    client_info = db.Column(db.String(500), nullable=True)
+    renewed_from = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=True)
+    renewed_to = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=True)
+    invalidated_at = db.Column(db.DateTime)
+    invalidation_reason = db.Column(db.String(100))
+    token_identifier = db.Column(db.String(64), unique=True, nullable=False)
+    
+    walking_bus = db.relationship('WalkingBus', backref='auth_tokens')
+
+    def invalidate(self, reason):
+        self.is_active = False
+        self.invalidation_reason = reason
+        self.invalidated_at = datetime.now()
