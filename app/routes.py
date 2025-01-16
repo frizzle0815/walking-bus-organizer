@@ -1115,7 +1115,7 @@ def stream():
                             
                             # Get schedule for time check
                             schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
-                            
+
                             # Get stations data
                             stations = Station.query.filter_by(
                                 walking_bus_id=walking_bus_id

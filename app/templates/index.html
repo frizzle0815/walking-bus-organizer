@@ -1814,16 +1814,39 @@
                     // Get currently selected date
                     const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
                     
-                    // Update week overview if data is available
+                    // 1. Update week overview immediately
                     if (data.week_overview) {
                         updateWeekOverviewNumbers(data.week_overview, selectedDate);
                     }
                     
-                    // Only update station data if viewing current date
+                    // 2. Update visible content immediately if it matches current view
                     if (selectedDate === data.date) {
                         const db = await dbPromise;
                         const previousStates = await getPreviousStates(db);
                         await loadStations(previousStates, selectedDate);
+                    }
+
+                    // 3. Cache all data in background for all dates
+                    try {
+                        const db = await dbPromise;
+                        await updateCache(db, data.stations, data.dailyStatus, data.date);
+                        
+                        // Optional: Fetch and cache data for next few days
+                        const nextDays = [1, 2, 3, 4, 5];
+                        for (const dayOffset of nextDays) {
+                            const futureDate = new Date(data.date);
+                            futureDate.setDate(futureDate.getDate() + dayOffset);
+                            const futureDateStr = futureDate.toISOString().split('T')[0];
+                            
+                            const response = await axios.get('/api/stations', {
+                                params: { date: futureDateStr, admin: 0 }
+                            });
+                            
+                            await updateCache(db, response.data.stations, response.data.dailyStatus, futureDateStr);
+                        }
+                    } catch (error) {
+                        console.error('Background caching error:', error);
+                        // Non-critical error, don't interrupt user experience
                     }
 
                     // Update connection status
@@ -1834,6 +1857,7 @@
                         clearTimeout(connectionAlertTimeout);
                         connectionAlertTimeout = null;
                     }
+                    
                 })();
             };
 
