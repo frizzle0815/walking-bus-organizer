@@ -20,6 +20,7 @@ class Station(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     position = db.Column(db.Integer, nullable=False, default=0)  # Reihenfolge
+    arrival_time = db.Column(db.Time, nullable=True) 
     participants = db.relationship('Participant', backref='station', lazy=True, order_by='Participant.position')
 
 
