@@ -1139,26 +1139,12 @@
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
             stationDiv.dataset.stationId = station.id;
-            
-            // Initial loading state for station header
-            stationDiv.innerHTML = `
-                <div class="station-header">
-                    <h5 class="d-flex justify-content-between align-items-center mb-0">
-                        <span class="station-title">
-                            <i class="fas fa-bus-simple me-2"></i>
-                            ${station.name}
-                        </span>
-                        <div class="d-flex align-items-center gap-2">
-                            <i class="fas fa-spinner fa-spin"></i>
-                        </div>
-                    </h5>
-                </div>`;
+            stationDiv.innerHTML = createStationHeader(station, effectiveWalkingBusDay);
 
             const list = document.createElement('ul');
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
-            // Process participants while header loads
             for (const participant of station.participants) {
                 const item = await createParticipantItem(participant, effectiveWalkingBusDay);
                 const nameSpan = createNameSpan(participant, effectiveWalkingBusDay);
@@ -1179,19 +1165,11 @@
                 list.appendChild(item);
             }
 
-            // Update header once data is available
-            createStationHeader(station, effectiveWalkingBusDay)
-                .then(headerContent => {
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = headerContent;
-                    const existingHeader = stationDiv.querySelector('.station-header');
-                    existingHeader.replaceWith(tempDiv.firstElementChild);
-                });
-
             stationDiv.appendChild(list);
             stationsContainer.appendChild(stationDiv);
         }
     }
+
 
 
     function createAlertsContainer(isWalkingBusDay, dailyStatus) {
@@ -1253,41 +1231,8 @@
         return `${dayName}, ${day}.${month}.${year}`;
     }
 
-    async function createStationHeader(station, isWalkingBusDay) {
-        // Get current time for comparison
-        const now = new Date();
-        const currentTime = now.getHours() * 60 + now.getMinutes();
-        
-        const [hours, minutes] = station.arrival_time ? station.arrival_time.split(':') : [0, 0];
-        const arrivalTimeInMinutes = parseInt(hours) * 60 + parseInt(minutes);
-        
-        // Get the currently selected date from week overview
-        const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
-        const today = new Date().toISOString().split('T')[0];
-        
-        // Get daily status for schedule information
-        const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
-            date: selectedDate
-        });
-        
-        const dailyStatus = dailyStatusResponse.data;
-        const schedule = dailyStatus.schedule;
-        
-        let shouldShowWalkingIcon = false;
-        
-        if (selectedDate === today && schedule?.end) {
-            // Convert schedule end time to minutes for comparison
-            const [endHours, endMinutes] = schedule.end.split(':');
-            const scheduleEndMinutes = parseInt(endHours) * 60 + parseInt(endMinutes);
-            
-            shouldShowWalkingIcon = currentTime > arrivalTimeInMinutes && currentTime < scheduleEndMinutes;
-        }
-
-        const timeIcon = shouldShowWalkingIcon ? 
-            '<i class="fas fa-person-walking fa-beat-fade"></i>' : 
-            '<i class="fas fa-clock"></i>';
-
-        return `
+    function createStationHeader(station, isWalkingBusDay) {
+            return `
             <div class="station-header">
                 <h5 class="d-flex justify-content-between align-items-center mb-0">
                     <span class="station-title">
@@ -1296,10 +1241,10 @@
                     </span>
                     <div class="d-flex align-items-center gap-2">
                         ${station.arrival_time ? 
-                            `<span class="badge bg-light text-dark">
-                                ${timeIcon}
+                            `<span class="badge bg-light text-dark time-badge" data-station-id="${station.id}">
+                                <i class="fas fa-clock"></i>
                                 <span class="ms-1">${station.arrival_time}</span>
-                            </span>` 
+                            </span>`
                             : ''}
                         <span class="badge bg-light text-dark" id="stats-station-${station.id}">
                             ${getStationStats(station)}
@@ -1307,6 +1252,34 @@
                     </div>
                 </h5>
             </div>`;
+    }
+
+    function updateTimeIcons(dailyStatus) {
+        const now = new Date();
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+        const today = new Date().toISOString().split('T')[0];
+        const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
+        
+        document.querySelectorAll('.time-badge').forEach(badge => {
+            const timeText = badge.querySelector('span').textContent;
+            const [hours, minutes] = timeText.split(':');
+            const arrivalTime = parseInt(hours) * 60 + parseInt(minutes);
+            
+            const icon = badge.querySelector('i');
+            
+            if (selectedDate === today && dailyStatus.schedule?.end) {
+                const [endHours, endMinutes] = dailyStatus.schedule.end.split(':');
+                const scheduleEnd = parseInt(endHours) * 60 + parseInt(endMinutes);
+                
+                if (currentTime > arrivalTime && currentTime < scheduleEnd) {
+                    icon.className = 'fas fa-person-walking fa-beat-fade';
+                } else {
+                    icon.className = 'fas fa-clock';
+                }
+            } else {
+                icon.className = 'fas fa-clock';
+            }
+        });
     }
 
 
@@ -1917,6 +1890,11 @@
                     // Update time display
                     if (data.time) {
                         document.getElementById('current-time').textContent = data.time;
+                    }
+
+                    // Update time icons
+                    if (data.dailyStatus) {
+                        updateTimeIcons(data.dailyStatus);
                     }
 
                     // Get currently selected date

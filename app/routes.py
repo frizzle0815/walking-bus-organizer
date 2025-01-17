@@ -1141,6 +1141,18 @@ def stream():
                             
                             # Get schedule for time check
                             schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+                            weekday = WEEKDAY_MAPPING[current_date.weekday()]
+                            schedule_data = None
+
+                            if schedule:
+                                start_time = getattr(schedule, f"{weekday}_start", None)
+                                end_time = getattr(schedule, f"{weekday}_end", None)
+                                
+                                schedule_data = {
+                                    "active": getattr(schedule, weekday, False),
+                                    "start": start_time.strftime("%H:%M") if start_time else None,
+                                    "end": end_time.strftime("%H:%M") if end_time else None
+                                }
 
                             # Get stations data
                             stations = Station.query.filter_by(
@@ -1227,7 +1239,11 @@ def stream():
                                         ]
                                     } for station in stations
                                 ],
-                                "week_overview": week_data
+                                "week_overview": week_data,
+                                "dailyStatus": {
+                                    "schedule": schedule_data,
+                                    "isWalkingBusDay": is_active
+                                }
                             }
                             
                             current_data_str = json.dumps(current_data)
