@@ -1139,12 +1139,26 @@
             const stationDiv = document.createElement('div');
             stationDiv.classList.add('station-card');
             stationDiv.dataset.stationId = station.id;
-            stationDiv.innerHTML = createStationHeader(station, effectiveWalkingBusDay);
+            
+            // Initial loading state for station header
+            stationDiv.innerHTML = `
+                <div class="station-header">
+                    <h5 class="d-flex justify-content-between align-items-center mb-0">
+                        <span class="station-title">
+                            <i class="fas fa-bus-simple me-2"></i>
+                            ${station.name}
+                        </span>
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </div>
+                    </h5>
+                </div>`;
 
             const list = document.createElement('ul');
             list.classList.add('list-group', 'list-group-flush', 'participants-list');
             list.dataset.stationId = station.id;
 
+            // Process participants while header loads
             for (const participant of station.participants) {
                 const item = await createParticipantItem(participant, effectiveWalkingBusDay);
                 const nameSpan = createNameSpan(participant, effectiveWalkingBusDay);
@@ -1164,6 +1178,15 @@
                 item.append(nameSpan, buttonContainer);
                 list.appendChild(item);
             }
+
+            // Update header once data is available
+            createStationHeader(station, effectiveWalkingBusDay)
+                .then(headerContent => {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = headerContent;
+                    const existingHeader = stationDiv.querySelector('.station-header');
+                    existingHeader.replaceWith(tempDiv.firstElementChild);
+                });
 
             stationDiv.appendChild(list);
             stationsContainer.appendChild(stationDiv);
@@ -1230,20 +1253,39 @@
         return `${dayName}, ${day}.${month}.${year}`;
     }
 
-    function createStationHeader(station, isWalkingBusDay) {
-    // Get current time for comparison
-    const now = new Date();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-    
-    const [hours, minutes] = station.arrival_time ? station.arrival_time.split(':') : [0, 0];
-    const arrivalTimeInMinutes = parseInt(hours) * 60 + parseInt(minutes);
-    
-    // Get the currently selected date from week overview
-    const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
-    
-    const timeIcon = ( currentTime > arrivalTimeInMinutes) ?
-        '<i class="fas fa-person-walking fa-beat-fade"></i>' :
-        '<i class="fas fa-clock"></i>';
+    async function createStationHeader(station, isWalkingBusDay) {
+        // Get current time for comparison
+        const now = new Date();
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+        
+        const [hours, minutes] = station.arrival_time ? station.arrival_time.split(':') : [0, 0];
+        const arrivalTimeInMinutes = parseInt(hours) * 60 + parseInt(minutes);
+        
+        // Get the currently selected date from week overview
+        const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Get daily status for schedule information
+        const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
+            date: selectedDate
+        });
+        
+        const dailyStatus = dailyStatusResponse.data;
+        const schedule = dailyStatus.schedule;
+        
+        let shouldShowWalkingIcon = false;
+        
+        if (selectedDate === today && schedule?.end) {
+            // Convert schedule end time to minutes for comparison
+            const [endHours, endMinutes] = schedule.end.split(':');
+            const scheduleEndMinutes = parseInt(endHours) * 60 + parseInt(endMinutes);
+            
+            shouldShowWalkingIcon = currentTime > arrivalTimeInMinutes && currentTime < scheduleEndMinutes;
+        }
+
+        const timeIcon = shouldShowWalkingIcon ? 
+            '<i class="fas fa-person-walking fa-beat-fade"></i>' : 
+            '<i class="fas fa-clock"></i>';
 
         return `
             <div class="station-header">
