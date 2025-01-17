@@ -1501,9 +1501,10 @@
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
         try {
-            // Make API call without waiting for it
             const response = await axios.patch(`/api/participation/${participantId}`, {
                 date: selectedDate
+            }, {
+                timeout: 2000
             });
             
             if (response.data && response.status === 200) {
@@ -1755,6 +1756,8 @@
                 participant_id: participantId,
                 date: dateString,
                 status: !wasGreen
+            }, {
+                timeout: 2000 // 2 Sekunden Timeout
             });
 
             // Restore day number on success
