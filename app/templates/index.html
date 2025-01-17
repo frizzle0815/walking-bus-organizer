@@ -1521,7 +1521,7 @@
             const response = await axios.patch(`/api/participation/${participantId}`, {
                 date: selectedDate
             }, {
-                timeout: 2000
+                timeout: 4000  // Request times out after 4 seconds
             });
 
             if (response.data && response.status === 200) {
@@ -1771,7 +1771,7 @@
                 date: dateString,
                 status: !wasGreen
             }, {
-                timeout: 2000 // Request times out after 2 seconds
+                timeout: 4000 // Request times out after 4 seconds
             });
 
             // Success: Update UI with confirmation
