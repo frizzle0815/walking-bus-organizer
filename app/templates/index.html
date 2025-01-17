@@ -234,8 +234,22 @@
 
     .btn-outline-success:hover,
     .btn-outline-danger:hover {
-        background-color: white !important;
+        color: inherit !important;  /* Maintain text/icon color */
+        background-color: white !important;  /* Keep solid white background */
+        border-color: currentColor !important;  /* Maintain border color */
         opacity: 0.8;
+    }
+
+    .btn-outline-success:hover i {
+        color: #28a745 !important;  /* Bootstrap's success color */
+    }
+
+    .btn-outline-danger:hover i {
+        color: #dc3545 !important;  /* Bootstrap's danger color */
+    }
+
+    .status-button i {
+        color: inherit !important;
     }
 
     .status-button:disabled {
