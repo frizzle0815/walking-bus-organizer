@@ -393,6 +393,15 @@
         font-size: calc(1rem * var(--base-scale));
     }
 
+    .station-title {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+        min-width: 0;
+        margin-right: 1rem;
+    }
+
     .participant-item {
         padding: calc(0.5rem * var(--base-scale));
     }
@@ -562,6 +571,7 @@
     let isStatusUpdateInProgress = false;
     let isPageVisible = !document.hidden;
     let isWalkingBusDay = false;
+    let globalDailyStatus = null;
     const WEEKDAY_MAPPING = {
         0: 'monday',
         1: 'tuesday',
@@ -1161,6 +1171,7 @@
     }
 
 
+
     function createAlertsContainer(isWalkingBusDay, dailyStatus) {
         const alertsContainer = document.createElement('div');
         alertsContainer.id = 'alerts-container';
@@ -1221,19 +1232,56 @@
     }
 
     function createStationHeader(station, isWalkingBusDay) {
-        return `
+            return `
             <div class="station-header">
                 <h5 class="d-flex justify-content-between align-items-center mb-0">
-                    <span>
+                    <span class="station-title">
                         <i class="fas fa-bus-simple me-2"></i>
                         ${station.name}
                     </span>
-                    <span class="badge bg-light text-dark" id="stats-station-${station.id}">
-                        ${getStationStats(station)}
-                    </span>
+                    <div class="d-flex align-items-center gap-2">
+                        ${station.arrival_time ? 
+                            `<span class="badge bg-light text-dark time-badge" data-station-id="${station.id}">
+                                <i class="fas fa-clock"></i>
+                                <span class="ms-1">${station.arrival_time}</span>
+                            </span>`
+                            : ''}
+                        <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                            ${getStationStats(station)}
+                        </span>
+                    </div>
                 </h5>
             </div>`;
     }
+
+    function updateTimeIcons(dailyStatus) {
+        const now = new Date();
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+        const today = new Date().toISOString().split('T')[0];
+        const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
+        
+        document.querySelectorAll('.time-badge').forEach(badge => {
+            const timeText = badge.querySelector('span').textContent;
+            const [hours, minutes] = timeText.split(':');
+            const arrivalTime = parseInt(hours) * 60 + parseInt(minutes);
+            
+            const icon = badge.querySelector('i');
+            
+            if (selectedDate === today && dailyStatus.schedule?.end) {
+                const [endHours, endMinutes] = dailyStatus.schedule.end.split(':');
+                const scheduleEnd = parseInt(endHours) * 60 + parseInt(endMinutes);
+                
+                if (currentTime > arrivalTime && currentTime < scheduleEnd) {
+                    icon.className = 'fas fa-person-walking fa-beat-fade';
+                } else {
+                    icon.className = 'fas fa-clock';
+                }
+            } else {
+                icon.className = 'fas fa-clock';
+            }
+        });
+    }
+
 
     async function createParticipantItem(participant, isWalkingBusDay) {
         const item = document.createElement('li');
@@ -1825,10 +1873,28 @@
                 (async () => {
                     console.log('Received SSE update:', event.data);
                     const data = JSON.parse(event.data);
+
+                    // Get today's date in YYYY-MM-DD format
+                    const today = new Date().toISOString().split('T')[0];
                     
+                    // Find today's status from week_overview
+                    const todayStatus = data.week_overview.find(day => day.date === today);
+                    
+                    // Set global status with data from week_overview
+                    globalDailyStatus = {
+                        reason_type: todayStatus?.reason_type,
+                        reason: todayStatus?.reason,
+                        isWalkingBusDay: todayStatus?.is_active
+                    };
+
                     // Update time display
                     if (data.time) {
                         document.getElementById('current-time').textContent = data.time;
+                    }
+
+                    // Update time icons
+                    if (data.dailyStatus) {
+                        updateTimeIcons(data.dailyStatus);
                     }
 
                     // Get currently selected date

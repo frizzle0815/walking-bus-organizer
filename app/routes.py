@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from datetime import time as datetime_time
 from flask import (
     Blueprint, render_template, session, jsonify, 
     request, Response, stream_with_context,
@@ -163,6 +164,7 @@ def get_stations():
             "id": station.id,
             "name": station.name,
             "position": station.position,
+            "arrival_time": station.arrival_time.strftime("%H:%M") if station.arrival_time else None,
             "participants": create_participant_list(station.participants, target_date, is_admin)
         }
         result.append(station_data)
@@ -256,18 +258,38 @@ def create_station():
 @bp.route("/api/stations/<int:station_id>", methods=["PUT"])
 @require_auth
 def update_station(station_id):
-    walking_bus_id = get_current_walking_bus_id()
-    station = Station.query.filter_by(id=station_id, walking_bus_id=walking_bus_id).first_or_404()
-    
-    data = request.get_json()
-    old_name = station.name
-    
-    if 'name' in data:
-        station.name = data['name']
-    
-    db.session.commit()
-    app.logger.info(f"Haltestelle geändert von '{old_name}' zu '{station.name}' (ID: {station_id})")
-    return jsonify({"success": True})
+    try:
+        walking_bus_id = get_current_walking_bus_id()
+        station = Station.query.filter_by(id=station_id, walking_bus_id=walking_bus_id).first_or_404()
+        
+        data = request.get_json()
+        old_name = station.name
+        
+        # Add debug logging
+        app.logger.debug(f"Received update data: {data}")
+        
+        if 'name' in data:
+            station.name = data['name']
+            
+        if 'arrival_time' in data:
+            app.logger.debug(f"Processing arrival time: {data['arrival_time']}")
+            if data['arrival_time']:
+                hours, minutes = map(int, data['arrival_time'].split(':'))
+                station.arrival_time = datetime_time(hours, minutes)
+                app.logger.debug(f"Set arrival time to: {station.arrival_time}")
+            else:
+                station.arrival_time = None
+                
+        db.session.commit()
+        
+        # Log the final state
+        app.logger.info(f"Station updated - Name: {station.name}, Time: {station.arrival_time}")
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error updating station: {str(e)}")
+        return jsonify({'error': str(e)}), 400
 
 
 
@@ -674,6 +696,10 @@ def initialize_daily_status():
             display_reason = reason.get("full_reason", "")
         else:
             display_reason = str(reason)
+
+        app.logger.info(f"Schedule data: {schedule_data}")
+        app.logger.info(f"Walking bus check results: day={walking_bus_day}, reason={reason}, type={reason_type}")
+        app.logger.info(f"Time check values: current={current_time}, end={end_time if 'end_time' in locals() else 'not set'}")
 
         response = {
             "success": True,
@@ -1115,6 +1141,18 @@ def stream():
                             
                             # Get schedule for time check
                             schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+                            weekday = WEEKDAY_MAPPING[current_date.weekday()]
+                            schedule_data = None
+
+                            if schedule:
+                                start_time = getattr(schedule, f"{weekday}_start", None)
+                                end_time = getattr(schedule, f"{weekday}_end", None)
+                                
+                                schedule_data = {
+                                    "active": getattr(schedule, weekday, False),
+                                    "start": start_time.strftime("%H:%M") if start_time else None,
+                                    "end": end_time.strftime("%H:%M") if end_time else None
+                                }
 
                             # Get stations data
                             stations = Station.query.filter_by(
@@ -1191,6 +1229,7 @@ def stream():
                                     {
                                         "id": station.id,
                                         "name": station.name,
+                                        "arrival_time": station.arrival_time.strftime("%H:%M") if station.arrival_time else None,
                                         "participants": [
                                             {
                                                 "id": p.id,
@@ -1200,7 +1239,11 @@ def stream():
                                         ]
                                     } for station in stations
                                 ],
-                                "week_overview": week_data
+                                "week_overview": week_data,
+                                "dailyStatus": {
+                                    "schedule": schedule_data,
+                                    "isWalkingBusDay": is_active
+                                }
                             }
                             
                             current_data_str = json.dumps(current_data)

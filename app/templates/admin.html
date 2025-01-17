@@ -173,6 +173,7 @@
                 <div class="card-header d-flex align-items-center bg-light py-2">
                     <div class="drag-handle me-2">⋮⋮</div>
                     <input type="text" class="form-control station-name" placeholder="Stationsname">
+                    <input type="time" class="form-control station-time ms-2" style="width: auto;" placeholder="Ankunftszeit">
                     <button class="btn btn-danger btn-sm ms-2 delete-station">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
@@ -524,6 +525,20 @@ input[type="time"]::-webkit-inner-spin-button {
              const stationId = stationElement.dataset.stationId;
              await updateStation(stationId, { name: e.target.value });
          }
+
+        // Handle station time changes
+        // Prevent double-firing for time inputs
+        if (e.target.type === 'time' && e._timeHandled) {
+            return;
+        }
+
+        if (e.target.classList.contains('station-time')) {
+            e._timeHandled = true;
+            const stationElement = e.target.closest('.station-card');
+            const stationId = stationElement.dataset.stationId;
+            console.log('Sending time update:', e.target.value); // Debug log
+            await updateStation(stationId, { arrival_time: e.target.value });
+        }
          
          // Handle participant name changes
          if (e.target.classList.contains('participant-name')) {
@@ -703,42 +718,48 @@ input[type="time"]::-webkit-inner-spin-button {
      });
 
 
-     async function createStationCard(station) {
-         const newStation = stationTemplate.cloneNode(true);
-         newStation.classList.remove('d-none', 'station-template');
-         newStation.dataset.stationId = station.id;
-         
-         // Special handling for unassigned section
-         if (station.id === "unassigned") {
-             // Remove delete button and drag handle for unassigned section
-             const header = newStation.querySelector('.card-header');
-             header.querySelector('.delete-station').remove();
-             header.querySelector('.drag-handle').remove();
-             
-             // Make name field readonly
-             const nameField = header.querySelector('.station-name');
-             nameField.value = station.name;
-             nameField.readOnly = true;
-             
-             // Add special styling
-             newStation.classList.add('unassigned-section');
-         } else {
-             newStation.querySelector('.station-name').value = station.name;
-         }
+    async function createStationCard(station) {
+        const newStation = stationTemplate.cloneNode(true);
+        newStation.classList.remove('d-none', 'station-template');
+        newStation.dataset.stationId = station.id;
+        
+        // Special handling for unassigned section
+        if (station.id === "unassigned") {
+            const header = newStation.querySelector('.card-header');
+            header.querySelector('.delete-station').remove();
+            header.querySelector('.drag-handle').remove();
+            
+            const nameField = header.querySelector('.station-name');
+            nameField.value = station.name;
+            nameField.readOnly = true;
+            
+            // Remove time input for unassigned section
+            header.querySelector('.station-time')?.remove();
+            
+            newStation.classList.add('unassigned-section');
+        } else {
+            newStation.querySelector('.station-name').value = station.name;
+            // Set arrival time if it exists
+            const timeInput = newStation.querySelector('.station-time');
+            if (timeInput && station.arrival_time) {
+                timeInput.value = station.arrival_time;
+            }
+        }
 
-         const participantsContainer = newStation.querySelector('.participants-container');
-         
-         if (station.participants) {
-             const fragment = document.createDocumentFragment();
-             for (const participant of station.participants) {
-                 const participantCard = await createParticipantCard(participant);
-                 fragment.appendChild(participantCard);
-             }
-             participantsContainer.appendChild(fragment);
-         }
+        const participantsContainer = newStation.querySelector('.participants-container');
+        
+        if (station.participants) {
+            const fragment = document.createDocumentFragment();
+            for (const participant of station.participants) {
+                const participantCard = await createParticipantCard(participant);
+                fragment.appendChild(participantCard);
+            }
+            participantsContainer.appendChild(fragment);
+        }
 
-         return newStation;
-     }
+        return newStation;
+    }
+
 
      async function loadStations() {
          try {
@@ -874,7 +895,8 @@ input[type="time"]::-webkit-inner-spin-button {
         function createNewStation() {
             const newStation = {
                 name: 'Neue Station',
-                position: 0 
+                position: 0,
+                arrival_time: null
             };
 
             fetchWithAuth('/api/stations', {
@@ -899,10 +921,20 @@ input[type="time"]::-webkit-inner-spin-button {
 
 
         function updateStation(stationId, data) {
+            // Get both name and arrival time
+            const stationElement = document.querySelector(`[data-station-id="${stationId}"]`);
+            const arrivalTime = stationElement.querySelector('.station-time').value;
+            
+            // Combine existing data with arrival time
+            const updateData = {
+                ...data,
+                arrival_time: arrivalTime
+            };
+
             fetchWithAuth(`/api/stations/${stationId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify(updateData)
             });
         }
 
