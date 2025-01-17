@@ -597,41 +597,219 @@
     };
 
 
-    document.addEventListener('DOMContentLoaded', async () => {
-        // Initialize IndexedDB first
-        await initDB();
-
-        const today = new Date().toISOString().split('T')[0];
-        await loadStations(null, today);
-        
-        // Initialize data and connections
-        initializeSSE();
-        console.log('SSE initialization completed');
-
-        // Initialize view toggle
-        console.log('Initializing size controls...');
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[INIT] Page loading started');
+    try {
+        // Initialize size controls
         initializeSizeControls();
+        console.log('[INIT] Size controls initialized');
+
+        await loadInitialData();
+        console.log('[INIT] Initial load complete');
 
         // Setup modal handling
-        const modal = document.getElementById('calendarModal');
-        const span = document.getElementsByClassName('close')[0];
+        setupModalHandling();
+        console.log('[INIT] Modal handling setup complete');
+    } catch (error) {
+        console.error('[INIT] Error during initialization:', error);
+        updateConnectionStatus('disconnected');
+    }
+});
 
-        span.onclick = () => modal.style.display = 'none';
-        window.onclick = (event) => {
-            if (event.target === modal) {
-                modal.style.display = 'none';
-            }
-        };
 
-        // Add offline/online handlers
-        window.addEventListener('online', () => {
-            loadStations();
-        });
+async function loadInitialData() {
+    console.log('[INITIAL_LOAD] Starting initial data load');
+    try {
+        const response = await axios.get('/api/initial-load');
+        const data = response.data;
+        console.log('[INITIAL_LOAD] Received data:', data);
 
-        window.addEventListener('offline', () => {
-            updateConnectionStatus('disconnected');
-        });
+        // Get today's date from the server response
+        const currentDate = data.dailyStatus.currentDate;
+
+        // Render stations with participants
+        await renderStations(
+            data.stations,
+            data.dailyStatus.isWalkingBusDay,
+            data.dailyStatus
+        );
+        console.log('[INITIAL_LOAD] Stations rendered');
+
+        // Render week overview
+        await renderWeekOverview(data.weekOverview);
+        console.log('[INITIAL_LOAD] Week overview rendered');
+
+        // Mark today's date as selected
+        const todayElement = document.querySelector(`[data-date="${currentDate}"]`);
+        if (todayElement) {
+            todayElement.closest('.calendar-day-wrapper').classList.add('selected-day');
+        }
+        console.log('[INITIAL_LOAD] Today marked as selected:', currentDate);
+
+        return data;
+    } catch (error) {
+        console.error('[INITIAL_LOAD] Error:', error);
+        throw error;
+    }
+}
+
+
+
+function setupModalHandling() {
+    console.log('[MODAL] Setting up modal handlers');
+    
+    const modal = document.getElementById('calendarModal');
+    const span = document.getElementsByClassName('close')[0];
+
+    // Close modal when clicking X
+    span.onclick = () => {
+        console.log('[MODAL] Closing via X button');
+        modal.style.display = 'none';
+    };
+
+    // Close modal when clicking outside
+    window.onclick = (event) => {
+        if (event.target === modal) {
+            console.log('[MODAL] Closing via outside click');
+            modal.style.display = 'none';
+        }
+    };
+
+    console.log('[MODAL] Modal handlers initialized');
+}
+
+
+// Funktion zum Auswählen eines Tages
+let isSelectionInProgress = false;
+
+async function selectDay(dateStr) {
+    if (isSelectionInProgress) return;
+    
+    console.log('[SELECT_DAY] Starting selection for date:', dateStr);
+    isSelectionInProgress = true;
+
+    // Setup loading UI
+    const loadingUI = setupLoadingState(dateStr);
+    
+    try {
+        // Parallel API calls for better performance
+        const [dailyStatusResponse, stationsResponse] = await Promise.all([
+            axios.post('/api/initialize-daily-status', { date: dateStr }),
+            axios.get('/api/stations', { 
+                params: { date: dateStr, admin: 0 }
+            })
+        ]);
+
+        const dailyStatus = dailyStatusResponse.data;
+        
+        // Update UI elements
+        updateHeaderAndAlerts(dailyStatus);
+        
+        // Render main content
+        await Promise.all([
+            renderStations(
+                stationsResponse.data, 
+                dailyStatus.isWalkingBusDay, 
+                dailyStatus
+            ),
+            renderWeekOverview(dateStr)
+        ]);
+
+        console.log('[SELECT_DAY] Day selection complete for:', dateStr);
+        
+    } catch (error) {
+        console.error('[SELECT_DAY] Error:', error);
+        showErrorMessage('Fehler beim Laden der Daten');
+    } finally {
+        cleanupLoadingState(loadingUI);
+    }
+}
+
+function setupLoadingState(dateStr) {
+    // Disable day wrapper interactions
+    const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
+    allWrappers.forEach(wrapper => {
+        wrapper.style.pointerEvents = 'none';
+        wrapper.classList.remove('selected-day');
     });
+
+    // Create loading overlay
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.classList.add('loading-overlay');
+    loadingOverlay.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Lade Daten...</span>
+        </div>
+    `;
+    document.body.appendChild(loadingOverlay);
+
+    // Update selected day visual
+    const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+    if (selectedDay) {
+        selectedDay.closest('.calendar-day-wrapper').classList.add('selected-day');
+    }
+
+    return { allWrappers, loadingOverlay };
+}
+
+function updateHeaderAndAlerts(dailyStatus) {
+    const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
+    if (summaryHeader) {
+        summaryHeader.textContent = formatServerDate(new Date(dailyStatus.currentDate));
+    }
+    updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
+}
+
+function cleanupLoadingState({ allWrappers, loadingOverlay }) {
+    allWrappers.forEach(wrapper => {
+        wrapper.style.pointerEvents = 'auto';
+    });
+    loadingOverlay.remove();
+    isSelectionInProgress = false;
+}
+
+
+async function openCalendar(participantId) {
+    console.log('[CALENDAR] Opening calendar for participant:', participantId);
+    currentParticipantId = participantId;
+    const modal = document.getElementById('calendarModal');
+
+    // Get participant name from DOM
+    const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+    const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
+
+    // Set up modal content
+    const modalContent = modal.querySelector('.modal-content');
+    modalContent.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+            <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
+            <h4 class="mb-0 ms-3">${participantName}</h4>
+        </div>
+        <div id="calendar"></div>
+    `;
+
+    try {
+        // Direct API call to get calendar data
+        const response = await axios.get(`/api/calendar-data/${participantId}`);
+        const calendarData = response.data;
+        
+        // Render calendar with received data
+        await renderCalendar(calendarData);
+        
+        // Show modal
+        modal.style.display = 'block';
+        
+        console.log('[CALENDAR] Calendar opened successfully');
+    } catch (error) {
+        console.error('[CALENDAR] Error opening calendar:', error);
+    }
+}
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+
 
 
     // First, create a promise for database initialization
@@ -1031,70 +1209,7 @@
         return days[date.getDay()];
     }
 
-    // Funktion zum Auswählen eines Tages
-    let isSelectionInProgress = false;
-    
-    async function selectDay(dateStr) {
-        if (isSelectionInProgress) {
-            return;
-        }
-
-        isSelectionInProgress = true;
-        
-        // Update selection visual state
-        const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
-        allWrappers.forEach(wrapper => {
-            wrapper.style.pointerEvents = 'none';
-            wrapper.classList.remove('selected-day');
-        });
-        
-        // Create and show loading overlay
-        const loadingOverlay = document.createElement('div');
-        loadingOverlay.classList.add('loading-overlay');
-        loadingOverlay.innerHTML = `
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Lade Daten...</span>
-            </div>
-        `;
-        document.body.appendChild(loadingOverlay);
-        
-        // Update selected day visual using more reliable DOM traversal
-        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
-        if (selectedDay) {
-            selectedDay.closest('.calendar-day-wrapper').classList.add('selected-day');
-        }
-        
-        try {
-            // Get daily status first
-            const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
-                date: dateStr
-            });
-            const dailyStatus = dailyStatusResponse.data;
-
-            const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
-            if (summaryHeader) {
-                summaryHeader.textContent = formatServerDate(new Date(dailyStatus.currentDate));
-            }
-
-            // Update alerts with new daily status
-            updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
-            
-            // Wait for all API calls to complete
-            await Promise.all([
-                loadStations(null, dateStr),
-                renderWeekOverview(dateStr)
-            ]);
-        } catch (error) {
-            console.error('Error in selectDay:', error);
-        } finally {
-            // Restore interaction and clean up
-            allWrappers.forEach(wrapper => {
-                wrapper.style.pointerEvents = 'auto';
-            });
-            loadingOverlay.remove();
-            isSelectionInProgress = false;
-        }
-    }
+  
 
 
 
@@ -1568,86 +1683,6 @@
                 errorAlert.remove();
             }, 5000);
         }
-    }
-
-
-    async function openCalendar(participantId) {
-        currentParticipantId = participantId;
-        const modal = document.getElementById('calendarModal');
-
-        // Get participant name directly using the participant ID
-       const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-       const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
-
-        const modalContent = modal.querySelector('.modal-content');
-        modalContent.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
-                <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
-                <h4 class="mb-0 ms-3">${participantName}</h4>
-            </div>
-            <div id="calendar"></div>
-        `;
-
-        try {
-            // Try online first
-            const response = await fetchWithAuth(`/api/calendar-data/${participantId}`);
-            if (response.ok) {
-                const calendarData = await response.json();
-                // Store in IndexedDB for offline use
-                const db = await dbPromise;
-                const tx = db.transaction('calendarData', 'readwrite');
-                const store = tx.objectStore('calendarData');
-                
-                for (const day of calendarData) {
-                    await store.put({
-                        participantId,
-                        date: day.date,
-                        status: day.status,
-                        is_schedule_day: day.is_schedule_day,
-                        is_past: day.is_past,
-                        is_today: day.is_today
-                    });
-                }
-                await renderCalendar(calendarData);
-            } else {
-                throw new Error('Network response was not ok');
-            }
-           } catch (error) {
-               // Offline path - enhance data transformation
-               const db = await dbPromise;
-               const tx = db.transaction('calendarData', 'readonly');
-               const store = tx.objectStore('calendarData');
-               const range = IDBKeyRange.bound([participantId, ""], [participantId, "\uffff"]);
-               
-               const offlineData = await new Promise((resolve, reject) => {
-                   const request = store.getAll(range);
-                   request.onsuccess = () => resolve(request.result);
-                   request.onerror = () => reject(request.error);
-               });
-
-               // Get current participant's status for today
-               const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-               const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
-               const today = new Date().toISOString().split('T')[0];
-
-               // Transform offline data with special handling for today
-               const transformedData = offlineData.map(item => {
-                   const isToday = item.date === today;
-                   return {
-                       date: item.date,
-                       // Use current status for today, stored status for other days
-                       status: isToday ? currentStatus : item.status,
-                       // Ensure weekdays (including today) are always schedule days
-                       is_schedule_day: new Date(item.date).getDay() !== 0 && new Date(item.date).getDay() !== 6,
-                       is_past: new Date(item.date) < new Date(),
-                       is_today: isToday
-                   };
-               });
-
-               await renderCalendar(transformedData);
-           }
-
-        modal.style.display = 'block';
     }
 
 

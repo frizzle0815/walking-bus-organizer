@@ -126,6 +126,170 @@ def revoke_auth_token(token_id):
         return jsonify({"success": True})
     return jsonify({"error": "Token not found"}), 404
 
+########################################
+########################################
+
+
+@bp.route("/api/initial-load")
+@require_auth
+def get_initial_load():
+    """
+    Consolidated route that returns all necessary initial data in a single request
+    """
+    try:
+        walking_bus_id = get_current_walking_bus_id()
+        current_date = get_current_date()
+        app.logger.info("[INITIAL_LOAD] Starting initial data load")
+
+        # Get daily status
+        daily_status_data = initialize_daily_status_data(current_date, walking_bus_id)
+        app.logger.info("[INITIAL_LOAD] Daily status loaded")
+
+        # Get stations with participants
+        stations_data = get_stations_data(walking_bus_id, current_date)
+        app.logger.info("[INITIAL_LOAD] Stations data loaded")
+
+        # Get week overview
+        week_data = get_week_overview_data(walking_bus_id)
+        app.logger.info("[INITIAL_LOAD] Week overview loaded")
+
+        response_data = {
+            "dailyStatus": daily_status_data,
+            "stations": stations_data,
+            "weekOverview": week_data
+        }
+
+        app.logger.info("[INITIAL_LOAD] Data compilation complete")
+        return jsonify(response_data)
+
+    except Exception as e:
+        app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+
+def initialize_daily_status_data(date, walking_bus_id):
+    """Helper function to get daily status data"""
+    is_active, reason, reason_type = check_walking_bus_day(
+        date, 
+        include_reason=True,
+        walking_bus_id=walking_bus_id
+    )
+    
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    schedule_data = None
+    if schedule:
+        weekday = WEEKDAY_MAPPING[date.weekday()]
+        start_time = getattr(schedule, f"{weekday}_start", None)
+        end_time = getattr(schedule, f"{weekday}_end", None)
+        
+        schedule_data = {
+            "active": getattr(schedule, weekday, False),
+            "start": start_time.strftime("%H:%M") if start_time else None,
+            "end": end_time.strftime("%H:%M") if end_time else None
+        }
+
+    return {
+        "currentDate": date.isoformat(),
+        "isWalkingBusDay": is_active,
+        "reason": reason,
+        "reason_type": reason_type,
+        "schedule": schedule_data
+    }
+
+def get_stations_data(walking_bus_id, date):
+    """Helper function to get stations with participants"""
+    stations = (Station.query
+               .filter_by(walking_bus_id=walking_bus_id)
+               .order_by(Station.position)
+               .all())
+
+    return [{
+        "id": station.id,
+        "name": station.name,
+        "position": station.position,
+        "arrival_time": station.arrival_time.strftime("%H:%M") if station.arrival_time else None,
+        "participants": [{
+            "id": p.id,
+            "name": p.name,
+            "status": p.status_today
+        } for p in station.participants]
+    } for station in stations]
+
+def get_week_overview_data(walking_bus_id):
+    """Helper function to get week overview"""
+    today = get_current_date()
+    week_data = []
+    
+    for i in range(6):
+        current_date = today + timedelta(days=i)
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date,
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        
+        week_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'reason': reason,
+            'reason_type': reason_type,
+            'total_confirmed': calculate_total_confirmed(walking_bus_id, current_date, is_active)
+        })
+    
+    return week_data
+
+
+def calculate_total_confirmed(walking_bus_id, target_date, is_active):
+    """
+    Calculate total confirmed participants for a specific date
+    Args:
+        walking_bus_id: ID of the walking bus
+        target_date: Date to check
+        is_active: Whether walking bus operates on this date
+    Returns:
+        int: Number of confirmed participants
+    """
+    if not is_active:
+        return 0
+        
+    # Get all participants with stations
+    participants = Participant.query.filter(
+        Participant.walking_bus_id == walking_bus_id,
+        Participant.station_id.isnot(None)
+    ).all()
+    
+    # Get calendar entries for this date
+    calendar_entries = CalendarStatus.query.filter_by(
+        walking_bus_id=walking_bus_id,
+        date=target_date
+    ).all()
+    
+    # Create lookup dictionary for quick access
+    calendar_lookup = {entry.participant_id: entry.status for entry in calendar_entries}
+    
+    # Count confirmed participants
+    total_confirmed = 0
+    weekday = WEEKDAY_MAPPING[target_date.weekday()]
+    
+    for participant in participants:
+        # Check calendar override first, then default weekday setting
+        if participant.id in calendar_lookup:
+            if calendar_lookup[participant.id]:
+                total_confirmed += 1
+        elif getattr(participant, weekday, True):
+            total_confirmed += 1
+            
+    app.logger.debug(f"[TOTAL_CONFIRMED] Date: {target_date}, Active: {is_active}, Count: {total_confirmed}")
+    return total_confirmed
+
+
+
+########################################
+########################################
+
+
+
 
 # Station Routes
 @bp.route("/api/stations", methods=["GET"])
