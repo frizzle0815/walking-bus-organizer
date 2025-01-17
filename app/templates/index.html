@@ -1488,12 +1488,12 @@
             });
     }
 
-    const pendingParticipationRequests = new Map();
     async function toggleParticipation(participantId, button) {
-        // Initialize core variables and controllers
-        const abortController = new AbortController();
-        const timestamp = Date.now();
-        
+        // Prevent multiple clicks while request is pending
+        if (button.querySelector('.fa-spinner')) {
+            return;
+        }
+
         // Get DOM elements and current states
         const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
         const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
@@ -1501,23 +1501,10 @@
         const newStatus = !wasActive;
         const originalButtonContent = button.innerHTML;
 
-        // Handle previous request cleanup
-        const previousRequest = pendingParticipationRequests.get(participantId);
-        if (previousRequest) {
-            previousRequest.abortController.abort();
-            pendingParticipationRequests.delete(participantId);
-        }
-
-        // Set up new request tracking
-        pendingParticipationRequests.set(participantId, {
-            abortController,
-            timestamp
-        });
-
         // Immediate UI updates
         participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
         participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
-        animateStatusChange(participantItem, newStatus);
+        await animateStatusChange(participantItem, newStatus);
 
         // Update icon
         const icon = participantItem.querySelector('.traffic-light.current-icon');
@@ -1534,60 +1521,54 @@
             const response = await axios.patch(`/api/participation/${participantId}`, {
                 date: selectedDate
             }, {
-                timeout: 2000,
-                signal: abortController.signal
+                timeout: 2000
             });
 
-            // Only update UI if this is still the latest request
-            if (pendingParticipationRequests.get(participantId)?.timestamp === timestamp &&
-                response.data && response.status === 200) {
-                
+            if (response.data && response.status === 200) {
+                // Success: Update button state
                 button.classList.remove('btn-outline-success', 'btn-outline-danger');
                 button.classList.add(newStatus ? 'btn-outline-success' : 'btn-outline-danger');
                 button.innerHTML = newStatus ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
-                renderWeekOverview(selectedDate);
+                await renderWeekOverview(selectedDate);
             }
         } catch (error) {
-            if (!error.name === 'AbortError' &&
-                pendingParticipationRequests.get(participantId)?.timestamp === timestamp) {
-                
-                // Revert all UI changes
-                participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-                participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
+            // Revert all UI changes
+            participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+            participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
 
-                icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-                icon.classList.add(
-                    wasActive ? 'fa-walking' : 'fa-person',
-                    wasActive ? 'icon-active' : 'icon-inactive'
-                );
+            icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+            icon.classList.add(
+                wasActive ? 'fa-walking' : 'fa-person',
+                wasActive ? 'icon-active' : 'icon-inactive'
+            );
 
-                button.classList.remove('btn-outline-success', 'btn-outline-danger');
-                button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
-                button.innerHTML = originalButtonContent;
+            button.classList.remove('btn-outline-success', 'btn-outline-danger');
+            button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
+            button.innerHTML = originalButtonContent;
 
-                // Show warnings
-                const warningIcon = document.createElement('i');
-                warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
-                warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-                
-                const buttonContainer = button.parentElement;
-                buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
-                setTimeout(() => warningIcon.remove(), 5000);
+            // Show warnings
+            const warningIcon = document.createElement('i');
+            warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+            warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+            
+            const buttonContainer = button.parentElement;
+            buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
 
-                const errorAlert = document.createElement('div');
-                errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-                errorAlert.innerHTML = `
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    Änderung konnte nicht gespeichert werden
-                `;
-                document.body.appendChild(errorAlert);
-                setTimeout(() => errorAlert.remove(), 5000);
-            }
-        } finally {
-            pendingParticipationRequests.delete(participantId);
+            const errorAlert = document.createElement('div');
+            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
+            errorAlert.innerHTML = `
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Änderung konnte nicht gespeichert werden
+            `;
+            document.body.appendChild(errorAlert);
+
+            // Remove error indicators after 5 seconds
+            setTimeout(() => {
+                warningIcon.remove();
+                errorAlert.remove();
+            }, 5000);
         }
     }
-
 
 
     async function openCalendar(participantId) {
@@ -1768,30 +1749,18 @@
         }
     }
 
-    const pendingCalendarRequests = new Map();
-
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
-        // Initialize core variables
-        const abortController = new AbortController();
-        const timestamp = Date.now();
-        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
-        const wasGreen = dayDiv.classList.contains('day-green');
-        const originalContent = dayDiv.textContent;
-
-        // Handle previous request cleanup
-        const previousRequest = pendingCalendarRequests.get(dateString);
-        if (previousRequest) {
-            previousRequest.abortController.abort();
-            pendingCalendarRequests.delete(dateString);
+        // Prevent multiple clicks while request is pending
+        if (dayDiv.querySelector('.fa-spinner')) {
+            return;
         }
 
-        // Set up new request tracking
-        pendingCalendarRequests.set(dateString, {
-            abortController,
-            timestamp
-        });
+        // Store initial state
+        const wasGreen = dayDiv.classList.contains('day-green');
+        const originalContent = dayDiv.textContent;
+        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
 
-        // Immediate UI update
+        // Show spinner and update visual state immediately
         dayDiv.classList.remove('day-green', 'day-red', 'gray');
         dayDiv.classList.add(wasGreen ? 'day-red' : 'day-green');
         dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -1802,42 +1771,38 @@
                 date: dateString,
                 status: !wasGreen
             }, {
-                timeout: 2000,
-                signal: abortController.signal
+                timeout: 2000 // Request times out after 2 seconds
             });
 
-            // Only update UI if this is still the latest request
-            if (pendingCalendarRequests.get(dateString)?.timestamp === timestamp) {
-                dayDiv.textContent = originalContent;
-                renderWeekOverview(currentlyDisplayedDate);
-                if (dateString === currentlyDisplayedDate) {
-                    loadStations(null, dateString);
-                }
+            // Success: Update UI with confirmation
+            dayDiv.textContent = originalContent;
+            
+            // Refresh week overview and stations if needed
+            await renderWeekOverview(currentlyDisplayedDate);
+            if (dateString === currentlyDisplayedDate) {
+                await loadStations(null, dateString);
             }
+
         } catch (error) {
-            // Only show error if request wasn't aborted and is the latest
-            if (!error.name === 'AbortError' && 
-                pendingCalendarRequests.get(dateString)?.timestamp === timestamp) {
-                
-                dayDiv.classList.remove('day-green', 'day-red', 'gray');
-                dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
-                dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
+            // Error: Revert to original state and show error
+            dayDiv.classList.remove('day-green', 'day-red', 'gray');
+            dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
+            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
 
-                const errorAlert = document.createElement('div');
-                errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-                errorAlert.innerHTML = `
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    Änderung konnte nicht gespeichert werden
-                `;
-                document.body.appendChild(errorAlert);
+            // Show error alert
+            const errorAlert = document.createElement('div');
+            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
+            errorAlert.innerHTML = `
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Änderung konnte nicht gespeichert werden
+            `;
+            document.body.appendChild(errorAlert);
 
-                setTimeout(() => {
-                    dayDiv.textContent = originalContent;
-                    errorAlert.remove();
-                }, 5000);
-            }
-        } finally {
-            pendingCalendarRequests.delete(dateString);
+            // Remove error indicators after 5 seconds
+            setTimeout(() => {
+                dayDiv.textContent = originalContent;
+                errorAlert.remove();
+            }, 5000);
         }
     }
 
