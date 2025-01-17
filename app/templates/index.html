@@ -615,16 +615,29 @@
 
     async function initDB() {
         dbPromise = new Promise((resolve, reject) => {
-            const request = indexedDB.open('WalkingBusDB', 3);
+            const request = indexedDB.open('WalkingBusDB', 4); // Increment version number
             request.onerror = () => reject(request.error);
             request.onsuccess = (event) => resolve(event.target.result);
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                
+                // Create stationsData store if it doesn't exist
                 if (!db.objectStoreNames.contains('stationsData')) {
                     db.createObjectStore('stationsData', { keyPath: 'timestamp' });
                 }
+                
+                // Create participantStates store if it doesn't exist
                 if (!db.objectStoreNames.contains('participantStates')) {
                     db.createObjectStore('participantStates', { keyPath: 'id' });
+                }
+                
+                // Create calendarData store if it doesn't exist
+                if (!db.objectStoreNames.contains('calendarData')) {
+                    const calendarStore = db.createObjectStore('calendarData', { 
+                        keyPath: ['participantId', 'date'] 
+                    });
+                    // Add index for efficient querying
+                    calendarStore.createIndex('by_participant', 'participantId');
                 }
             };
         });
@@ -790,11 +803,18 @@
     }
 
     async function updateCache(db, stations, dailyStatus, selectedDate) {
+        // Validate input parameters
+        if (!db || !stations || !Array.isArray(stations)) {
+            console.log('Invalid cache data:', { stations, dailyStatus, selectedDate });
+            return; // Exit early if data is invalid
+        }
+
+        // Update participants states
         const participantsTransaction = db.transaction(['participantStates'], 'readwrite');
         const participantsStore = participantsTransaction.objectStore('participantStates');
 
         stations.forEach(station => {
-            if (Array.isArray(station?.participants)) {
+            if (station?.participants && Array.isArray(station.participants)) {
                 station.participants.forEach(participant => {
                     if (participant?.id) {
                         participantsStore.put({
@@ -807,13 +827,14 @@
             }
         });
 
+        // Update stations data
         const stationsTransaction = db.transaction(['stationsData'], 'readwrite');
         const stationsStore = stationsTransaction.objectStore('stationsData');
         await stationsStore.put({
             timestamp: 'latest',
             stations: stations,
-            isWalkingBusDay: isWalkingBusDay,
-            dailyStatus: dailyStatus,
+            isWalkingBusDay: Boolean(dailyStatus?.isWalkingBusDay),
+            dailyStatus: dailyStatus || {},
             selectedDate: selectedDate
         });
     }
