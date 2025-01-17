@@ -1475,54 +1475,68 @@
     }
 
     async function toggleParticipation(participantId, button) {
-        if (isStatusUpdateInProgress) return;
-
-        // Get the currently selected date from the week overview
-        const selectedDayWrapper = document.querySelector('.week-container .selected-day');
-        const selectedDate = selectedDayWrapper?.querySelector('.calendar-day')?.dataset.date;
-        
+        // Get current states and elements
         const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+        const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
         const wasActive = participantItem.classList.contains('participant-status-active');
-        const originalButtonContent = button.innerHTML;
-
-        isStatusUpdateInProgress = true;
-        const allStatusButtons = document.querySelectorAll('.status-button');
-        allStatusButtons.forEach(btn => btn.disabled = true);
         
+        // Immediately update UI optimistically
+        const newStatus = !wasActive;
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+        
+        // Start animation immediately
+        animateStatusChange(participantItem, newStatus);
+        
+        // Update icon immediately
+        const icon = participantItem.querySelector('.traffic-light.current-icon');
+        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+        icon.classList.add(
+            newStatus ? 'fa-walking' : 'fa-person',
+            newStatus ? 'icon-active' : 'icon-inactive'
+        );
+        
+        // Store original button content and show spinner
+        const originalButtonContent = button.innerHTML;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
+        
         try {
+            // Make API call without waiting for it
             const response = await axios.patch(`/api/participation/${participantId}`, {
                 date: selectedDate
             });
             
             if (response.data && response.status === 200) {
-                // Update the view while maintaining the selected date
-                await loadStations(null, selectedDate);
-                if (participantItem) {
-                    allStatusButtons.forEach(btn => btn.disabled = true);
-                    await animateStatusChange(participantItem, response.data.status_today);
-                }
-                // Update week overview with the same selected date
-                await renderWeekOverview(selectedDate);
-                allStatusButtons.forEach(btn => btn.disabled = false);
+                // Server confirmed - update button state
+                button.classList.remove('btn-outline-success', 'btn-outline-danger');
+                button.classList.add(newStatus ? 'btn-outline-success' : 'btn-outline-danger');
+                button.innerHTML = newStatus ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+                
+                // Update week overview in background
+                renderWeekOverview(selectedDate);
             } else {
                 throw new Error('Invalid server response');
             }
         } catch (error) {
             console.error('Error updating status:', error);
             
-            // Restore status classes
+            // Revert UI changes
             participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
             participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
             
-            // Restore button appearance
+            // Revert icon
+            icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
+            icon.classList.add(
+                wasActive ? 'fa-walking' : 'fa-person',
+                wasActive ? 'icon-active' : 'icon-inactive'
+            );
+            
+            // Restore button
             button.classList.remove('btn-outline-success', 'btn-outline-danger');
             button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
-            button.innerHTML = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
-            allStatusButtons.forEach(btn => btn.disabled = false);
+            button.innerHTML = originalButtonContent;
             
-            // Add warning triangle next to button
+            // Show warning
             const warningIcon = document.createElement('i');
             warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
             warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
@@ -1530,12 +1544,9 @@
             const buttonContainer = button.parentElement;
             buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
             
-            // Remove warning after 5 seconds
-            setTimeout(() => {
-                warningIcon.remove();
-            }, 5000);
+            setTimeout(() => warningIcon.remove(), 5000);
             
-            // Also show the floating alert
+            // Show floating alert
             const errorAlert = document.createElement('div');
             errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
             errorAlert.innerHTML = `
@@ -1543,13 +1554,7 @@
                 Änderung konnte nicht gespeichert werden
             `;
             document.body.appendChild(errorAlert);
-            
-            setTimeout(() => {
-                errorAlert.remove();
-            }, 5000);
-            
-        } finally {
-            isStatusUpdateInProgress = false;
+            setTimeout(() => errorAlert.remove(), 5000);
         }
     }
 
@@ -1734,56 +1739,57 @@
 
 
     async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
-        if (isStatusUpdateInProgress) return;
-        
-        isStatusUpdateInProgress = true;
-        const allStatusButtons = document.querySelectorAll('.status-button, .calendar-day');
-        allStatusButtons.forEach(btn => btn.disabled = true);
-        
+        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+        const wasGreen = dayDiv.classList.contains('day-green');
         const originalContent = dayDiv.textContent;
-        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         
+        // Immediately update calendar day appearance
+        dayDiv.classList.remove('day-green', 'day-red', 'day-gray');
+        dayDiv.classList.add(wasGreen ? 'day-red' : 'day-green');
+        
+        // Replace day number with centered spinner
+        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
         try {
-            // Get the currently selected date from the week overview
-            const selectedDayWrapper = document.querySelector('.week-container .selected-day');
-            const currentlyDisplayedDate = selectedDayWrapper?.querySelector('.calendar-day')?.dataset.date;
-            
             const response = await axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
-                status: !dayDiv.classList.contains('day-green')
+                status: !wasGreen
             });
-            
-            // Update calendar view
-            const calendarData = await axios.get(`/api/calendar-data/${participantId}`);
-            await renderCalendar(calendarData.data);
-            await renderWeekOverview(currentlyDisplayedDate);
-            
-            // If the modified date matches the displayed date, update main view
+
+            // Restore day number on success
+            dayDiv.textContent = originalContent;
+
+            // Background updates
+            renderWeekOverview(currentlyDisplayedDate);
             if (dateString === currentlyDisplayedDate) {
-                console.log('Updating main view for date:', dateString);
-                const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-                if (participantItem) {
-                    // Update the main view data
-                    await loadStations(null, dateString);
-                }
+                loadStations(null, dateString);
             }
+
         } catch (error) {
             console.error('Error updating calendar status:', error);
-            dayDiv.textContent = originalContent;
             
-            const warningIcon = document.createElement('i');
-            warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
-            warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-            dayDiv.appendChild(warningIcon);
+            // Revert color
+            dayDiv.classList.remove('day-green', 'day-red', 'day-gray');
+            dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
             
+            // Replace spinner with warning icon
+            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
+
+            // Show floating alert
+            const errorAlert = document.createElement('div');
+            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
+            errorAlert.innerHTML = `
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Änderung konnte nicht gespeichert werden
+            `;
+            document.body.appendChild(errorAlert);
+
+            // Restore original content after delay
             setTimeout(() => {
-                warningIcon.remove();
                 dayDiv.textContent = originalContent;
+                errorAlert.remove();
             }, 5000);
-        } finally {
-            isStatusUpdateInProgress = false;
-            allStatusButtons.forEach(btn => btn.disabled = false);
         }
     }
 
