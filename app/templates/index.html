@@ -1170,10 +1170,10 @@ async function toggleParticipation(participantId, button) {
             updateStationStats(stationId);
             updateTotalStats();
             
-           // await axios.post('/api/trigger-update', {
-           //    type: 'PARTICIPANT_STATUS',
-           //     date: selectedDate
-           // });
+            await axios.post('/api/trigger-update', {
+               type: 'PARTICIPANT_STATUS',
+                date: selectedDate
+            });
         }
     } catch (error) {
         console.error('[TOGGLE] Error:', error);
@@ -2345,20 +2345,34 @@ document.addEventListener('visibilitychange', () => {
 
 
 function SSE_handleStatusUpdate(data) {
-    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
-    
-    if (selectedDate === data.date) {
-        // Ensure data has the correct structure
-        const formattedDailyStatus = {
-            ...data.dailyStatus,
-            participantStates: data.participantStates || {}
-        };
-        
-        updateAllParticipantStates(formattedDailyStatus);
-        updateHeaderAndAlerts(formattedDailyStatus);
+    switch(data.type) {
+        case 'PARTICIPANT_STATUS':
+            // Only update participant states if we're viewing the same date
+            const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+            if (selectedDate === data.date) {
+                // Create dailyStatus structure needed for state calculation
+                const dailyStatus = {
+                    currentDate: data.date,
+                    participantStates: data.participantStates,
+                    schedule: data.schedule,
+                    isWalkingBusDay: data.isWalkingBusDay
+                };
+                
+                // Update participant states
+                updateAllParticipantStates(dailyStatus);
+                
+                // Update stats
+                document.querySelectorAll('[data-station-id]').forEach(station => {
+                    updateStationStats(station.dataset.stationId);
+                });
+                updateTotalStats();
+            }
+            break;
+            
+        case 'time_update':
+            SSE_updateTimeDisplay(data.time);
+            break;
     }
-    
-    render_WeekOverview(data.weekOverview);
 }
 
 
