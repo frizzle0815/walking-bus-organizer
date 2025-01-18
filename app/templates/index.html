@@ -852,12 +852,20 @@ async function selectDay(dateStr) {
         const dailyStatusResponse = await axios.get('/api/daily-status', {
             params: { date: dateStr }
         });
-        console.log('[SELECT_DAY] Received daily status:', dailyStatusResponse.data);
-
-        updateHeaderAndAlerts(dailyStatusResponse.data);
-        updateAllParticipantStates(dailyStatusResponse.data);
         
-        // Update week overview selection
+        // Ensure dailyStatus has the same structure as initial load
+        const dailyStatus = {
+            ...dailyStatusResponse.data,
+            currentDate: dateStr  // Explicitly set the date in the expected format
+        };
+
+        await renderFullView(
+            window.appState.stations, 
+            dailyStatus,
+            window.appState.weekOverview
+        );
+        
+        // Update selection visually
         const currentSelected = document.querySelector('.selected-day');
         if (currentSelected) {
             currentSelected.classList.remove('selected-day');
@@ -875,6 +883,8 @@ async function selectDay(dateStr) {
         isSelectionInProgress = false;
     }
 }
+
+
 
 function setupLoadingState(dateStr) {
     // Disable day wrapper interactions
