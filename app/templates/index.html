@@ -803,22 +803,22 @@ function calculateParticipantStatusState(participantId, dailyStatus) {
     console.log('[STATUS][CALC] Daily status:', dailyStatus);
 
     if (!dailyStatus || !dailyStatus.participantStates) {
-        console.log('[STATUS][CALC] Invalid dailyStatus object');
+        //console.log('[STATUS][CALC] Invalid dailyStatus object');
         return PARTICIPANT_STATES.DISABLED;
     }
 
     const participantState = dailyStatus.participantStates[participantId];
-    console.log('[STATUS][CALC] Participant state:', participantState);
+    //console.log('[STATUS][CALC] Participant state:', participantState);
 
     if (!dailyStatus.isWalkingBusDay) {
-        console.log('[STATUS][CALC] Not a walking bus day');
+        //console.log('[STATUS][CALC] Not a walking bus day');
         return PARTICIPANT_STATES.DISABLED;
     }
 
     if (isCurrentDay(dailyStatus.currentDate) && 
         dailyStatus.schedule?.end && 
         isTimePassed(dailyStatus.schedule.end)) {
-        console.log('[STATUS][CALC] Time passed for today');
+        //console.log('[STATUS][CALC] Time passed for today');
         return PARTICIPANT_STATES.DISABLED;
     }
 
@@ -831,7 +831,7 @@ function calculateParticipantStatusState(participantId, dailyStatus) {
 function isTimePassed(endTime) {
     if (!endTime) return false;
     
-    console.log('[TIME] Checking if time has passed:', endTime);
+    //console.log('[TIME] Checking if time has passed:', endTime);
     
     // Parse the end time (format: "HH:MM")
     const [hours, minutes] = endTime.split(':').map(Number);
@@ -841,9 +841,9 @@ function isTimePassed(endTime) {
     const currentTime = new Date();
     const result = currentTime > endDateTime;
     
-    console.log('[TIME] Current time:', currentTime);
-    console.log('[TIME] End time:', endDateTime);
-    console.log('[TIME] Has passed:', result);
+    //console.log('[TIME] Current time:', currentTime);
+    //console.log('[TIME] End time:', endDateTime);
+    //console.log('[TIME] Has passed:', result);
     
     return result;
 }
@@ -851,8 +851,8 @@ function isTimePassed(endTime) {
 
 // UI Updates für einzelnen Participant
 function updateParticipantStatusUI(participantElement, state) {
-    console.log('[STATUS][UI] Updating UI for participant:', participantElement.dataset.participantId);
-    console.log('[STATUS][UI] Applying state:', state);
+    //console.log('[STATUS][UI] Updating UI for participant:', participantElement.dataset.participantId);
+    //console.log('[STATUS][UI] Applying state:', state);
 
     const icon = participantElement.querySelector('.traffic-light');
     const button = participantElement.querySelector('.status-button');
@@ -865,7 +865,7 @@ function updateParticipantStatusUI(participantElement, state) {
     
     switch(state) {
         case PARTICIPANT_STATES.ACTIVE:
-            console.log('[STATUS][UI] Setting ACTIVE state');
+            //console.log('[STATUS][UI] Setting ACTIVE state');
             participantElement.classList.add('participant-status-active');
             icon.className = 'fas fa-walking traffic-light icon-active';
             button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
@@ -874,7 +874,7 @@ function updateParticipantStatusUI(participantElement, state) {
             break;
             
         case PARTICIPANT_STATES.INACTIVE:
-            console.log('[STATUS][UI] Setting INACTIVE state');
+            //console.log('[STATUS][UI] Setting INACTIVE state');
             participantElement.classList.add('participant-status-inactive');
             icon.className = 'fas fa-person traffic-light icon-inactive';
             button.className = 'btn btn-sm rounded-pill status-button btn-outline-danger';
@@ -883,7 +883,7 @@ function updateParticipantStatusUI(participantElement, state) {
             break;
             
         case PARTICIPANT_STATES.DISABLED:
-            console.log('[STATUS][UI] Setting DISABLED state');
+            //console.log('[STATUS][UI] Setting DISABLED state');
             participantElement.classList.add('participant-status-disabled');
             icon.className = 'fas fa-person traffic-light icon-disabled';
             button.className = 'btn btn-sm rounded-pill status-button btn-outline-secondary';
@@ -2018,7 +2018,7 @@ function calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentP
 }
 
 
-async function toggleParticipationCalendar(participantId, dateString, dayDiv) {
+async function toggleParticipationCalendar(participantId, dateString, dayDiv, selectedDate) {
     console.log('[CALENDAR_TOGGLE] Starting toggle for date:', dateString);
     
     if (dayDiv.querySelector('.fa-spinner')) return;
@@ -2047,29 +2047,41 @@ async function toggleParticipationCalendar(participantId, dateString, dayDiv) {
         if (calendarResponse.data && calendarResponse.status === 200) {
             dayDiv.textContent = originalContent;
 
+            // Update participant state in our central map
+            const participantData = window.appState.participants.get(participantId);
+            if (participantData) {
+                participantData.state = !wasGreen ? 
+                    PARTICIPANT_STATES.ACTIVE : 
+                    PARTICIPANT_STATES.INACTIVE;
+            }
+
             // Trigger update for all clients
-            await axios.post('/api/trigger-update');
+            await axios.post('/api/trigger-update', {
+               type: 'PARTICIPANT_STATUS',
+                date: dateString
+            });
             
             // Update main view if needed
             if (dateString === currentlyDisplayedDate) {
-                const stationsResponse = await axios.get('/api/stations', {
-                    params: {
-                        date: currentlyDisplayedDate,
-                        admin: 0
+                const dailyStatus = {
+                    ...statusResponse.data,
+                    participantStates: {
+                        ...statusResponse.data.participantStates,
+                        [participantId]: !wasGreen
                     }
-                });
+                };
+
+                // Update all participant states based on new status
+                // updateAllParticipantStates(dailyStatus);
                 
-                // Update main view with fresh data, maintaining the selected date
-                await renderStations(
-                    stationsResponse.data,
-                    statusResponse.data.isWalkingBusDay,
-                    statusResponse.data,
-                    currentlyDisplayedDate  // Pass the current date explicitly
-                );
+                // Update statistics
+                const stationId = window.appState.participants.get(participantId).stationId;
+                updateStationStats(stationId);
+                updateTotalStats();
             }
             
             // Update week overview with current date
-            await renderWeekOverview(currentlyDisplayedDate);
+            // await render_WeekOverview(currentlyDisplayedDate);
         }
 
     } catch (error) {
@@ -2077,6 +2089,7 @@ async function toggleParticipationCalendar(participantId, dateString, dayDiv) {
         calendar_handleToggleError(dayDiv, wasGreen, originalContent);
     }
 }
+
 
 
 function calendar_updateDayVisualState(dayDiv, isActive, isLoading = false) {
