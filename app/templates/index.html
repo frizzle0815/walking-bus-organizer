@@ -758,6 +758,11 @@ async function loadInitialData() {
             enhancedDailyStatus,
             weekResponse.data
         );
+
+        const firstDayWrapper = document.querySelector('.week .calendar-day-wrapper:first-child');
+        if (firstDayWrapper) {
+            firstDayWrapper.classList.add('selected-day');
+        }
         
         return initialResponse.data;
     } catch (error) {
