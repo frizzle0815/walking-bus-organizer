@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div id="loading-overlay" class="loading-overlay">
+    <div class="spinner-container">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Lade Daten...</span>
+        </div>
+        <div class="mt-3 text-primary">Lade Walking Bus...</div>
+    </div>
+</div>
+
 <div class="container-fluid px-2 py-2 content-container">
     <div id="stations"></div>
 </div>
@@ -643,7 +652,10 @@ function createParticipantMap(stations) {
     return map;
 }
 
-function createReasonMap(stateReason, holidayData, isWalkingBusDay) {
+function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData) {
+    if (scheduleData?.end && isTimePassed(scheduleData.end)) {
+        return 'Der Walking Bus hat heute bereits stattgefunden.';
+    }
 
     if (stateReason === REASON_TYPES.HOLIDAY && holidayData) {
         return `Heute sind ${holidayData.name}`;
@@ -723,6 +735,17 @@ async function loadInitialData() {
             params: { date: new Date().toISOString().split('T')[0] }
         });
 
+        const enhancedDailyStatus = {
+            ...dailyStatusResponse.data,
+            reason: createReasonMap(
+                dailyStatusResponse.data.stateReason,
+                dailyStatusResponse.data.holidayData,
+                dailyStatusResponse.data.isWalkingBusDay,
+                dailyStatusResponse.data.schedule
+            ),
+            reason_type: dailyStatusResponse.data.stateReason
+        };
+
         window.appState = {
             stations: initialResponse.data.stations,
             participants: createParticipantMap(initialResponse.data.stations),
@@ -731,8 +754,8 @@ async function loadInitialData() {
         };
 
         await renderFullView(
-            window.appState.stations, 
-            dailyStatusResponse.data,
+            window.appState.stations,
+            enhancedDailyStatus,
             weekResponse.data
         );
         
@@ -742,6 +765,7 @@ async function loadInitialData() {
         throw error;
     }
 }
+
 
 
 async function renderFullView(stations, dailyStatus, weekData) {
@@ -927,7 +951,8 @@ async function selectDay(dateStr) {
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
                 dailyStatusResponse.data.holidayData,  // Holiday information from backend
-                dailyStatusResponse.data.isWalkingBusDay
+                dailyStatusResponse.data.isWalkingBusDay,
+                dailyStatusResponse.data 
             ),
             reason_type: dailyStatusResponse.data.stateReason
         };
@@ -2124,9 +2149,17 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
     const walkingbusNote = document.getElementById('walkingbus-note');
 
     if (walkingbusAlert && walkingbusReason) {
-        walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-        if (!isWalkingBusDay && dailyStatus.reason) {
-            walkingbusReason.textContent = dailyStatus.reason;
+        // Check for time passed first
+        if (isCurrentDay(dailyStatus.currentDate) && 
+            dailyStatus.schedule?.end && 
+            isTimePassed(dailyStatus.schedule.end)) {
+            walkingbusAlert.classList.remove('d-none');
+            walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
+        } else {
+            walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
+            if (!isWalkingBusDay && dailyStatus.reason) {
+                walkingbusReason.textContent = dailyStatus.reason;
+            }
         }
     }
 
