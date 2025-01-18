@@ -574,6 +574,15 @@
         z-index: 9999;
     }
 
+    .spinner-container {
+        text-align: center;
+    }
+
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+
 </style>
 
 <script>
@@ -609,6 +618,16 @@ const WALKING_BUS_STATES = {
     TIME_PASSED: 'time_passed'
 };
 
+const REASON_TYPES = {
+    ACTIVE: 'ACTIVE',
+    HOLIDAY: 'HOLIDAY',
+    WEEKEND: 'WEEKEND',
+    TIME_PASSED: 'TIME_PASSED',
+    MANUAL_OVERRIDE: 'MANUAL_OVERRIDE',
+    INACTIVE_WEEKDAY: 'INACTIVE_WEEKDAY',
+    NO_SCHEDULE: 'NO_SCHEDULE'
+};
+
 function createParticipantMap(stations) {
     const map = new Map();
     stations.forEach(station => {
@@ -624,23 +643,67 @@ function createParticipantMap(stations) {
     return map;
 }
 
+function createReasonMap(stateReason, holidayData, isWalkingBusDay) {
+
+    if (stateReason === REASON_TYPES.HOLIDAY && holidayData) {
+        return `Heute sind ${holidayData.name}`;
+    }
+    const reasonMap = {
+        [REASON_TYPES.ACTIVE]: '',
+        [REASON_TYPES.HOLIDAY]: 'Es sind Ferien.',
+        [REASON_TYPES.WEEKEND]: 'Am Wochenende findet kein Walking Bus statt.',
+        [REASON_TYPES.TIME_PASSED]: 'Der Walking Bus hat heute bereits stattgefunden.',
+        [REASON_TYPES.MANUAL_OVERRIDE]: 'Manuell deaktiviert.',
+        [REASON_TYPES.INACTIVE_WEEKDAY]: 'An diesem Tag findet kein Walking Bus statt.',
+        [REASON_TYPES.NO_SCHEDULE]: 'Keine Planung angelegt.'
+    };
+
+    return reasonMap[stateReason] || 'Kein Walking Bus';
+}
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[INIT] Page loading started');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    
+    // Add transition for smooth fade out
+    loadingOverlay.style.transition = 'opacity 0.3s ease-out';
+    
     try {
+        // Initialize core functionality
         initializeSizeControls();
         console.log('[INIT] Size controls initialized');
 
+        // Load main data
         await loadInitialData();
         console.log('[INIT] Initial load complete');
 
+        // Initialize real-time updates
         initializeSSE();
         console.log('[INIT] SSE connection established');
 
+        // Setup modal interactions
         setupModalHandling();
         console.log('[INIT] Modal handling setup complete');
+
+        // Smoothly hide loading overlay
+        loadingOverlay.style.opacity = '0';
+        setTimeout(() => {
+            loadingOverlay.style.display = 'none';
+        }, 300); // Match transition duration
+
     } catch (error) {
         console.error('[INIT] Error during initialization:', error);
+        // Show error in loading overlay
+        loadingOverlay.innerHTML = `
+            <div class="spinner-container text-danger">
+                <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                <div>Fehler beim Laden der Daten</div>
+                <button onclick="location.reload()" class="btn btn-outline-danger mt-3">
+                    Neu laden
+                </button>
+            </div>
+        `;
         updateConnectionStatus('disconnected');
     }
 });
@@ -649,27 +712,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadInitialData() {
     console.log('[INITIAL_LOAD] Starting initial data load');
     try {
-        // Get all necessary data at once
+        // First get structural data
         const [initialResponse, weekResponse] = await Promise.all([
-            axios.get('/api/initial-load'),
+            axios.get('/api/initial-load'),  // Just stations and participants
             axios.get('/api/week-overview')
         ]);
         
-        const data = initialResponse.data;
-        const weekData = weekResponse.data;
-        
-        // Store initial structure
+        // Then get current day status
+        const dailyStatusResponse = await axios.get('/api/daily-status', {
+            params: { date: new Date().toISOString().split('T')[0] }
+        });
+
         window.appState = {
-            stations: data.stations,
-            participants: createParticipantMap(data.stations),
-            currentDate: data.dailyStatus.currentDate,
-            weekOverview: weekData
+            stations: initialResponse.data.stations,
+            participants: createParticipantMap(initialResponse.data.stations),
+            currentDate: dailyStatusResponse.data.currentDate,
+            weekOverview: weekResponse.data
         };
 
-        // Single render call that handles everything
-        await renderFullView(data.stations, data.dailyStatus, weekData);
+        await renderFullView(
+            window.appState.stations, 
+            dailyStatusResponse.data,
+            weekResponse.data
+        );
         
-        return data;
+        return initialResponse.data;
     } catch (error) {
         console.error('[INITIAL_LOAD] Error:', error);
         throw error;
@@ -853,18 +920,26 @@ async function selectDay(dateStr) {
             params: { date: dateStr }
         });
         
-        // Ensure dailyStatus has the same structure as initial load
+        // Map the response to include proper reason handling
         const dailyStatus = {
             ...dailyStatusResponse.data,
-            currentDate: dateStr  // Explicitly set the date in the expected format
+            currentDate: dateStr,
+            reason: createReasonMap(
+                dailyStatusResponse.data.stateReason,
+                dailyStatusResponse.data.holidayData,  // Holiday information from backend
+                dailyStatusResponse.data.isWalkingBusDay
+            ),
+            reason_type: dailyStatusResponse.data.stateReason
         };
+
+        console.log('[SELECT_DAY] Complete daily status:', dailyStatus);
 
         await renderFullView(
             window.appState.stations, 
             dailyStatus,
             window.appState.weekOverview
         );
-        
+
         // Update selection visually
         const currentSelected = document.querySelector('.selected-day');
         if (currentSelected) {
@@ -883,6 +958,8 @@ async function selectDay(dateStr) {
         isSelectionInProgress = false;
     }
 }
+
+
 
 
 

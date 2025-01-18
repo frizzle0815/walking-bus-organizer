@@ -135,29 +135,18 @@ def revoke_auth_token(token_id):
 @require_auth
 def get_initial_load():
     """
-    Consolidated route that returns all necessary initial data in a single request
+    Initial load provides only structural data: stations and their participants
     """
     try:
         walking_bus_id = get_current_walking_bus_id()
-        current_date = get_current_date()
         app.logger.info("[INITIAL_LOAD] Starting initial data load")
 
-        # Get daily status
-        daily_status_data = initialize_daily_status_data(current_date, walking_bus_id)
-        app.logger.info("[INITIAL_LOAD] Daily status loaded")
-
         # Get stations with participants
-        stations_data = get_stations_data(walking_bus_id, current_date)
+        stations_data = get_stations_data(walking_bus_id)
         app.logger.info("[INITIAL_LOAD] Stations data loaded")
 
-        # Get week overview
-        week_data = get_week_overview_data(walking_bus_id)
-        app.logger.info("[INITIAL_LOAD] Week overview loaded")
-
         response_data = {
-            "dailyStatus": daily_status_data,
-            "stations": stations_data,
-            "weekOverview": week_data
+            "stations": stations_data
         }
 
         app.logger.info("[INITIAL_LOAD] Data compilation complete")
@@ -168,56 +157,7 @@ def get_initial_load():
         return jsonify({"error": str(e)}), 500
 
 
-def initialize_daily_status_data(date, walking_bus_id):
-    """Helper function to get daily status data"""
-    is_active, reason, reason_type = check_walking_bus_day(
-        date,
-        include_reason=True,
-        walking_bus_id=walking_bus_id
-    )
-    
-    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
-    schedule_data = None
-    if schedule:
-        weekday = WEEKDAY_MAPPING[date.weekday()]
-        start_time = getattr(schedule, f"{weekday}_start", None)
-        end_time = getattr(schedule, f"{weekday}_end", None)
-        
-        schedule_data = {
-            "active": getattr(schedule, weekday, False),
-            "start": start_time.strftime("%H:%M") if start_time else None,
-            "end": end_time.strftime("%H:%M") if end_time else None
-        }
-
-    # Add participant states
-    participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
-    participant_states = {}
-    weekday = WEEKDAY_MAPPING[date.weekday()]
-    
-    for participant in participants:
-        calendar_entry = CalendarStatus.query.filter_by(
-            participant_id=participant.id,
-            date=date,
-            walking_bus_id=walking_bus_id
-        ).first()
-        
-        participant_states[participant.id] = calendar_entry.status if calendar_entry else getattr(
-            participant, 
-            weekday, 
-            True
-        )
-
-    return {
-        "currentDate": date.isoformat(),
-        "isWalkingBusDay": is_active,
-        "reason": reason,
-        "reason_type": reason_type,
-        "schedule": schedule_data,
-        "participantStates": participant_states
-    }
-
-
-def get_stations_data(walking_bus_id, date):
+def get_stations_data(walking_bus_id):
     """Helper function to get stations with participants"""
     stations = (Station.query
                .filter_by(walking_bus_id=walking_bus_id)
@@ -231,10 +171,11 @@ def get_stations_data(walking_bus_id, date):
         "arrival_time": station.arrival_time.strftime("%H:%M") if station.arrival_time else None,
         "participants": [{
             "id": p.id,
-            "name": p.name,
-            "status": p.status_today
+            "name": p.name
         } for p in station.participants]
     } for station in stations]
+
+
 
 
 def get_week_overview_data(walking_bus_id):
@@ -783,9 +724,6 @@ def get_daily_status():
         
     target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else get_current_date()
 
-    date_str = request.args.get('date')
-    target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else get_current_date()
-
     # Get schedule information
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     weekday = WEEKDAY_MAPPING[target_date.weekday()]
@@ -806,6 +744,24 @@ def get_daily_status():
         walking_bus_id=walking_bus_id
     )
 
+    # Get holiday information
+    holiday = SchoolHoliday.query.filter(
+        SchoolHoliday.start_date <= target_date,
+        SchoolHoliday.end_date >= target_date
+    ).first()
+
+    holiday_data = {
+        "name": holiday.name,
+        "start_date": holiday.start_date.isoformat(),
+        "end_date": holiday.end_date.isoformat()
+    } if holiday else None
+
+    # Get daily note
+    daily_note = DailyNote.query.filter_by(
+        date=target_date,
+        walking_bus_id=walking_bus_id
+    ).first()
+
     # Get participant states for this date
     participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
     participant_states = {}
@@ -818,15 +774,18 @@ def get_daily_status():
         ).first()
         
         participant_states[participant.id] = calendar_entry.status if calendar_entry else getattr(
-            participant, 
-            weekday, 
+            participant,
+            weekday,
             True
         )
 
     return jsonify({
-        "date": target_date.isoformat(),
+        "currentDate": target_date.isoformat(),
         "isWalkingBusDay": is_active,
         "stateReason": reason_type,
+        "reason": reason,
+        "holidayData": holiday_data,
+        "note": daily_note.note if daily_note else None,
         "schedule": schedule_data,
         "participantStates": participant_states
     })
