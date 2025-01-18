@@ -1169,7 +1169,7 @@ function calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentP
         dayDiv.classList.add('day-gray');
     } else {
         dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
-        dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
+        dayDiv.onclick = () => toggleParticipationCalendar(currentParticipantId, dateStr, dayDiv);
     }
 
     if (dayData.is_today) {
@@ -1178,63 +1178,166 @@ function calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentP
 }
 
 
-async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
-        // Prevent multiple clicks while request is pending
-        if (dayDiv.querySelector('.fa-spinner')) {
-            return;
-        }
+async function toggleParticipationCalendar(participantId, dateString, dayDiv) {
+    console.log('[CALENDAR_TOGGLE] Starting toggle for date:', dateString);
+    
+    if (dayDiv.querySelector('.fa-spinner')) return;
 
-        // Store initial state
-        const wasGreen = dayDiv.classList.contains('day-green');
-        const originalContent = dayDiv.textContent;
-        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+    const wasGreen = dayDiv.classList.contains('day-green');
+    const originalContent = dayDiv.textContent;
+    const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
 
-        // Show spinner and update visual state immediately
-        dayDiv.classList.remove('day-green', 'day-red', 'gray');
-        dayDiv.classList.add(wasGreen ? 'day-red' : 'day-green');
-        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    calendar_updateDayVisualState(dayDiv, !wasGreen, true);
 
-        try {
-            const response = await axios.post('/api/calendar-status', {
+    try {
+        // Get daily status for the currently displayed date
+        const [statusResponse, calendarResponse] = await Promise.all([
+            axios.post('/api/initialize-daily-status', {
+                date: currentlyDisplayedDate
+            }),
+            axios.post('/api/calendar-status', {
                 participant_id: participantId,
                 date: dateString,
                 status: !wasGreen
             }, {
-                timeout: 4000 // Request times out after 4 seconds
-            });
+                timeout: 4000
+            })
+        ]);
 
-            // Success: Update UI with confirmation
+        if (calendarResponse.data && calendarResponse.status === 200) {
             dayDiv.textContent = originalContent;
             
-            // Refresh week overview and stations if needed
-            await renderWeekOverview(currentlyDisplayedDate);
+            // Update main view if needed
             if (dateString === currentlyDisplayedDate) {
-                await loadStations(null, dateString);
+                const stationsResponse = await axios.get('/api/stations', {
+                    params: {
+                        date: currentlyDisplayedDate,
+                        admin: 0
+                    }
+                });
+                
+                // Update main view with fresh data, maintaining the selected date
+                await renderStations(
+                    stationsResponse.data,
+                    statusResponse.data.isWalkingBusDay,
+                    statusResponse.data,
+                    currentlyDisplayedDate  // Pass the current date explicitly
+                );
             }
+            
+            // Update week overview with current date
+            await renderWeekOverview(currentlyDisplayedDate);
+        }
 
-        } catch (error) {
-            // Error: Revert to original state and show error
-            dayDiv.classList.remove('day-green', 'day-red', 'gray');
-            dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
-            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
+    } catch (error) {
+        console.error('[CALENDAR_TOGGLE] Error:', error);
+        calendar_handleToggleError(dayDiv, wasGreen, originalContent);
+    }
+}
 
-            // Show error alert
-            const errorAlert = document.createElement('div');
-            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-            errorAlert.innerHTML = `
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Änderung konnte nicht gespeichert werden
-            `;
-            document.body.appendChild(errorAlert);
 
-            // Remove error indicators after 5 seconds
-            setTimeout(() => {
-                dayDiv.textContent = originalContent;
-                errorAlert.remove();
-            }, 5000);
+function calendar_updateDayVisualState(dayDiv, isActive, isLoading = false) {
+    dayDiv.classList.remove('day-green', 'day-red', 'gray');
+    dayDiv.classList.add(isActive ? 'day-green' : 'day-red');
+    
+    if (isLoading) {
+        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    }
+}
+
+function calendar_handleToggleError(dayDiv, wasGreen, originalContent) {
+    calendar_updateDayVisualState(dayDiv, wasGreen);
+    dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
+
+    const errorAlert = document.createElement('div');
+    errorAlert.classList.add(
+        'alert', 'alert-danger', 'position-fixed',
+        'bottom-0', 'start-50', 'translate-middle-x',
+        'm-3', 'z-index-top'
+    );
+    errorAlert.innerHTML = `
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        Änderung konnte nicht gespeichert werden
+    `;
+    document.body.appendChild(errorAlert);
+
+    setTimeout(() => {
+        dayDiv.textContent = originalContent;
+        errorAlert.remove();
+    }, 5000);
+}
+
+
+async function renderWeekOverview(selectedDate = null) {
+        const response = await axios.get('/api/week-overview');
+        const weekData = response.data;
+        
+        const weekOverview = document.createElement('div');
+        weekOverview.className = 'week d-flex justify-content-between';
+            
+        // Ensure we have a valid selectedDate
+        if (!selectedDate) {
+            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
+                || new Date().toISOString().split('T')[0];
+        }
+        
+        weekOverview.innerHTML = weekData.map(day => `
+            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
+                <div class="calendar-day ${getWeekDayClass(day)}"
+                     data-date="${day.date}">
+                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
+                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
+                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
+                    <div class="day-label">${getDayLabel(day.date)}</div>
+                </div>
+            </div>
+        `).join('');
+
+        
+        // Add click handler to the wrapper instead of the day
+        weekOverview.addEventListener('click', (e) => {
+            const wrapperElement = e.target.closest('.calendar-day-wrapper');
+            if (wrapperElement && !isSelectionInProgress) {
+                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
+                selectDay(dateStr);
+            }
+        });
+        
+        const weekContainer = document.querySelector('.week-container');
+        if (weekContainer) {
+            weekContainer.innerHTML = '';
+            weekContainer.appendChild(weekOverview);
         }
     }
 
+function getWeekDayClass(day) {
+    const classes = [];
+    
+    // First determine background color
+    if (day.is_today && day.reason_type === 'TIME_PASSED') {
+        classes.push('day-gray');
+    } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+        classes.push('day-red');
+    } else if (!day.is_schedule_day || !day.is_active) {
+        classes.push('day-gray');
+    } else {
+        classes.push('day-green');
+    }
+    
+    // Add today marker if applicable
+    if (day.is_today) {
+        classes.push('day-today');
+    }
+    
+    return classes.join(' ');
+}
+
+
+function getDayLabel(dateStr) {
+    const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+    const date = new Date(dateStr);
+    return days[date.getDay()];
+}
 
 
 
@@ -1568,77 +1671,8 @@ async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
     }
 
 
-    async function renderWeekOverview(selectedDate = null) {
-        const response = await axios.get('/api/week-overview');
-        const weekData = response.data;
-        
-        const weekOverview = document.createElement('div');
-        weekOverview.className = 'week d-flex justify-content-between';
-            
-        // Ensure we have a valid selectedDate
-        if (!selectedDate) {
-            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
-                || new Date().toISOString().split('T')[0];
-        }
-        
-        weekOverview.innerHTML = weekData.map(day => `
-            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
-                <div class="calendar-day ${getWeekDayClass(day)}"
-                     data-date="${day.date}">
-                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
-                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
-                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
-                    <div class="day-label">${getDayLabel(day.date)}</div>
-                </div>
-            </div>
-        `).join('');
-
-        
-        // Add click handler to the wrapper instead of the day
-        weekOverview.addEventListener('click', (e) => {
-            const wrapperElement = e.target.closest('.calendar-day-wrapper');
-            if (wrapperElement && !isSelectionInProgress) {
-                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
-                selectDay(dateStr);
-            }
-        });
-        
-        const weekContainer = document.querySelector('.week-container');
-        if (weekContainer) {
-            weekContainer.innerHTML = '';
-            weekContainer.appendChild(weekOverview);
-        }
-    }
 
 
-    function getWeekDayClass(day) {
-        const classes = [];
-        
-        // First determine background color
-        if (day.is_today && day.reason_type === 'TIME_PASSED') {
-            classes.push('day-gray');
-        } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
-            classes.push('day-red');
-        } else if (!day.is_schedule_day || !day.is_active) {
-            classes.push('day-gray');
-        } else {
-            classes.push('day-green');
-        }
-        
-        // Add today marker if applicable
-        if (day.is_today) {
-            classes.push('day-today');
-        }
-        
-        return classes.join(' ');
-    }
-
-
-    function getDayLabel(dateStr) {
-        const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-        const date = new Date(dateStr);
-        return days[date.getDay()];
-    }
 
   
 
