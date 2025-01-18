@@ -939,51 +939,44 @@ async function selectDay(dateStr) {
     console.log('[SELECT_DAY] Starting selection for date:', dateStr);
     isSelectionInProgress = true;
 
+    // Setup loading state first
+    const { allWrappers, loadingOverlay } = setupLoadingState(dateStr);
+    
     try {
         const dailyStatusResponse = await axios.get('/api/daily-status', {
             params: { date: dateStr }
         });
         
-        // Map the response to include proper reason handling
         const dailyStatus = {
             ...dailyStatusResponse.data,
             currentDate: dateStr,
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
-                dailyStatusResponse.data.holidayData,  // Holiday information from backend
+                dailyStatusResponse.data.holidayData,
                 dailyStatusResponse.data.isWalkingBusDay,
-                dailyStatusResponse.data 
+                dailyStatusResponse.data
             ),
             reason_type: dailyStatusResponse.data.stateReason
         };
 
-        console.log('[SELECT_DAY] Complete daily status:', dailyStatus);
-
         await renderFullView(
-            window.appState.stations, 
+            window.appState.stations,
             dailyStatus,
             window.appState.weekOverview
         );
-
-        // Update selection visually
-        const currentSelected = document.querySelector('.selected-day');
-        if (currentSelected) {
-            currentSelected.classList.remove('selected-day');
-        }
-        
-        const newSelected = document.querySelector(`[data-date="${dateStr}"]`)?.closest('.calendar-day-wrapper');
-        if (newSelected) {
-            newSelected.classList.add('selected-day');
-        }
 
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);
         showErrorMessage('Fehler beim Laden der Daten');
     } finally {
+        // Cleanup loading state
+        loadingOverlay.remove();
+        allWrappers.forEach(wrapper => {
+            wrapper.style.pointerEvents = 'auto';
+        });
         isSelectionInProgress = false;
     }
 }
-
 
 
 
@@ -1014,6 +1007,7 @@ function setupLoadingState(dateStr) {
 
     return { allWrappers, loadingOverlay };
 }
+
 
 function updateHeaderAndAlerts(dailyStatus) {
     const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
