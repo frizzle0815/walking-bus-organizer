@@ -1050,6 +1050,192 @@ async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDa
     }
 
 
+    async function renderCalendar(calendarData) {
+    console.log('[CALENDAR] Starting calendar render');
+    
+    // Parallel API calls for better performance
+    const [selectedDateStatus, todayStatus] = await Promise.all([
+        axios.post('/api/initialize-daily-status', {
+            date: document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0]
+        }),
+        axios.post('/api/initialize-daily-status', {
+            date: new Date().toISOString().split('T')[0]
+        })
+    ]);
+
+    if (!calendarData?.length) {
+        console.error('[CALENDAR] No calendar data available');
+        return;
+    }
+
+    const calendar = document.getElementById('calendar');
+    calendar.innerHTML = '';
+
+    // Pre-calculate frequently used values
+    const today = new Date().toISOString().split('T')[0];
+    const currentTime = new Date();
+    currentTime.setHours(0, 0, 0, 0);
+
+    // Build calendar structure
+    calendar_renderHeader(calendar);
+    
+    const calendarBounds = calendar_calculateBounds(calendarData[0].date);
+    
+    calendar_renderContent(calendar, calendarBounds, {
+        calendarData,
+        todayStatus: todayStatus.data,
+        currentTime,
+        today,
+        currentParticipantId
+    });
+}
+
+function calendar_renderHeader(calendar) {
+    const weekdayHeader = document.createElement('div');
+    weekdayHeader.className = 'week';
+    
+    ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
+        const dayHeader = document.createElement('div');
+        dayHeader.className = 'calendar-day-header';
+        dayHeader.textContent = day;
+        weekdayHeader.appendChild(dayHeader);
+    });
+    
+    calendar.appendChild(weekdayHeader);
+}
+
+function calendar_calculateBounds(firstDate) {
+    const startOfWeek = new Date(firstDate);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
+    return startOfWeek;
+}
+
+function calendar_renderContent(calendar, startOfWeek, config) {
+    const { calendarData, todayStatus, currentTime, today, currentParticipantId } = config;
+
+    for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
+        const weekDiv = document.createElement('div');
+        weekDiv.className = 'week';
+        
+        calendar_renderWeek(weekDiv, weekIndex, startOfWeek, config);
+        calendar.appendChild(weekDiv);
+    }
+}
+
+function calendar_renderWeek(weekDiv, weekIndex, startOfWeek, config) {
+    const { calendarData, todayStatus, currentTime, today, currentParticipantId } = config;
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const currentDate = new Date(startOfWeek);
+        currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
+        const dateStr = currentDate.toISOString().split('T')[0];
+
+        const dayDiv = calendar_createDayElement(
+            dateStr,
+            currentDate,
+            calendarData,
+            todayStatus,
+            currentParticipantId
+        );
+
+        weekDiv.appendChild(dayDiv);
+    }
+}
+
+function calendar_createDayElement(dateStr, currentDate, calendarData, todayStatus, currentParticipantId) {
+    const dayDiv = document.createElement('div');
+    dayDiv.className = 'calendar-day';
+    dayDiv.textContent = currentDate.getDate();
+
+    const dayData = calendarData.find(d => d.date === dateStr) || {
+        date: dateStr,
+        status: false,
+        is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
+        is_past: currentDate < new Date(new Date().setHours(0,0,0,0)),
+        is_today: dateStr === todayStatus.currentDate
+    };
+
+    calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentParticipantId);
+    return dayDiv;
+}
+
+function calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentParticipantId) {
+    const isToday = dateStr === todayStatus.currentDate;
+    const shouldDisableDay = !dayData.is_schedule_day || 
+                           dayData.is_past || 
+                           (isToday && todayStatus.reason_type === "TIME_PASSED");
+
+    if (shouldDisableDay) {
+        dayDiv.classList.add('day-gray');
+    } else {
+        dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
+        dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
+    }
+
+    if (dayData.is_today) {
+        dayDiv.classList.add('day-today');
+    }
+}
+
+
+async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
+        // Prevent multiple clicks while request is pending
+        if (dayDiv.querySelector('.fa-spinner')) {
+            return;
+        }
+
+        // Store initial state
+        const wasGreen = dayDiv.classList.contains('day-green');
+        const originalContent = dayDiv.textContent;
+        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+
+        // Show spinner and update visual state immediately
+        dayDiv.classList.remove('day-green', 'day-red', 'gray');
+        dayDiv.classList.add(wasGreen ? 'day-red' : 'day-green');
+        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        try {
+            const response = await axios.post('/api/calendar-status', {
+                participant_id: participantId,
+                date: dateString,
+                status: !wasGreen
+            }, {
+                timeout: 4000 // Request times out after 4 seconds
+            });
+
+            // Success: Update UI with confirmation
+            dayDiv.textContent = originalContent;
+            
+            // Refresh week overview and stations if needed
+            await renderWeekOverview(currentlyDisplayedDate);
+            if (dateString === currentlyDisplayedDate) {
+                await loadStations(null, dateString);
+            }
+
+        } catch (error) {
+            // Error: Revert to original state and show error
+            dayDiv.classList.remove('day-green', 'day-red', 'gray');
+            dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
+            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
+
+            // Show error alert
+            const errorAlert = document.createElement('div');
+            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
+            errorAlert.innerHTML = `
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Änderung konnte nicht gespeichert werden
+            `;
+            document.body.appendChild(errorAlert);
+
+            // Remove error indicators after 5 seconds
+            setTimeout(() => {
+                dayDiv.textContent = originalContent;
+                errorAlert.remove();
+            }, 5000);
+        }
+    }
+
+
 
 
 
@@ -1741,150 +1927,7 @@ async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDa
         }
     }
 
-    async function renderCalendar(calendarData) {
-         // Get current selected date or use today's date
-        const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
-        // Get daily status from server
-        const todayStatusResponse = await axios.post('/api/initialize-daily-status', {
-            date: new Date().toISOString().split('T')[0]  // Always check current day
-        });
-        const todayStatus = todayStatusResponse.data;
-        
-        if (!calendarData || !calendarData.length) {
-            console.error('No calendar data available');
-            return;
-        }
-        
-        const calendar = document.getElementById('calendar');
-        calendar.innerHTML = '';
 
-        // Create weekday header row
-        const weekdayHeader = document.createElement('div');
-        weekdayHeader.className = 'week';
-        const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-        
-        weekdays.forEach(day => {
-            const dayHeader = document.createElement('div');
-            dayHeader.className = 'calendar-day-header';
-            dayHeader.textContent = day;
-            weekdayHeader.appendChild(dayHeader);
-        });
-        calendar.appendChild(weekdayHeader);
-
-        // Get current participant's status
-        const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
-        const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
-
-        // Set up calendar grid starting point
-        const firstDate = new Date(calendarData[0].date);
-        const startOfWeek = new Date(firstDate);
-        startOfWeek.setDate(firstDate.getDate() - firstDate.getDay() + 1);
-
-        // Generate calendar weeks
-        for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
-            const weekDiv = document.createElement('div');
-            weekDiv.className = 'week';
-
-            // Generate days within each week
-            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-                const currentDate = new Date(startOfWeek);
-                currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
-                const dateStr = currentDate.toISOString().split('T')[0];
-
-                const dayDiv = document.createElement('div');
-                dayDiv.className = 'calendar-day';
-                dayDiv.textContent = currentDate.getDate();
-
-                // Combine server data with local date checks
-                const dayData = calendarData.find(d => d.date === dateStr) || {
-                    date: dateStr,
-                    status: false,
-                    is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
-                    is_past: currentDate < new Date(new Date().setHours(0,0,0,0)),
-                    is_today: dateStr === dailyStatus.currentDate
-                };
-
-                // Determine day state using combined logic
-                const isToday = dateStr === todayStatus.currentDate;
-                const shouldDisableDay = 
-                    !dayData.is_schedule_day || 
-                    dayData.is_past || 
-                    (isToday && todayStatus.reason_type === "TIME_PASSED");
-
-                if (shouldDisableDay) {
-                    dayDiv.classList.add('day-gray');
-                } else {
-                    dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
-                    dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
-                }
-
-                // Mark today's date
-                if (dayData.is_today) {
-                    dayDiv.classList.add('day-today');
-                }
-
-                weekDiv.appendChild(dayDiv);
-            }
-            calendar.appendChild(weekDiv);
-        }
-    }
-
-    async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
-        // Prevent multiple clicks while request is pending
-        if (dayDiv.querySelector('.fa-spinner')) {
-            return;
-        }
-
-        // Store initial state
-        const wasGreen = dayDiv.classList.contains('day-green');
-        const originalContent = dayDiv.textContent;
-        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
-
-        // Show spinner and update visual state immediately
-        dayDiv.classList.remove('day-green', 'day-red', 'gray');
-        dayDiv.classList.add(wasGreen ? 'day-red' : 'day-green');
-        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-        try {
-            const response = await axios.post('/api/calendar-status', {
-                participant_id: participantId,
-                date: dateString,
-                status: !wasGreen
-            }, {
-                timeout: 4000 // Request times out after 4 seconds
-            });
-
-            // Success: Update UI with confirmation
-            dayDiv.textContent = originalContent;
-            
-            // Refresh week overview and stations if needed
-            await renderWeekOverview(currentlyDisplayedDate);
-            if (dateString === currentlyDisplayedDate) {
-                await loadStations(null, dateString);
-            }
-
-        } catch (error) {
-            // Error: Revert to original state and show error
-            dayDiv.classList.remove('day-green', 'day-red', 'gray');
-            dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
-            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
-
-            // Show error alert
-            const errorAlert = document.createElement('div');
-            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-            errorAlert.innerHTML = `
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Änderung konnte nicht gespeichert werden
-            `;
-            document.body.appendChild(errorAlert);
-
-            // Remove error indicators after 5 seconds
-            setTimeout(() => {
-                dayDiv.textContent = originalContent;
-                errorAlert.remove();
-            }, 5000);
-        }
-    }
 
 
     async function animateStatusChange(element, newStatus) {
