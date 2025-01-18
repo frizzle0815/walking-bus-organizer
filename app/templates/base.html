@@ -521,6 +521,29 @@ if (installApp) {
      }
  });
 
+ 
+ function isCurrentDay(dateStr) {
+    if (!dateStr) return false;
+    const today = new Date();
+    const compareDate = new Date(dateStr);
+    return today.toISOString().split('T')[0] === dateStr;
+}
+
+function SSE_updateTimeDisplay(time) {
+    const timeElement = document.getElementById('current-time');
+    if (timeElement && time !== timeElement.textContent) {
+        timeElement.textContent = time;
+        
+        const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+        if (isCurrentDay(selectedDate)) {
+            const dailyStatus = window.appState.currentDailyStatus;
+            if (dailyStatus?.schedule?.end && isTimePassed(dailyStatus.schedule.end)) {
+                updateAllParticipantStates(dailyStatus);
+            }
+        }
+    }
+}
+
 
  function updateDarkModeIcon(isDark) {
      const icon = darkModeToggle.querySelector('i');

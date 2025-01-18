@@ -168,11 +168,10 @@ def get_initial_load():
         return jsonify({"error": str(e)}), 500
 
 
-
 def initialize_daily_status_data(date, walking_bus_id):
     """Helper function to get daily status data"""
     is_active, reason, reason_type = check_walking_bus_day(
-        date, 
+        date,
         include_reason=True,
         walking_bus_id=walking_bus_id
     )
@@ -190,13 +189,33 @@ def initialize_daily_status_data(date, walking_bus_id):
             "end": end_time.strftime("%H:%M") if end_time else None
         }
 
+    # Add participant states
+    participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
+    participant_states = {}
+    weekday = WEEKDAY_MAPPING[date.weekday()]
+    
+    for participant in participants:
+        calendar_entry = CalendarStatus.query.filter_by(
+            participant_id=participant.id,
+            date=date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        participant_states[participant.id] = calendar_entry.status if calendar_entry else getattr(
+            participant, 
+            weekday, 
+            True
+        )
+
     return {
         "currentDate": date.isoformat(),
         "isWalkingBusDay": is_active,
         "reason": reason,
         "reason_type": reason_type,
-        "schedule": schedule_data
+        "schedule": schedule_data,
+        "participantStates": participant_states
     }
+
 
 def get_stations_data(walking_bus_id, date):
     """Helper function to get stations with participants"""
@@ -216,6 +235,7 @@ def get_stations_data(walking_bus_id, date):
             "status": p.status_today
         } for p in station.participants]
     } for station in stations]
+
 
 def get_week_overview_data(walking_bus_id):
     """Helper function to get week overview"""
@@ -746,6 +766,76 @@ def get_participant_weekday_status(participant_id, weekday):
     status = getattr(participant, weekday, True)
     return jsonify({"status": status})
 
+#################################
+#################################
+
+@bp.route("/api/daily-status", methods=["GET", "POST"])
+@require_auth
+def get_daily_status():
+    walking_bus_id = get_current_walking_bus_id()
+
+    # Handle both GET and POST parameters
+    if request.method == "POST":
+        data = request.get_json()
+        date_str = data.get('date')
+    else:
+        date_str = request.args.get('date')
+        
+    target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else get_current_date()
+
+    date_str = request.args.get('date')
+    target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else get_current_date()
+
+    # Get schedule information
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    weekday = WEEKDAY_MAPPING[target_date.weekday()]
+    
+    schedule_data = None
+    if schedule:
+        start_time = getattr(schedule, f"{weekday}_start", None)
+        end_time = getattr(schedule, f"{weekday}_end", None)
+        schedule_data = {
+            "start": start_time.strftime("%H:%M") if start_time else None,
+            "end": end_time.strftime("%H:%M") if end_time else None
+        }
+
+    # Get walking bus status with reason
+    is_active, reason, reason_type = check_walking_bus_day(
+        target_date,
+        include_reason=True,
+        walking_bus_id=walking_bus_id
+    )
+
+    # Get participant states for this date
+    participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
+    participant_states = {}
+    
+    for participant in participants:
+        calendar_entry = CalendarStatus.query.filter_by(
+            participant_id=participant.id,
+            date=target_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        participant_states[participant.id] = calendar_entry.status if calendar_entry else getattr(
+            participant, 
+            weekday, 
+            True
+        )
+
+    return jsonify({
+        "date": target_date.isoformat(),
+        "isWalkingBusDay": is_active,
+        "stateReason": reason_type,
+        "schedule": schedule_data,
+        "participantStates": participant_states
+    })
+
+
+#####################################################
+######################################################
+
+
 
 # Schedule and Calendar Routes
 @bp.route("/api/initialize-daily-status", methods=["POST"])
@@ -1225,6 +1315,9 @@ def get_calendar_data(participant_id):
     except Exception as e:
         app.logger.error(f"Error in get_calendar_data: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+
 
 
 @bp.route("/api/update-future-entries", methods=["PUT"])

@@ -596,6 +596,34 @@
         6: 'sunday'
     };
 
+const PARTICIPANT_STATES = {
+    ACTIVE: 'active',
+    INACTIVE: 'inactive',
+    DISABLED: 'disabled'
+};
+
+const WALKING_BUS_STATES = {
+    SCHEDULED: 'scheduled',
+    HOLIDAY: 'holiday',
+    OVERRIDE: 'override',
+    TIME_PASSED: 'time_passed'
+};
+
+function createParticipantMap(stations) {
+    const map = new Map();
+    stations.forEach(station => {
+        station.participants.forEach(participant => {
+            map.set(participant.id, {
+                id: participant.id,
+                name: participant.name,
+                stationId: station.id,
+                status: participant.status
+            });
+        });
+    });
+    return map;
+}
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[INIT] Page loading started');
@@ -623,36 +651,101 @@ async function loadInitialData() {
     try {
         const response = await axios.get('/api/initial-load');
         const data = response.data;
-        console.log('[INITIAL_LOAD] Received data:', data);
 
-        // Get today's date from the server response
-        const currentDate = data.dailyStatus.currentDate;
+        // Store initial structure
+        window.appState = {
+            stations: data.stations,
+            participants: createParticipantMap(data.stations),
+            currentDate: data.dailyStatus.currentDate
+        };
 
-        // Render stations with participants
+        // Initial render - pass the dailyStatus object correctly
         await renderStations(
-            data.stations,
-            data.dailyStatus.isWalkingBusDay,
-            data.dailyStatus
+            data.stations, 
+            data.dailyStatus.isWalkingBusDay, 
+            data.dailyStatus  // Pass the complete dailyStatus object
         );
-        console.log('[INITIAL_LOAD] Stations rendered');
-
-        // Render week overview
         await renderWeekOverview(data.weekOverview);
-        console.log('[INITIAL_LOAD] Week overview rendered');
-
-
-        // Mark today's date as selected
-        const todayElement = document.querySelector(`[data-date="${currentDate}"]`);
+        
+        // Mark current day in week overview
+        const todayElement = document.querySelector(`[data-date="${data.dailyStatus.currentDate}"]`);
         if (todayElement) {
             todayElement.closest('.calendar-day-wrapper').classList.add('selected-day');
         }
-        console.log('[INITIAL_LOAD] Today marked as selected:', currentDate);
-
+        
         return data;
     } catch (error) {
         console.error('[INITIAL_LOAD] Error:', error);
         throw error;
     }
+}
+
+
+
+// Berechnung des Status
+function calculateParticipantStatusState(participantId, dailyStatus) {
+    const participantState = dailyStatus.participantStates[participantId];
+    
+    if (!dailyStatus.isWalkingBusDay) {
+        return PARTICIPANT_STATES.DISABLED;
+    }
+    
+    if (isCurrentDay(dailyStatus.currentDate) && 
+        dailyStatus.schedule?.end && 
+        isTimePassed(dailyStatus.schedule.end)) {
+        return PARTICIPANT_STATES.DISABLED;
+    }
+    
+    return participantState ? PARTICIPANT_STATES.ACTIVE : PARTICIPANT_STATES.INACTIVE;
+}
+
+// UI Updates für einzelnen Participant
+function updateParticipantStatusUI(participantElement, state) {
+    const icon = participantElement.querySelector('.traffic-light');
+    const button = participantElement.querySelector('.status-button');
+    
+    participantElement.classList.remove(
+        'participant-status-active',
+        'participant-status-inactive',
+        'participant-status-disabled'
+    );
+    
+    switch(state) {
+        case PARTICIPANT_STATES.ACTIVE:
+            participantElement.classList.add('participant-status-active');
+            icon.className = 'fas fa-walking traffic-light icon-active';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
+            button.innerHTML = '<i class="fas fa-check"></i>';
+            button.disabled = false;
+            break;
+            
+        case PARTICIPANT_STATES.INACTIVE:
+            participantElement.classList.add('participant-status-inactive');
+            icon.className = 'fas fa-person traffic-light icon-inactive';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-danger';
+            button.innerHTML = '<i class="fas fa-times"></i>';
+            button.disabled = false;
+            break;
+            
+        case PARTICIPANT_STATES.DISABLED:
+            participantElement.classList.add('participant-status-disabled');
+            icon.className = 'fas fa-person traffic-light icon-disabled';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-secondary';
+            button.innerHTML = '<i class="fas fa-times"></i>';
+            button.disabled = true;
+            break;
+    }
+}
+
+// Update aller Participant Status
+function updateAllParticipantStates(dailyStatus) {
+    window.appState.participants.forEach((participant, id) => {
+        const element = document.querySelector(`[data-participant-id="${id}"]`);
+        if (element) {
+            const state = calculateParticipantStatusState(id, dailyStatus);
+            updateParticipantStatusUI(element, state);
+        }
+    });
 }
 
 
@@ -690,23 +783,6 @@ async function selectDay(dateStr) {
     console.log('[SELECT_DAY] Starting selection for date:', dateStr);
     isSelectionInProgress = true;
 
-    // Find current and new day elements
-    const currentSelected = document.querySelector('.selected-day');
-    const newSelected = document.querySelector(`[data-date="${dateStr}"]`)?.closest('.calendar-day-wrapper');
-
-    // Only update selection if we have both elements
-    if (currentSelected && newSelected) {
-        // Disable pointer events for all wrappers except the new selection
-        const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
-        allWrappers.forEach(wrapper => {
-            wrapper.style.pointerEvents = 'none';
-        });
-
-        // Update selection classes directly
-        currentSelected.classList.remove('selected-day');
-        newSelected.classList.add('selected-day');
-    }
-
     // Create and show loading overlay
     const loadingOverlay = document.createElement('div');
     loadingOverlay.classList.add('loading-overlay');
@@ -718,40 +794,29 @@ async function selectDay(dateStr) {
     document.body.appendChild(loadingOverlay);
 
     try {
-        // Parallel API calls for better performance
-        const [dailyStatusResponse, stationsResponse] = await Promise.all([
-            axios.post('/api/initialize-daily-status', { date: dateStr }),
-            axios.get('/api/stations', { 
-                params: { date: dateStr, admin: 0 }
-            })
-        ]);
-
+        // Get daily status for selected date
+        const dailyStatusResponse = await axios.post('/api/daily-status', { date: dateStr });
         const dailyStatus = dailyStatusResponse.data;
-        
+
         // Update UI elements
         updateHeaderAndAlerts(dailyStatus);
+        updateAllParticipantStates(dailyStatus);
         
-        // Render main content
-        await Promise.all([
-            renderStations(
-                stationsResponse.data, 
-                dailyStatus.isWalkingBusDay, 
-                dailyStatus
-            ),
-            renderWeekOverview(dateStr)
-        ]);
+        // Update week overview selection
+        const currentSelected = document.querySelector('.selected-day');
+        if (currentSelected) {
+            currentSelected.classList.remove('selected-day');
+        }
+        
+        const newSelected = document.querySelector(`[data-date="${dateStr}"]`)?.closest('.calendar-day-wrapper');
+        if (newSelected) {
+            newSelected.classList.add('selected-day');
+        }
 
-        console.log('[SELECT_DAY] Day selection complete for:', dateStr);
-        
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);
         showErrorMessage('Fehler beim Laden der Daten');
     } finally {
-        // Re-enable pointer events
-        const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
-        allWrappers.forEach(wrapper => {
-            wrapper.style.pointerEvents = 'auto';
-        });
         loadingOverlay.remove();
         isSelectionInProgress = false;
     }
@@ -873,97 +938,68 @@ function updateTotalStats() {
 
 
 async function toggleParticipation(participantId, button) {
-    // Prevent multiple clicks while request is pending
-    if (button.querySelector('.fa-spinner')) {
-        return;
-    }
+    if (button.querySelector('.fa-spinner')) return;
+    
     console.log('[TOGGLE] Starting toggle for participant:', participantId);
 
-    // Get DOM elements and current states
     const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
     const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
-    const wasActive = participantItem.classList.contains('participant-status-active');
-    console.log('[TOGGLE] Selected date:', selectedDate);
-    const newStatus = !wasActive;
-    const originalButtonContent = button.innerHTML;
+    
+    // Store current state for potential rollback
+    const currentState = {
+        status: participantItem.classList.contains('participant-status-active'),
+        buttonContent: button.innerHTML,
+        buttonClasses: [...button.classList]
+    };
 
-    // Immediate UI updates
-    participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-    participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
-    await animateStatusChange(participantItem, newStatus);
-
-    // Update icon
-    const icon = participantItem.querySelector('.traffic-light.current-icon');
-    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-    icon.classList.add(
-        newStatus ? 'fa-walking' : 'fa-person',
-        newStatus ? 'icon-active' : 'icon-inactive'
-    );
-
-    // Show spinner
+    // Show loading state
     button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
     try {
         const response = await axios.patch(`/api/participation/${participantId}`, {
             date: selectedDate
         }, {
-            timeout: 4000  // Request times out after 4 seconds
+            timeout: 4000
         });
 
         if (response.data && response.status === 200) {
-            // Trigger update for all clients
-            console.log('[TOGGLE] Triggering status update');
-            const triggerResponse = await axios.post('/api/trigger-update', {
-                date: selectedDate
+            // Get updated daily status
+            const dailyStatusResponse = await axios.get('/api/daily-status', {
+                params: { date: selectedDate }
             });
-            console.log('[TOGGLE] Update completed for date:', selectedDate);
-            // Success: Update button state
-            button.classList.remove('btn-outline-success', 'btn-outline-danger');
-            button.classList.add(newStatus ? 'btn-outline-success' : 'btn-outline-danger');
-            button.innerHTML = newStatus ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
             
-            // Update stats
-            const stationId = participantItem.closest('[data-station-id]').dataset.stationId;
-            updateStationStats(stationId);
+            // Update UI using our new status functions
+            updateAllParticipantStates(dailyStatusResponse.data);
             
+            // Trigger SSE update for other clients
+            await axios.post('/api/trigger-update', { date: selectedDate });
+            
+            // Update week overview
             await renderWeekOverview(selectedDate);
         }
     } catch (error) {
-        // Revert all UI changes on error
+        console.error('[TOGGLE] Error:', error);
+        
+        // Rollback UI changes
+        const newStatus = !currentState.status;
         participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-        participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
+        participantItem.classList.add(currentState.status ? 'participant-status-active' : 'participant-status-inactive');
 
-        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-        icon.classList.add(
-            wasActive ? 'fa-walking' : 'fa-person',
-            wasActive ? 'icon-active' : 'icon-inactive'
-        );
+        // Reset button
+        button.className = currentState.buttonClasses.join(' ');
+        button.innerHTML = currentState.buttonContent;
 
-        button.classList.remove('btn-outline-success', 'btn-outline-danger');
-        button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
-        button.innerHTML = originalButtonContent;
-
-        // Show warnings
+        // Show warning icon
         const warningIcon = document.createElement('i');
         warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
         warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-        
-        const buttonContainer = button.parentElement;
-        buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
+        button.parentElement.insertBefore(warningIcon, button.parentElement.firstChild);
 
-        const errorAlert = document.createElement('div');
-        errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-        errorAlert.innerHTML = `
-            <i class="fas fa-exclamation-triangle me-2"></i>
-            Änderung konnte nicht gespeichert werden
-        `;
-        document.body.appendChild(errorAlert);
+        // Show error message
+        showErrorMessage('Änderung konnte nicht gespeichert werden');
 
-        // Remove error indicators after 5 seconds
-        setTimeout(() => {
-            warningIcon.remove();
-            errorAlert.remove();
-        }, 5000);
+        // Remove warning icon after delay
+        setTimeout(() => warningIcon.remove(), 5000);
     }
 }
 
@@ -1646,8 +1682,6 @@ function initializeSSE() {
     console.log('[SSE] Initializing server connection');
     globalEventSource = new EventSource('/stream');
     
-    updateConnectionStatus('connecting');
-    
     globalEventSource.onopen = function() {
         console.log('[SSE] Connection established');
         SSE_updateConnectionStatus('connected');
@@ -1655,29 +1689,19 @@ function initializeSSE() {
     
     globalEventSource.onmessage = function(event) {
         const data = JSON.parse(event.data);
-        console.group('[SSE] Received update event');
-        console.log('Update type:', data.type);
-        console.log('Update data:', data);
-        console.groupEnd();
+        console.log('[SSE] Received update:', data);
 
         switch(data.type) {
             case 'status_change':
                 SSE_handleStatusUpdate(data);
                 break;
             case 'time_update':
-                SSE_updateServerTime(data.time);
-                break;
-            case 'heartbeat':
-                SSE_updateConnectionStatus('connected');
+                SSE_updateTimeDisplay(data.time);
                 break;
         }
     };
     
-    globalEventSource.onerror = function() {
-        console.log('[SSE] Connection error');
-        SSE_updateConnectionStatus('disconnected');
-        SSE_handleConnectionError();
-    };
+    globalEventSource.onerror = SSE_handleError;
 }
 
 // Visibility change handler
@@ -1693,47 +1717,32 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
+
 function SSE_handleStatusUpdate(data) {
-    console.log('[SSE] Received status update:', data);
     const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
-    console.log('[SSE] Current selected date:', selectedDate);
-    console.log('[SSE] Update date:', data.date);
     
     if (selectedDate === data.date) {
-        console.log('[SSE] Processing status update for current date');
-        data.stations.forEach(station => {
-            console.log('[SSE] Processing station:', station.id, 'with participants:', station.participants);
-            
-            // Get the correct station element
-            const stationElement = document.querySelector(`[data-station-id="${station.id}"]`);
-            if (!stationElement) {
-                console.log('[SSE] Station element not found:', station.id);
-                return;
-            }
-
-            station.participants.forEach(participant => {
-                console.log('[SSE] Processing participant:', participant.id, 'in station:', station.id);
-                SSE_updateParticipantStatus(participant, data.isWalkingBusDay);
-            });
-
-            // Update stats for this specific station
-            console.log('[SSE] Updating stats for station:', station.id);
-            updateStationStats(station.id);
-        });
-
-        // Update total stats after all stations are processed
-        console.log('[SSE] Updating total stats');
-        updateTotalStats();
+        // Ensure data has the correct structure
+        const formattedDailyStatus = {
+            ...data.dailyStatus,
+            participantStates: data.participantStates || {}
+        };
+        
+        updateAllParticipantStates(formattedDailyStatus);
+        updateHeaderAndAlerts(formattedDailyStatus);
     }
+    
+    renderWeekOverview(data.weekOverview);
 }
 
 
-function SSE_updateServerTime(time) {
-    const timeElement = document.getElementById('current-time');
-    if (timeElement && time !== timeElement.textContent) {
-        // Only update if time has changed
-        timeElement.textContent = time;
-        console.log('[SSE] Time updated:', time);
+function SSE_handleError() {
+    console.log('[SSE] Connection error');
+    SSE_updateConnectionStatus('disconnected');
+    
+    const connectionAlert = document.getElementById('connection-alert');
+    if (connectionAlert) {
+        connectionAlert.classList.remove('d-none');
     }
 }
 
@@ -1745,82 +1754,32 @@ function SSE_updateConnectionStatus(status) {
         indicator.classList.remove('connected', 'disconnected');
         indicator.classList.add(status);
         
-        switch(status) {
-            case 'connected':
-                indicator.style.color = '#6ed686';
-                // Hide alert when connected
-                if (connectionAlert) {
-                    connectionAlert.classList.add('d-none');
-                }
-                break;
-            case 'disconnected':
-                indicator.style.color = '#dc3545';
-                break;
-            case 'connecting':
-                indicator.style.color = '#ffc107';
-                break;
+        if (status === 'connected' && connectionAlert) {
+            connectionAlert.classList.add('d-none');
         }
     }
 }
 
-function SSE_handleConnectionError() {
-    const connectionAlert = document.getElementById('connection-alert');
-    if (connectionAlert) {
-        connectionAlert.classList.remove('d-none');
-    }
-    globalEventSource.close();
-}
 
-function SSE_updateParticipantStatus(participant, isWalkingBusDay) {
-    console.log('[SSE] Updating participant:', participant.id, 'status:', participant.status, 'isWalkingBusDay:', isWalkingBusDay);
-    
-    const participantElement = document.querySelector(`[data-participant-id="${participant.id}"]`);
-    if (!participantElement) return;
-
-    // Remove all possible states
-    participantElement.classList.remove(
-        'participant-status-active',
-        'participant-status-inactive',
-        'participant-status-disabled'
+function showErrorMessage(message) {
+    const errorAlert = document.createElement('div');
+    errorAlert.classList.add(
+        'alert', 
+        'alert-danger', 
+        'position-fixed', 
+        'bottom-0', 
+        'start-50', 
+        'translate-middle-x', 
+        'm-3', 
+        'z-index-top'
     );
-
-    // Add correct state based on walking bus day
-    if (isWalkingBusDay) {
-        participantElement.classList.add(
-            participant.status ? 'participant-status-active' : 'participant-status-inactive'
-        );
-    } else {
-        participantElement.classList.add('participant-status-disabled');
-    }
-
-    // Update button states
-    const statusButton = participantElement.querySelector('.status-button');
-    if (statusButton) {
-        statusButton.classList.remove('btn-outline-success', 'btn-outline-danger', 'btn-outline-secondary');
-        if (isWalkingBusDay) {
-            statusButton.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
-            statusButton.innerHTML = participant.status ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
-            statusButton.disabled = false;
-        } else {
-            statusButton.classList.add('btn-outline-secondary');
-            statusButton.innerHTML = '<i class="fas fa-times"></i>';
-            statusButton.disabled = true;
-        }
-    }
-
-    // Update icon states
-    const icon = participantElement.querySelector('.traffic-light.current-icon');
-    if (icon) {
-        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive', 'icon-disabled');
-        if (isWalkingBusDay) {
-            icon.classList.add(
-                participant.status ? 'fa-walking' : 'fa-person',
-                participant.status ? 'icon-active' : 'icon-inactive'
-            );
-        } else {
-            icon.classList.add('fa-person', 'icon-disabled');
-        }
-    }
+    errorAlert.innerHTML = `
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        ${message}
+    `;
+    document.body.appendChild(errorAlert);
+    
+    setTimeout(() => errorAlert.remove(), 5000);
 }
 
 
