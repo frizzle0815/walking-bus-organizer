@@ -470,9 +470,6 @@ if (installApp) {
      // Initialize login functionality
      loginUser();
 
-     // Initialize event source for real-time updates
-     initializeEventSource();
-
      // UI Components initialization
      const darkModeToggle = document.getElementById('darkModeToggle');
      const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
@@ -524,29 +521,6 @@ if (installApp) {
      }
  });
 
-
- // Server-sent events
- function initializeEventSource() {
-     // Only initialize SSE on index page
-     if (window.location.pathname === '/') {
-         const eventSource = new EventSource('/stream');
-         
-         eventSource.onmessage = function(event) {
-             const data = JSON.parse(event.data);
-             if (data.time) {
-                 document.getElementById('current-time').textContent = data.time;
-             }
-         };
-
-         eventSource.onerror = function(error) {
-             console.error('EventSource failed:', error);
-             eventSource.close();
-         };
-
-         // Store EventSource in window object for global access
-         window.eventSource = eventSource;
-     }
- }
 
  function updateDarkModeIcon(isDark) {
      const icon = darkModeToggle.querySelector('i');

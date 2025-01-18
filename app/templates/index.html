@@ -600,14 +600,15 @@
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[INIT] Page loading started');
     try {
-        // Initialize size controls
         initializeSizeControls();
         console.log('[INIT] Size controls initialized');
 
         await loadInitialData();
         console.log('[INIT] Initial load complete');
 
-        // Setup modal handling
+        initializeSSE();
+        console.log('[INIT] SSE connection established');
+
         setupModalHandling();
         console.log('[INIT] Modal handling setup complete');
     } catch (error) {
@@ -876,11 +877,13 @@ async function toggleParticipation(participantId, button) {
     if (button.querySelector('.fa-spinner')) {
         return;
     }
+    console.log('[TOGGLE] Starting toggle for participant:', participantId);
 
     // Get DOM elements and current states
     const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
     const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
     const wasActive = participantItem.classList.contains('participant-status-active');
+    console.log('[TOGGLE] Selected date:', selectedDate);
     const newStatus = !wasActive;
     const originalButtonContent = button.innerHTML;
 
@@ -908,6 +911,12 @@ async function toggleParticipation(participantId, button) {
         });
 
         if (response.data && response.status === 200) {
+            // Trigger update for all clients
+            console.log('[TOGGLE] Triggering status update');
+            const triggerResponse = await axios.post('/api/trigger-update', {
+                date: selectedDate
+            });
+            console.log('[TOGGLE] Update completed for date:', selectedDate);
             // Success: Update button state
             button.classList.remove('btn-outline-success', 'btn-outline-danger');
             button.classList.add(newStatus ? 'btn-outline-success' : 'btn-outline-danger');
@@ -1380,6 +1389,9 @@ async function toggleParticipationCalendar(participantId, dateString, dayDiv) {
 
         if (calendarResponse.data && calendarResponse.status === 200) {
             dayDiv.textContent = originalContent;
+
+            // Trigger update for all clients
+            await axios.post('/api/trigger-update');
             
             // Update main view if needed
             if (dateString === currentlyDisplayedDate) {
@@ -1604,31 +1616,212 @@ function initializeSizeControls() {
     }
 
 
-    function initializeViewToggle() {
-        const viewToggle = document.getElementById('viewToggle');
-        const stationsContainer = document.getElementById('stations');
+function initializeViewToggle() {
+    const viewToggle = document.getElementById('viewToggle');
+    const stationsContainer = document.getElementById('stations');
+    
+    // Load saved preference
+    const isCompactView = localStorage.getItem('compactView') === 'true';
+    if (isCompactView) {
+        stationsContainer.classList.add('compact-view');
+        viewToggle.innerHTML = '<i class="fas fa-expand"></i>';
+    }
+    
+    viewToggle.addEventListener('click', () => {
+        stationsContainer.classList.toggle('compact-view');
+        const isNowCompact = stationsContainer.classList.contains('compact-view');
         
-        // Load saved preference
-        const isCompactView = localStorage.getItem('compactView') === 'true';
-        if (isCompactView) {
-            stationsContainer.classList.add('compact-view');
-            viewToggle.innerHTML = '<i class="fas fa-expand"></i>';
-        }
-        
-        viewToggle.addEventListener('click', () => {
-            stationsContainer.classList.toggle('compact-view');
-            const isNowCompact = stationsContainer.classList.contains('compact-view');
+        // Update button icon
+        viewToggle.innerHTML = isNowCompact ? 
+            '<i class="fas fa-expand"></i>' : 
+            '<i class="fas fa-compress"></i>';
             
-            // Update button icon
-            viewToggle.innerHTML = isNowCompact ? 
-                '<i class="fas fa-expand"></i>' : 
-                '<i class="fas fa-compress"></i>';
-                
-            // Save preference
-            localStorage.setItem('compactView', isNowCompact);
+        // Save preference
+        localStorage.setItem('compactView', isNowCompact);
+    });
+}
+
+
+function initializeSSE() {
+    console.log('[SSE] Initializing server connection');
+    globalEventSource = new EventSource('/stream');
+    
+    updateConnectionStatus('connecting');
+    
+    globalEventSource.onopen = function() {
+        console.log('[SSE] Connection established');
+        SSE_updateConnectionStatus('connected');
+    };
+    
+    globalEventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        console.group('[SSE] Received update event');
+        console.log('Update type:', data.type);
+        console.log('Update data:', data);
+        console.groupEnd();
+
+        switch(data.type) {
+            case 'status_change':
+                SSE_handleStatusUpdate(data);
+                break;
+            case 'time_update':
+                SSE_updateServerTime(data.time);
+                break;
+            case 'heartbeat':
+                SSE_updateConnectionStatus('connected');
+                break;
+        }
+    };
+    
+    globalEventSource.onerror = function() {
+        console.log('[SSE] Connection error');
+        SSE_updateConnectionStatus('disconnected');
+        SSE_handleConnectionError();
+    };
+}
+
+// Visibility change handler
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        console.log('[SSE] Page hidden, closing connection');
+        if (globalEventSource) {
+            globalEventSource.close();
+        }
+    } else {
+        console.log('[SSE] Page visible, reinitializing connection');
+        initializeSSE();
+    }
+});
+
+function SSE_handleStatusUpdate(data) {
+    console.log('[SSE] Received status update:', data);
+    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+    console.log('[SSE] Current selected date:', selectedDate);
+    console.log('[SSE] Update date:', data.date);
+    
+    if (selectedDate === data.date) {
+        console.log('[SSE] Processing status update for current date');
+        data.stations.forEach(station => {
+            console.log('[SSE] Processing station:', station.id, 'with participants:', station.participants);
+            
+            // Get the correct station element
+            const stationElement = document.querySelector(`[data-station-id="${station.id}"]`);
+            if (!stationElement) {
+                console.log('[SSE] Station element not found:', station.id);
+                return;
+            }
+
+            station.participants.forEach(participant => {
+                console.log('[SSE] Processing participant:', participant.id, 'in station:', station.id);
+                SSE_updateParticipantStatus(participant, data.isWalkingBusDay);
+            });
+
+            // Update stats for this specific station
+            console.log('[SSE] Updating stats for station:', station.id);
+            updateStationStats(station.id);
         });
+
+        // Update total stats after all stations are processed
+        console.log('[SSE] Updating total stats');
+        updateTotalStats();
+    }
+}
+
+
+function SSE_updateServerTime(time) {
+    const timeElement = document.getElementById('current-time');
+    if (timeElement && time !== timeElement.textContent) {
+        // Only update if time has changed
+        timeElement.textContent = time;
+        console.log('[SSE] Time updated:', time);
+    }
+}
+
+function SSE_updateConnectionStatus(status) {
+    const indicator = document.querySelector('.connection-indicator');
+    const connectionAlert = document.getElementById('connection-alert');
+    
+    if (indicator) {
+        indicator.classList.remove('connected', 'disconnected');
+        indicator.classList.add(status);
+        
+        switch(status) {
+            case 'connected':
+                indicator.style.color = '#6ed686';
+                // Hide alert when connected
+                if (connectionAlert) {
+                    connectionAlert.classList.add('d-none');
+                }
+                break;
+            case 'disconnected':
+                indicator.style.color = '#dc3545';
+                break;
+            case 'connecting':
+                indicator.style.color = '#ffc107';
+                break;
+        }
+    }
+}
+
+function SSE_handleConnectionError() {
+    const connectionAlert = document.getElementById('connection-alert');
+    if (connectionAlert) {
+        connectionAlert.classList.remove('d-none');
+    }
+    globalEventSource.close();
+}
+
+function SSE_updateParticipantStatus(participant, isWalkingBusDay) {
+    console.log('[SSE] Updating participant:', participant.id, 'status:', participant.status, 'isWalkingBusDay:', isWalkingBusDay);
+    
+    const participantElement = document.querySelector(`[data-participant-id="${participant.id}"]`);
+    if (!participantElement) return;
+
+    // Remove all possible states
+    participantElement.classList.remove(
+        'participant-status-active',
+        'participant-status-inactive',
+        'participant-status-disabled'
+    );
+
+    // Add correct state based on walking bus day
+    if (isWalkingBusDay) {
+        participantElement.classList.add(
+            participant.status ? 'participant-status-active' : 'participant-status-inactive'
+        );
+    } else {
+        participantElement.classList.add('participant-status-disabled');
     }
 
+    // Update button states
+    const statusButton = participantElement.querySelector('.status-button');
+    if (statusButton) {
+        statusButton.classList.remove('btn-outline-success', 'btn-outline-danger', 'btn-outline-secondary');
+        if (isWalkingBusDay) {
+            statusButton.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
+            statusButton.innerHTML = participant.status ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+            statusButton.disabled = false;
+        } else {
+            statusButton.classList.add('btn-outline-secondary');
+            statusButton.innerHTML = '<i class="fas fa-times"></i>';
+            statusButton.disabled = true;
+        }
+    }
+
+    // Update icon states
+    const icon = participantElement.querySelector('.traffic-light.current-icon');
+    if (icon) {
+        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive', 'icon-disabled');
+        if (isWalkingBusDay) {
+            icon.classList.add(
+                participant.status ? 'fa-walking' : 'fa-person',
+                participant.status ? 'icon-active' : 'icon-inactive'
+            );
+        } else {
+            icon.classList.add('fa-person', 'icon-disabled');
+        }
+    }
+}
 
 
 
@@ -1674,7 +1867,7 @@ function initializeSizeControls() {
     let isReconnecting = false;
 
     // Modify initializeSSE to handle mobile focus better
-    async function initializeSSE() {
+    async function ALT_initializeSSE() {
         console.log('Starting SSE connection...');
         
         if (globalEventSource) {

@@ -1,4 +1,20 @@
 services:
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
+      - FLASK_ENV=production
+      - HOLIDAY_COUNTRY=DE
+      - HOLIDAY_SUBDIVISION=NW
+      - SECRET_KEY={Choose_Random_Key}
+      - WALKING_BUSES=1:bus_name1:password1,2:bus_name2:password2
+
   db:
     image: postgres:15
     environment:
@@ -15,20 +31,15 @@ services:
       timeout: 5s
       retries: 5
 
-  web:
-    build: .
+  redis:
+    image: redis:7-alpine
     ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
-      - FLASK_ENV=production
-      - HOLIDAY_COUNTRY=DE
-      - HOLIDAY_SUBDIVISION=NW
-      - SECRET_KEY={Choose_Random_Key}
-      - WALKING_BUSES=1:bus_name1:password1,2:bus_name2:password2
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

@@ -28,6 +28,7 @@ import json
 import time
 from os import environ
 from .init_buses import init_walking_buses
+from . import redis_client
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -1286,8 +1287,122 @@ def update_future_entries():
     return jsonify({"success": True})
 
 
+@bp.route('/api/trigger-update', methods=['POST'])
+@require_auth
+def trigger_update():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    # Convert string date to datetime object
+    if data and 'date' in data:
+        update_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    else:
+        update_date = get_current_date()
+
+    # Get walking bus status with reason
+    is_active, reason, reason_type = check_walking_bus_day(
+        update_date,
+        include_reason=True,
+        walking_bus_id=walking_bus_id
+    )
+    
+    current_status = get_current_status(walking_bus_id)
+    
+    status_data = {
+        "type": "status_change",
+        "date": update_date.isoformat(),
+        "stations": current_status['stations'],
+        "isWalkingBusDay": is_active,
+        "reason": reason,
+        "reason_type": reason_type
+    }
+    
+    app.logger.info(f"[TRIGGER] Publishing status update for date: {update_date}")
+    app.logger.debug(f"[TRIGGER] Status data: {status_data}")
+    
+    redis_client.publish('status_updates', json.dumps(status_data))
+    app.logger.info("[TRIGGER] Status update published to Redis")
+    
+    return jsonify({"success": True})
+
+
+def get_current_status(walking_bus_id):
+    current_date = get_current_date()
+    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    stations_data = []
+    for station in stations:
+        participants_data = []
+        for p in station.participants:
+            calendar_entry = CalendarStatus.query.filter_by(
+                participant_id=p.id,
+                date=current_date,
+                walking_bus_id=walking_bus_id
+            ).first()
+            
+            status = calendar_entry.status if calendar_entry else getattr(
+                p, 
+                WEEKDAY_MAPPING[current_date.weekday()], 
+                True
+            )
+            
+            participants_data.append({
+                "id": p.id,
+                "status": status,
+                "date": current_date.isoformat()
+            })
+        
+        stations_data.append({
+            "id": station.id,
+            "participants": participants_data
+        })
+
+    return {
+        "date": current_date.isoformat(),
+        "stations": stations_data
+    }
+
+
 @bp.route('/stream')
 def stream():
+    def event_stream():
+        pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
+        pubsub.subscribe('status_updates')
+        last_time = None
+        
+        while True:
+            try:
+                # Time updates (check current minute)
+                current_time = datetime.now().strftime("%H:%M")
+                if current_time != last_time:
+                    yield f"data: {json.dumps({'type': 'time_update', 'time': current_time})}\n\n"
+                    last_time = current_time
+
+                # Get Redis messages - this is blocking until message arrives
+                message = pubsub.get_message(timeout=60.0)  # Block until message or next minute
+                if message and message['type'] == 'message':
+                    yield f"data: {message['data'].decode()}\n\n"
+
+            except Exception as e:
+                app.logger.error(f"[STREAM] Error: {e}")
+                yield "event: error\ndata: Connection error\n\n"
+                break
+
+        pubsub.unsubscribe()
+        pubsub.close()
+
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        }
+    )
+
+
+@bp.route('/ALT_stream')
+def ALT_stream():
     def event_stream():
         retry_count = 0
         max_retries = 3
