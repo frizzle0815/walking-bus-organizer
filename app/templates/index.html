@@ -649,35 +649,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadInitialData() {
     console.log('[INITIAL_LOAD] Starting initial data load');
     try {
-        const response = await axios.get('/api/initial-load');
-        const data = response.data;
+        // Get all necessary data at once
+        const [initialResponse, weekResponse] = await Promise.all([
+            axios.get('/api/initial-load'),
+            axios.get('/api/week-overview')
+        ]);
         
-        console.log('[INITIAL_LOAD] Raw data:', data);
-        console.log('[INITIAL_LOAD] Participant states:', data.dailyStatus.participantStates);
-
+        const data = initialResponse.data;
+        const weekData = weekResponse.data;
+        
         // Store initial structure
         window.appState = {
             stations: data.stations,
             participants: createParticipantMap(data.stations),
-            currentDate: data.dailyStatus.currentDate
+            currentDate: data.dailyStatus.currentDate,
+            weekOverview: weekData
         };
-        
-        console.log('[INITIAL_LOAD] Created participant map:', window.appState.participants);
 
-        // Initial render with explicit status check
-        await renderStations(
-            data.stations, 
-            data.dailyStatus.isWalkingBusDay, 
-            data.dailyStatus
-        );
-        
-        // Log each participant's calculated state
-        window.appState.participants.forEach((participant, id) => {
-            const state = calculateParticipantStatusState(id, data.dailyStatus);
-            console.log(`[INITIAL_LOAD] Participant ${id} calculated state:`, state);
-        });
-
-        await renderWeekOverview(data.weekOverview);
+        // Single render call that handles everything
+        await renderFullView(data.stations, data.dailyStatus, weekData);
         
         return data;
     } catch (error) {
@@ -686,6 +676,34 @@ async function loadInitialData() {
     }
 }
 
+
+async function renderFullView(stations, dailyStatus, weekData) {
+    const stationsContainer = document.getElementById('stations');
+    stationsContainer.innerHTML = '';
+
+    // 1. Create all elements first
+    const summaryCard = render_summaryCard(dailyStatus);
+    const weekOverview = render_WeekOverview(weekData, dailyStatus.currentDate);
+    const alertsContainer = render_alertsContainer(dailyStatus);
+    const stationCards = stations.map(station => 
+        render_stationCard(station, dailyStatus)
+    );
+
+    // 2. Append everything at once
+    summaryCard.querySelector('.week-container').appendChild(weekOverview);
+    stationsContainer.appendChild(summaryCard);
+    stationsContainer.appendChild(alertsContainer);
+    stationCards.forEach(card => stationsContainer.appendChild(card));
+
+    // 3. Post-render updates
+    updateAllParticipantStates(dailyStatus);
+    updateTimeIcons(dailyStatus);
+    updateHeaderAndAlerts(dailyStatus);
+    
+    // 4. Update Statistics
+    stations.forEach(station => updateStationStats(station.id));
+    updateTotalStats();
+}
 
 
 // Berechnung des Status
@@ -1082,7 +1100,7 @@ async function animateStatusChange(element, newStatus) {
     }
 
 
-async function renderStations(stations, isWalkingBusDay, dailyStatus) {
+async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus) {
     console.log('[RENDER] Starting with daily status:', dailyStatus);
     const stationsContainer = document.getElementById('stations');
     stationsContainer.innerHTML = '';
@@ -1110,7 +1128,7 @@ async function renderStations(stations, isWalkingBusDay, dailyStatus) {
     updateHeaderAndAlerts(dailyStatus);
     
     // 3. Initial Week Overview
-    await renderWeekOverview(dailyStatus.currentDate);
+    await render_WeekOverview(dailyStatus.currentDate);
     
     // 4. Update Statistics
     stations.forEach(station => {
@@ -1273,6 +1291,123 @@ function render_participantItem(participant, dailyStatus) {
     return item;
 }
 
+
+function render_WeekOverview(weekData, selectedDate) {
+    // Create main week element
+    const weekElement = document.createElement('div');
+    weekElement.className = 'week d-flex justify-content-between';
+    
+    // Ensure valid selectedDate
+    const currentSelectedDate = selectedDate || new Date().toISOString().split('T')[0];
+
+    // Render each day
+    weekData.forEach(dayData => {
+        const dayElement = render_WeekDay(dayData, currentSelectedDate);
+        weekElement.appendChild(dayElement);
+    });
+
+    // Add click handling
+    weekElement.addEventListener('click', render_handleDayClick);
+    
+    // Return the DOM node instead of handling insertion
+    return weekElement;
+}
+
+function render_WeekContainer() {
+    const weekElement = document.createElement('div');
+    weekElement.className = 'week d-flex justify-content-between';
+    return weekElement;
+}
+
+function render_WeekDay(dayData, selectedDate) {
+    const wrapper = document.createElement('div');
+    wrapper.className = `calendar-day-wrapper ${dayData.date === selectedDate ? 'selected-day' : ''}`;
+
+    const dayElement = document.createElement('div');
+    dayElement.className = 'calendar-day';
+    dayElement.dataset.date = dayData.date;
+    
+    // Apply status classes
+    render_applyDayStatus(dayElement, dayData);
+    
+    // Add indicators if needed
+    render_addDayIndicators(dayElement, dayData);
+    
+    // Add day label
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'day-label';
+    labelDiv.textContent = render_getDayLabel(dayData.date);
+    dayElement.appendChild(labelDiv);
+
+    wrapper.appendChild(dayElement);
+    return wrapper;
+}
+
+function render_applyDayStatus(dayElement, dayData) {
+    const baseClasses = ['calendar-day'];
+    
+    // Map state to visual class
+    const stateClassMap = {
+        [WALKING_BUS_STATES.SCHEDULED]: 'day-green',
+        [WALKING_BUS_STATES.HOLIDAY]: 'day-gray',
+        [WALKING_BUS_STATES.OVERRIDE]: 'day-red',
+        [WALKING_BUS_STATES.TIME_PASSED]: 'day-gray'
+    };
+    
+    // Determine current state
+    let currentState;
+    if (dayData.is_today && dayData.reason_type === 'TIME_PASSED') {
+        currentState = WALKING_BUS_STATES.TIME_PASSED;
+    } else if (dayData.reason_type === 'HOLIDAY') {
+        currentState = WALKING_BUS_STATES.HOLIDAY;
+    } else if (dayData.reason_type === 'MANUAL_OVERRIDE') {
+        currentState = WALKING_BUS_STATES.OVERRIDE;
+    } else if (dayData.is_active) {
+        currentState = WALKING_BUS_STATES.SCHEDULED;
+    } else {
+        currentState = WALKING_BUS_STATES.HOLIDAY; // Default to holiday style for inactive days
+    }
+    
+    // Apply state class
+    baseClasses.push(stateClassMap[currentState]);
+    
+    // Add today marker if applicable
+    if (dayData.is_today) {
+        baseClasses.push('day-today');
+    }
+    
+    dayElement.className = baseClasses.join(' ');
+}
+
+function render_addDayIndicators(dayElement, dayData) {
+    if (dayData.has_override || dayData.reason_type === 'HOLIDAY') {
+        const overrideIcon = document.createElement('i');
+        overrideIcon.className = 'fa-solid fa-triangle-exclamation override-icon';
+        dayElement.appendChild(overrideIcon);
+    }
+    
+    if (dayData.has_note) {
+        const noteIcon = document.createElement('i');
+        noteIcon.className = 'fa-solid fa-circle-info note-icon';
+        dayElement.appendChild(noteIcon);
+    }
+}
+
+function render_getDayLabel(dateStr) {
+    const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+    const date = new Date(dateStr);
+    return days[date.getDay()];
+}
+
+function render_handleDayClick(event) {
+    if (isSelectionInProgress) return;
+    
+    const wrapper = event.target.closest('.calendar-day-wrapper');
+    if (!wrapper) return;
+    
+    const dateStr = wrapper.querySelector('.calendar-day').dataset.date;
+    selectDay(dateStr);
+}
 
 
 
@@ -1797,7 +1932,7 @@ function calendar_handleToggleError(dayDiv, wasGreen, originalContent) {
 }
 
 
-async function renderWeekOverview(selectedDate = null) {
+async function ALT_renderWeekOverview(selectedDate = null) {
         const response = await axios.get('/api/week-overview');
         const weekData = response.data;
         
