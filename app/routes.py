@@ -1358,7 +1358,7 @@ def trigger_update():
         walking_bus_id=walking_bus_id
     )
     
-    current_status = get_current_status(walking_bus_id)
+    current_status = get_current_status(walking_bus_id, update_date)
     
     status_data = {
         "type": "status_change",
@@ -1378,8 +1378,7 @@ def trigger_update():
     return jsonify({"success": True})
 
 
-def get_current_status(walking_bus_id):
-    current_date = get_current_date()
+def get_current_status(walking_bus_id, target_date):
     stations = Station.query.filter_by(walking_bus_id=walking_bus_id).all()
     
     stations_data = []
@@ -1388,20 +1387,20 @@ def get_current_status(walking_bus_id):
         for p in station.participants:
             calendar_entry = CalendarStatus.query.filter_by(
                 participant_id=p.id,
-                date=current_date,
+                date=target_date,
                 walking_bus_id=walking_bus_id
             ).first()
             
             status = calendar_entry.status if calendar_entry else getattr(
                 p, 
-                WEEKDAY_MAPPING[current_date.weekday()], 
+                WEEKDAY_MAPPING[target_date.weekday()], 
                 True
             )
             
             participants_data.append({
                 "id": p.id,
                 "status": status,
-                "date": current_date.isoformat()
+                "date": target_date.isoformat()
             })
         
         stations_data.append({
@@ -1410,7 +1409,7 @@ def get_current_status(walking_bus_id):
         })
 
     return {
-        "date": current_date.isoformat(),
+        "date": target_date.isoformat(),
         "stations": stations_data
     }
 

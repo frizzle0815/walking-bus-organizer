@@ -787,7 +787,7 @@ async function renderFullView(stations, dailyStatus, weekData) {
     stationCards.forEach(card => stationsContainer.appendChild(card));
 
     // 3. Post-render updates
-    updateAllParticipantStates(dailyStatus);
+    //updateAllParticipantStates(dailyStatus);
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
     
@@ -1365,6 +1365,9 @@ function render_alertsContainer(dailyStatus) {
 
 
 function render_stationCard(station, dailyStatus) {
+    const isTimePassedForToday = isCurrentDay(dailyStatus.currentDate) && 
+                                dailyStatus.schedule?.end && 
+                                isTimePassed(dailyStatus.schedule.end);
     const card = document.createElement('div');
     card.classList.add('station-card');
     card.dataset.stationId = station.id;
@@ -1379,7 +1382,7 @@ function render_stationCard(station, dailyStatus) {
     participantsList.dataset.stationId = station.id;
 
     station.participants.forEach(participant => {
-        const participantElement = render_participantItem(participant, dailyStatus);
+        const participantElement = render_participantItem(participant, dailyStatus, isTimePassedForToday);
         participantsList.appendChild(participantElement);
     });
 
@@ -1621,7 +1624,7 @@ function render_handleDayClick(event) {
 }
 
 // 2. Update createParticipantElement function
-function createParticipantElement(participant, status, dailyStatus) {
+function ALT_createParticipantElement(participant, status, dailyStatus) {
     const element = document.createElement('li');
     element.dataset.participantId = participant.id;
     
@@ -2215,8 +2218,7 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
     if (walkingbusAlert && walkingbusReason) {
         // Check for time passed first
         if (isCurrentDay(dailyStatus.currentDate) && 
-            dailyStatus.schedule?.end && 
-            isTimePassed(dailyStatus.schedule.end)) {
+            dailyStatus.schedule?.end) {
             walkingbusAlert.classList.remove('d-none');
             walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
         } else {
@@ -2345,35 +2347,32 @@ document.addEventListener('visibilitychange', () => {
 
 
 function SSE_handleStatusUpdate(data) {
-    switch(data.type) {
-        case 'PARTICIPANT_STATUS':
-            // Only update participant states if we're viewing the same date
-            const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
-            if (selectedDate === data.date) {
-                // Create dailyStatus structure needed for state calculation
-                const dailyStatus = {
-                    currentDate: data.date,
-                    participantStates: data.participantStates,
-                    schedule: data.schedule,
-                    isWalkingBusDay: data.isWalkingBusDay
-                };
-                
-                // Update participant states
-                updateAllParticipantStates(dailyStatus);
-                
-                // Update stats
-                document.querySelectorAll('[data-station-id]').forEach(station => {
-                    updateStationStats(station.dataset.stationId);
-                });
-                updateTotalStats();
-            }
-            break;
-            
-        case 'time_update':
-            SSE_updateTimeDisplay(data.time);
-            break;
+    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+    
+    // Only proceed if we're viewing the date that was updated
+    if (selectedDate === data.date) {
+        const participantStates = {};
+        data.stations.forEach(station => {
+            station.participants.forEach(participant => {
+                participantStates[participant.id] = participant.status;
+            });
+        });
+
+        const dailyStatus = {
+            currentDate: data.date,
+            participantStates: participantStates,
+            schedule: data.schedule,
+            isWalkingBusDay: data.isWalkingBusDay
+        };
+
+        updateAllParticipantStates(dailyStatus);
+        document.querySelectorAll('[data-station-id]').forEach(station => {
+            updateStationStats(station.dataset.stationId);
+        });
+        updateTotalStats();
     }
 }
+
 
 
 function SSE_handleError() {
