@@ -1103,7 +1103,7 @@ function updateTotalStats() {
 }
 
 
-async function toggleParticipation(participantId, button) {
+async function TEST_toggleParticipation(participantId, button) {
     if (button.querySelector('.fa-spinner')) return;
     
     const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
@@ -1124,13 +1124,77 @@ async function toggleParticipation(participantId, button) {
             
             // Trigger SSE update
             await axios.post('/api/trigger-update', { date: selectedDate });
-            await renderWeekOverview(selectedDate);
+            await render_WeekOverview(selectedDate);
         }
     } catch (error) {
         console.error('[TOGGLE] Error:', error);
         showErrorMessage('Änderung konnte nicht gespeichert werden');
     }
 }
+
+
+async function toggleParticipation(participantId, button) {
+    const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+    const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+    const stationId = participantItem.closest('[data-station-id]').dataset.stationId;
+
+    // Track if update is in progress for this specific participant
+    if (participantItem.dataset.updating === 'true') {
+        return;
+    }
+    participantItem.dataset.updating = 'true';
+    
+    const wasActive = participantItem.classList.contains('participant-status-active');
+    const newStatus = !wasActive;
+    
+    try {
+        // Start animation immediately for responsive feel
+        await animateStatusChange(participantItem, newStatus);
+        
+        // Show compact loading indicator
+        const originalButtonContent = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin fa-sm"></i>';
+        
+        const response = await axios.patch(`/api/participation/${participantId}`, {
+            date: selectedDate
+        }, {
+            timeout: 4000
+        });
+
+        if (response.data && response.status === 200) {
+            const dailyStatusResponse = await axios.get('/api/daily-status', {
+                params: { date: selectedDate }
+            });
+            
+            updateAllParticipantStates(dailyStatusResponse.data);
+            updateStationStats(stationId);
+            updateTotalStats();
+            
+           // await axios.post('/api/trigger-update', {
+           //    type: 'PARTICIPANT_STATUS',
+           //     date: selectedDate
+           // });
+        }
+    } catch (error) {
+        console.error('[TOGGLE] Error:', error);
+        
+        // Revert animation
+        await animateStatusChange(participantItem, wasActive);
+        
+        // Show warning
+        const warningIcon = document.createElement('i');
+        warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+        warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+        button.parentElement.insertBefore(warningIcon, button.parentElement.firstChild);
+
+        showErrorMessage('Änderung konnte nicht gespeichert werden');
+        setTimeout(() => warningIcon.remove(), 5000);
+    } finally {
+        // Clear updating flag
+        participantItem.dataset.updating = 'false';
+    }
+}
+
 
 
 async function ALT_toggleParticipation(participantId, button) {
@@ -1171,7 +1235,7 @@ async function ALT_toggleParticipation(participantId, button) {
             await axios.post('/api/trigger-update', { date: selectedDate });
             
             // Update week overview
-            await renderWeekOverview(selectedDate);
+            await render_WeekOverview(selectedDate);
         }
     } catch (error) {
         console.error('[TOGGLE] Error:', error);
@@ -2294,7 +2358,7 @@ function SSE_handleStatusUpdate(data) {
         updateHeaderAndAlerts(formattedDailyStatus);
     }
     
-    renderWeekOverview(data.weekOverview);
+    render_WeekOverview(data.weekOverview);
 }
 
 
