@@ -13,6 +13,7 @@ import io
 import base64
 import secrets
 import string
+from . import get_current_time
 
 # JWT Configuration
 SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
@@ -84,14 +85,15 @@ def get_consistent_hash(text):
 
 def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None):
     token_identifier = secrets.token_hex(32)
-    exp_time = datetime.now() + timedelta(days=60)
+    current_time = get_current_time()
+    exp_time = current_time + timedelta(days=60)
     token_payload = {
         'exp': exp_time,
         'walking_bus_id': walking_bus_id,
         'walking_bus_name': walking_bus_name,
         'bus_password_hash': bus_password_hash,
         'token_identifier': token_identifier,
-        'created_at': datetime.now().isoformat(),
+        'created_at': current_time.isoformat(),
         'type': 'pwa_auth'
     }
     auth_token = jwt.encode(token_payload, SECRET_KEY, algorithm='HS256')
@@ -141,12 +143,14 @@ def renew_auth_token(old_token, verified_payload):
 
 def invalidate_all_tokens_for_bus(walking_bus_id, reason="Password changed"):
     """Invalidate all active tokens for a specific walking bus"""
+    current_time = get_current_time()
     active_tokens = AuthToken.query.filter_by(
         walking_bus_id=walking_bus_id,
         is_active=True
     ).all()
     
     for token in active_tokens:
+        token.invalidated_at = current_time
         token.invalidate(reason)
     
     db.session.commit()

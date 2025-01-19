@@ -1,5 +1,6 @@
 from . import db
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
+from . import get_current_time
 
 
 class WalkingBus(db.Model):
@@ -132,14 +133,14 @@ class AuthToken(db.Model):
     
     id = db.Column(db.String(512), primary_key=True)  # The JWT token itself
     walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_used = db.Column(db.DateTime, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    last_used = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    expires_at = db.Column(db.DateTime, default=lambda: get_current_time() + timedelta(days=60))
     is_active = db.Column(db.Boolean, default=True)
     client_info = db.Column(db.String(500), nullable=True)
     renewed_from = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=True)
     renewed_to = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=True)
-    invalidated_at = db.Column(db.DateTime)
+    invalidated_at = db.Column(db.DateTime, default=None, onupdate=get_current_time)
     invalidation_reason = db.Column(db.String(100))
     token_identifier = db.Column(db.String(64), unique=True, nullable=False)
     
