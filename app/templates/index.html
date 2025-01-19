@@ -2247,9 +2247,10 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
     const walkingbusNote = document.getElementById('walkingbus-note');
 
     if (walkingbusAlert && walkingbusReason) {
-        // Check for time passed first
-        if (isCurrentDay(dailyStatus.currentDate) && 
-            dailyStatus.schedule?.end) {
+        // First check if this is a scheduled Walking Bus day
+        if (isWalkingBusDay && isCurrentDay(dailyStatus.currentDate) && 
+            dailyStatus.schedule?.end && isTimePassed(dailyStatus.schedule.end)) {
+            // Show "already happened" only on Walking Bus days
             walkingbusAlert.classList.remove('d-none');
             walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
         } else {
