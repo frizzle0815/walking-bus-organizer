@@ -1424,7 +1424,7 @@ def stream():
         while True:
             try:
                 # Time updates (check current minute)
-                current_time = datetime.now().strftime("%H:%M")
+                current_time = get_current_time().strftime("%H:%M")
                 if current_time != last_time:
                     yield f"data: {json.dumps({'type': 'time_update', 'time': current_time})}\n\n"
                     last_time = current_time
