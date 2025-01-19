@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div id="loading-overlay" class="loading-overlay">
+    <div class="spinner-container">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Lade Daten...</span>
+        </div>
+        <div class="mt-3 text-primary">Lade Walking Bus...</div>
+    </div>
+</div>
+
 <div class="container-fluid px-2 py-2 content-container">
     <div id="stations"></div>
 </div>
@@ -574,6 +583,15 @@
         z-index: 9999;
     }
 
+    .spinner-container {
+        text-align: center;
+    }
+
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+
 </style>
 
 <script>
@@ -596,509 +614,1053 @@
         6: 'sunday'
     };
 
+const PARTICIPANT_STATES = {
+    ACTIVE: 'active',
+    INACTIVE: 'inactive',
+    DISABLED: 'disabled'
+};
 
-    document.addEventListener('DOMContentLoaded', async () => {
-        // Initialize IndexedDB first
-        await initDB();
+const WALKING_BUS_STATES = {
+    SCHEDULED: 'scheduled',
+    HOLIDAY: 'holiday',
+    OVERRIDE: 'override',
+    TIME_PASSED: 'time_passed'
+};
 
-        const today = new Date().toISOString().split('T')[0];
-        await loadStations(null, today);
-        
-        // Initialize data and connections
-        initializeSSE();
-        console.log('SSE initialization completed');
+const REASON_TYPES = {
+    ACTIVE: 'ACTIVE',
+    HOLIDAY: 'HOLIDAY',
+    WEEKEND: 'WEEKEND',
+    TIME_PASSED: 'TIME_PASSED',
+    MANUAL_OVERRIDE: 'MANUAL_OVERRIDE',
+    INACTIVE_WEEKDAY: 'INACTIVE_WEEKDAY',
+    NO_SCHEDULE: 'NO_SCHEDULE'
+};
 
-        // Initialize view toggle
-        console.log('Initializing size controls...');
-        initializeSizeControls();
 
-        // Setup modal handling
-        const modal = document.getElementById('calendarModal');
-        const span = document.getElementsByClassName('close')[0];
+const isCurrentDay = (dateStr) => dateStr === new Date().toISOString().split('T')[0];
 
-        span.onclick = () => modal.style.display = 'none';
-        window.onclick = (event) => {
-            if (event.target === modal) {
-                modal.style.display = 'none';
-            }
-        };
+const checkTimePassed = (endTime) => {
+    if (!endTime) return false;
+    const [hours, minutes] = endTime.split(':').map(Number);
+    const endDateTime = new Date();
+    endDateTime.setHours(hours, minutes, 0);
+    return new Date() > endDateTime;
+};
 
-        // Add offline/online handlers
-        window.addEventListener('online', () => {
-            loadStations();
-        });
 
-        window.addEventListener('offline', () => {
-            updateConnectionStatus('disconnected');
+
+function createParticipantMap(stations) {
+    const map = new Map();
+    stations.forEach(station => {
+        station.participants.forEach(participant => {
+            console.log(`[MAP] Processing participant ${participant.id}:`, participant);
+            map.set(participant.id, {
+                id: participant.id,
+                name: participant.name,
+                stationId: station.id
+            });
         });
     });
+    return map;
+}
 
-
-    // First, create a promise for database initialization
-    let dbPromise;
-
-    async function initDB() {
-        dbPromise = new Promise((resolve, reject) => {
-            const request = indexedDB.open('WalkingBusDB', 4); // Increment version number
-            request.onerror = () => reject(request.error);
-            request.onsuccess = (event) => resolve(event.target.result);
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                
-                // Create stationsData store if it doesn't exist
-                if (!db.objectStoreNames.contains('stationsData')) {
-                    db.createObjectStore('stationsData', { keyPath: 'timestamp' });
-                }
-                
-                // Create participantStates store if it doesn't exist
-                if (!db.objectStoreNames.contains('participantStates')) {
-                    db.createObjectStore('participantStates', { keyPath: 'id' });
-                }
-                
-                // Create calendarData store if it doesn't exist
-                if (!db.objectStoreNames.contains('calendarData')) {
-                    const calendarStore = db.createObjectStore('calendarData', { 
-                        keyPath: ['participantId', 'date'] 
-                    });
-                    // Add index for efficient querying
-                    calendarStore.createIndex('by_participant', 'participantId');
-                }
-            };
-        });
-        return dbPromise;
+function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData) {
+    if (stateReason === REASON_TYPES.HOLIDAY && holidayData) {
+        return `Heute sind ${holidayData.name}`;
     }
+    const reasonMap = {
+        [REASON_TYPES.ACTIVE]: '',
+        [REASON_TYPES.HOLIDAY]: 'Es sind Ferien.',
+        [REASON_TYPES.WEEKEND]: 'Am Wochenende findet kein Walking Bus statt.',
+        [REASON_TYPES.TIME_PASSED]: 'Der Walking Bus hat heute bereits stattgefunden.',
+        [REASON_TYPES.MANUAL_OVERRIDE]: 'Manuell deaktiviert.',
+        [REASON_TYPES.INACTIVE_WEEKDAY]: 'An diesem Tag findet kein Walking Bus statt.',
+        [REASON_TYPES.NO_SCHEDULE]: 'Keine Planung angelegt.'
+    };
+
+    return reasonMap[stateReason] || 'Kein Walking Bus';
+}
 
 
-    async function loadStations(previousStates = null, selectedDate = null) {
-        const now = Date.now();
-        if (now - lastUpdateTimestamp < UPDATE_THRESHOLD) {
-            return;
-        }
-        lastUpdateTimestamp = now;
-
-        try {
-            // Initialize and validate database connection
-            const db = await dbPromise;
-            if (!db) {
-                throw new Error('Database not initialized');
-            }
-
-            // 1. First load and display cached data
-            const cachedData = await loadCachedData(db);
-            if (cachedData?.stations) {  // Null check with optional chaining
-                // Validate cached data structure
-                const validatedCachedData = {
-                    stations: Array.isArray(cachedData.stations) ? cachedData.stations : [],
-                    isWalkingBusDay: Boolean(cachedData.isWalkingBusDay),
-                    dailyStatus: {
-                        currentDate: cachedData.dailyStatus?.currentDate || new Date().toISOString(),
-                        reason: cachedData.dailyStatus?.reason || '',
-                        note: cachedData.dailyStatus?.note || ''
-                    },
-                    selectedDate: cachedData.selectedDate || new Date().toISOString().split('T')[0]
-                };
-
-                // Render validated cached data
-                await renderStations(
-                    validatedCachedData.stations,
-                    validatedCachedData.isWalkingBusDay,
-                    validatedCachedData.dailyStatus,
-                    validatedCachedData.selectedDate
-                );
-            }
-
-            // 2. Validate schedule
-            const schedule = await validateSchedule();
-            if (!schedule) return;
-
-            // 3. Get fresh data
-            const { dailyStatus, stations } = await getFreshData(selectedDate);
-            
-            // 4. Perform differential update
-            await updateUI(stations, dailyStatus, selectedDate);
-            // Always update week overview after UI update
-            await renderWeekOverview(selectedDate);
-
-            // 5. Cache new data
-            await updateCache(db, stations, dailyStatus, selectedDate);
-
-            updateConnectionStatus('connected');
-
-           } catch (error) {
-               console.error('Error loading stations:', error);
-               updateConnectionStatus('disconnected');
-               
-               // Safe DB access in error handler
-               if (dbPromise) {
-                   try {
-                       const db = await dbPromise;
-                       // Rest of your error handling...
-                   } catch (dbError) {
-                       console.error('Error accessing cached data:', dbError);
-                   }
-               }
-           }
-    }
-
-    // Helper functions for better organization
-    async function loadCachedData(db) {
-        const tx = db.transaction(['stationsData'], 'readonly');
-        const store = tx.objectStore('stationsData');
-        return await store.get('latest');
-    }
-
-    async function validateSchedule() {
-        const scheduleResponse = await axios.get('/api/walking-bus-schedule');
-        const schedule = scheduleResponse?.data;
-        
-        if (schedule) {
-            const missingTimes = Object.entries(schedule)
-                .filter(([_, dayData]) => dayData?.active && (!dayData?.start || !dayData?.end))
-                .map(([day, _]) => day);
-                
-            if (missingTimes.length > 0) {
-                showScheduleAlert(missingTimes);
-                updateConnectionStatus('connected');
-                return null;
-            }
-        }
-        return schedule;
-    }
-
-    async function getFreshData(selectedDate) {
-        const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
-            date: selectedDate || new Date().toISOString().split('T')[0]
-        });
-        const dailyStatus = dailyStatusResponse?.data;
-
-        if (!dailyStatus) {
-            throw new Error('No daily status data received');
-        }
-
-        const validatedDailyStatus = {
-            currentDate: dailyStatus.currentDate || new Date().toISOString(),
-            isWalkingBusDay: Boolean(dailyStatus.isWalkingBusDay),
-            reason: dailyStatus.reason || '',
-            reason_type: dailyStatus.reason_type || '',  // Added reason_type
-            note: dailyStatus.note || ''
-        };
-
-        isWalkingBusDay = validatedDailyStatus.isWalkingBusDay;
-
-        const stationsResponse = await axios.get('/api/stations', {
-            params: {
-                date: selectedDate || new Date().toISOString().split('T')[0],
-                admin: 0
-            }
-        });
-        const stations = Array.isArray(stationsResponse?.data) ? stationsResponse.data : [];
-
-        if (stations.length === 0) {
-            throw new Error('No valid stations data received');
-        }
-
-        return { dailyStatus: validatedDailyStatus, stations };
-    }
-
-
-    async function updateUI(stations, dailyStatus, selectedDate) {
-        const stationsContainer = document.getElementById('stations');
-        const existingStations = stationsContainer.querySelectorAll('.station-card');
-
-        // Only create alerts if they don't exist
-        if (!document.getElementById('alerts-container')) {
-            const alertsContainer = createAlertsContainer(dailyStatus.isWalkingBusDay, dailyStatus);
-            stationsContainer.appendChild(alertsContainer);
-        }
-        
-        // Update existing alerts instead of replacing them
-        updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
-
-        if (existingStations.length === 0) {
-            await renderStations(stations, dailyStatus.isWalkingBusDay, dailyStatus, selectedDate);
-        } else {
-            for (const station of stations) {
-                const stationElement = document.querySelector(`[data-station-id="${station.id}"]`);
-                if (stationElement) {
-                    await updateStationElement(stationElement, station, dailyStatus.isWalkingBusDay);
-                }
-            }
-        }
-    }
-
-    async function updateCache(db, stations, dailyStatus, selectedDate) {
-        // Validate input parameters
-        if (!db || !stations || !Array.isArray(stations)) {
-            console.log('Invalid cache data:', { stations, dailyStatus, selectedDate });
-            return; // Exit early if data is invalid
-        }
-
-        // Update participants states
-        const participantsTransaction = db.transaction(['participantStates'], 'readwrite');
-        const participantsStore = participantsTransaction.objectStore('participantStates');
-
-        stations.forEach(station => {
-            if (station?.participants && Array.isArray(station.participants)) {
-                station.participants.forEach(participant => {
-                    if (participant?.id) {
-                        participantsStore.put({
-                            id: participant.id,
-                            today_status: Boolean(participant.today_status),
-                            date: selectedDate || new Date().toISOString().split('T')[0]
-                        });
-                    }
-                });
-            }
-        });
-
-        // Update stations data
-        const stationsTransaction = db.transaction(['stationsData'], 'readwrite');
-        const stationsStore = stationsTransaction.objectStore('stationsData');
-        await stationsStore.put({
-            timestamp: 'latest',
-            stations: stations,
-            isWalkingBusDay: Boolean(dailyStatus?.isWalkingBusDay),
-            dailyStatus: dailyStatus || {},
-            selectedDate: selectedDate
-        });
-    }
-
-    async function updateStationElement(stationElement, stationData, isWalkingBusDay) {
-        // Update station header stats with walking bus day awareness
-        const statsElement = stationElement.querySelector(`#stats-station-${stationData.id}`);
-        if (statsElement) {
-            const activeCount = isWalkingBusDay ? 
-                stationData.participants.filter(p => p.status).length : 0;
-            statsElement.textContent = `${activeCount} / ${stationData.participants.length}`;
-        }
-
-        // Update each participant
-        for (const participant of stationData.participants) {
-            const participantElement = stationElement.querySelector(`[data-participant-id="${participant.id}"]`);
-            if (participantElement) {
-                // Remove all possible status classes
-                participantElement.classList.remove(
-                    'participant-status-active', 
-                    'participant-status-inactive',
-                    'participant-status-disabled'
-                );
-                
-                // Add appropriate status class based on walking bus day
-                if (!isWalkingBusDay) {
-                    participantElement.classList.add('participant-status-disabled');
-                } else {
-                    participantElement.classList.add(
-                        participant.status ? 'participant-status-active' : 'participant-status-inactive'
-                    );
-                }
-
-                // Update status button with walking bus day awareness
-                const statusButton = participantElement.querySelector('.status-button');
-                if (statusButton) {
-                    statusButton.classList.remove('btn-outline-success', 'btn-outline-danger', 'btn-outline-secondary');
-                    if (!isWalkingBusDay) {
-                        statusButton.classList.add('btn-outline-secondary');
-                        statusButton.innerHTML = '<i class="fas fa-times"></i>';
-                        statusButton.disabled = true;
-                    } else {
-                        statusButton.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
-                        statusButton.innerHTML = participant.status ?
-                            '<i class="fas fa-check"></i>' :
-                            '<i class="fas fa-times"></i>';
-                        statusButton.disabled = false;
-                    }
-                }
-
-                // Update traffic light icon with walking bus day awareness
-                const icon = participantElement.querySelector('.traffic-light.current-icon');
-                if (icon) {
-                    icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive', 'icon-disabled');
-                    if (!isWalkingBusDay) {
-                        icon.classList.add('fa-person', 'icon-disabled');
-                    } else {
-                        icon.classList.add(
-                            participant.status ? 'fa-walking' : 'fa-person',
-                            participant.status ? 'icon-active' : 'icon-inactive'
-                        );
-                    }
-                }
-            }
-        }
-
-        // Update total stats with walking bus day awareness
-        const totalStats = document.getElementById('stats-total');
-        if (totalStats) {
-            const allParticipants = Array.from(document.querySelectorAll('.participant-item'));
-            const activeParticipants = isWalkingBusDay ? 
-                allParticipants.filter(p => p.classList.contains('participant-status-active')).length : 0;
-            totalStats.textContent = `${activeParticipants} / ${allParticipants.length}`;
-        }
-    }
-
-
-    async function handleOfflineMode(db, selectedDate) {
-        try {
-            const cachedData = await loadCachedData(db);
-            if (cachedData?.stations && Array.isArray(cachedData.stations)) {
-                await renderStations(
-                    cachedData.stations,
-                    Boolean(cachedData.isWalkingBusDay),
-                    {
-                        ...cachedData.dailyStatus,
-                        currentDate: cachedData.dailyStatus?.currentDate || new Date().toISOString()
-                    }
-                );
-                
-                if (cachedData.selectedDate) {
-                    await renderWeekOverview(cachedData.selectedDate);
-                }
-            }
-        } catch (dbError) {
-            console.error('Error accessing cached data:', dbError);
-        }
-    }
-
-
-    async function renderWeekOverview(selectedDate = null) {
-        const response = await axios.get('/api/week-overview');
-        const weekData = response.data;
-        
-        const weekOverview = document.createElement('div');
-        weekOverview.className = 'week d-flex justify-content-between';
-            
-        // Ensure we have a valid selectedDate
-        if (!selectedDate) {
-            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
-                || new Date().toISOString().split('T')[0];
-        }
-        
-        weekOverview.innerHTML = weekData.map(day => `
-            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
-                <div class="calendar-day ${getWeekDayClass(day)}"
-                     data-date="${day.date}">
-                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
-                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
-                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
-                    <div class="day-label">${getDayLabel(day.date)}</div>
-                </div>
-            </div>
-        `).join('');
-
-        
-        // Add click handler to the wrapper instead of the day
-        weekOverview.addEventListener('click', (e) => {
-            const wrapperElement = e.target.closest('.calendar-day-wrapper');
-            if (wrapperElement && !isSelectionInProgress) {
-                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
-                selectDay(dateStr);
-            }
-        });
-        
-        const weekContainer = document.querySelector('.week-container');
-        if (weekContainer) {
-            weekContainer.innerHTML = '';
-            weekContainer.appendChild(weekOverview);
-        }
-    }
-
-
-    function getWeekDayClass(day) {
-        const classes = [];
-        
-        // First determine background color
-        if (day.is_today && day.reason_type === 'TIME_PASSED') {
-            classes.push('day-gray');
-        } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
-            classes.push('day-red');
-        } else if (!day.is_schedule_day || !day.is_active) {
-            classes.push('day-gray');
-        } else {
-            classes.push('day-green');
-        }
-        
-        // Add today marker if applicable
-        if (day.is_today) {
-            classes.push('day-today');
-        }
-        
-        return classes.join(' ');
-    }
-
-
-    function getDayLabel(dateStr) {
-        const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-        const date = new Date(dateStr);
-        return days[date.getDay()];
-    }
-
-    // Funktion zum Auswählen eines Tages
-    let isSelectionInProgress = false;
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[INIT] Page loading started');
+    const loadingOverlay = document.getElementById('loading-overlay');
     
-    async function selectDay(dateStr) {
-        if (isSelectionInProgress) {
-            return;
-        }
+    // Add transition for smooth fade out
+    loadingOverlay.style.transition = 'opacity 0.3s ease-out';
+    
+    try {
+        // Initialize core functionality
+        initializeSizeControls();
+        console.log('[INIT] Size controls initialized');
 
-        isSelectionInProgress = true;
-        
-        // Update selection visual state
-        const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
-        allWrappers.forEach(wrapper => {
-            wrapper.style.pointerEvents = 'none';
-            wrapper.classList.remove('selected-day');
-        });
-        
-        // Create and show loading overlay
-        const loadingOverlay = document.createElement('div');
-        loadingOverlay.classList.add('loading-overlay');
+        // Load main data
+        await loadInitialData();
+        console.log('[INIT] Initial load complete');
+
+        // Initialize real-time updates
+        initializeSSE();
+        console.log('[INIT] SSE connection established');
+
+        // Setup modal interactions
+        setupModalHandling();
+        console.log('[INIT] Modal handling setup complete');
+
+        // Smoothly hide loading overlay
+        loadingOverlay.style.opacity = '0';
+        setTimeout(() => {
+            loadingOverlay.style.display = 'none';
+        }, 300); // Match transition duration
+
+    } catch (error) {
+        console.error('[INIT] Error during initialization:', error);
+        // Show error in loading overlay
         loadingOverlay.innerHTML = `
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Lade Daten...</span>
+            <div class="spinner-container text-danger">
+                <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                <div>Fehler beim Laden der Daten</div>
+                <button onclick="location.reload()" class="btn btn-outline-danger mt-3">
+                    Neu laden
+                </button>
             </div>
         `;
-        document.body.appendChild(loadingOverlay);
+        updateConnectionStatus('disconnected');
+    }
+});
+
+
+async function loadInitialData() {
+    console.log('[INITIAL_LOAD] Starting initial data load');
+    try {
+        // First get structural data
+        const [initialResponse, weekResponse] = await Promise.all([
+            axios.get('/api/initial-load'),  // Just stations and participants
+            axios.get('/api/week-overview')
+        ]);
         
-        // Update selected day visual using more reliable DOM traversal
-        const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
-        if (selectedDay) {
-            selectedDay.closest('.calendar-day-wrapper').classList.add('selected-day');
+        // Then get current day status
+        const dailyStatusResponse = await axios.get('/api/daily-status', {
+            params: { date: new Date().toISOString().split('T')[0] }
+        });
+
+        const enhancedDailyStatus = {
+            ...dailyStatusResponse.data,
+            reason: createReasonMap(
+                dailyStatusResponse.data.stateReason,
+                dailyStatusResponse.data.holidayData,
+                dailyStatusResponse.data.isWalkingBusDay,
+                dailyStatusResponse.data.schedule
+            ),
+            reason_type: dailyStatusResponse.data.stateReason
+        };
+
+        window.appState = {
+            stations: initialResponse.data.stations,
+            participants: createParticipantMap(initialResponse.data.stations),
+            currentDate: dailyStatusResponse.data.currentDate,
+            weekOverview: weekResponse.data
+        };
+
+        await renderFullView(
+            window.appState.stations,
+            enhancedDailyStatus,
+            weekResponse.data
+        );
+
+        const firstDayWrapper = document.querySelector('.week .calendar-day-wrapper:first-child');
+        if (firstDayWrapper) {
+            firstDayWrapper.classList.add('selected-day');
         }
         
-        try {
-            // Get daily status first
-            const dailyStatusResponse = await axios.post('/api/initialize-daily-status', {
-                date: dateStr
-            });
-            const dailyStatus = dailyStatusResponse.data;
+        return initialResponse.data;
+    } catch (error) {
+        console.error('[INITIAL_LOAD] Error:', error);
+        throw error;
+    }
+}
 
-            const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
-            if (summaryHeader) {
-                summaryHeader.textContent = formatServerDate(new Date(dailyStatus.currentDate));
-            }
 
-            // Update alerts with new daily status
-            updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
-            
-            // Wait for all API calls to complete
-            await Promise.all([
-                loadStations(null, dateStr),
-                renderWeekOverview(dateStr)
-            ]);
-        } catch (error) {
-            console.error('Error in selectDay:', error);
-        } finally {
-            // Restore interaction and clean up
-            allWrappers.forEach(wrapper => {
-                wrapper.style.pointerEvents = 'auto';
-            });
-            loadingOverlay.remove();
-            isSelectionInProgress = false;
-        }
+
+async function renderFullView(stations, dailyStatus, weekData) {
+    const stationsContainer = document.getElementById('stations');
+    stationsContainer.innerHTML = '';
+
+    // 1. Create all elements first
+    const summaryCard = render_summaryCard(dailyStatus);
+    const weekOverview = render_WeekOverview(weekData, dailyStatus.currentDate);
+    const alertsContainer = render_alertsContainer(dailyStatus);
+    const stationCards = stations.map(station => 
+        render_stationCard(station, dailyStatus)
+    );
+
+    // 2. Append everything at once
+    summaryCard.querySelector('.week-container').appendChild(weekOverview);
+    stationsContainer.appendChild(summaryCard);
+    stationsContainer.appendChild(alertsContainer);
+    stationCards.forEach(card => stationsContainer.appendChild(card));
+
+    // 3. Post-render updates
+    //updateAllParticipantStates(dailyStatus);
+    updateTimeIcons(dailyStatus);
+    updateHeaderAndAlerts(dailyStatus);
+    
+    // 4. Update Statistics
+    stations.forEach(station => updateStationStats(station.id));
+    updateTotalStats();
+}
+
+
+// Berechnung des Status
+function calculateParticipantStatusState(participantId, dailyStatus) {
+    console.log('[STATUS][CALC] Processing participant:', participantId);
+    console.log('[STATUS][CALC] Daily status:', dailyStatus);
+
+    if (!dailyStatus || !dailyStatus.participantStates) {
+        //console.log('[STATUS][CALC] Invalid dailyStatus object');
+        return PARTICIPANT_STATES.DISABLED;
     }
 
+    if (!dailyStatus.isWalkingBusDay) {
+        //console.log('[STATUS][CALC] Not a walking bus day');
+        return PARTICIPANT_STATES.DISABLED;
+    }
+
+    const participantState = dailyStatus.participantStates[participantId];
+    const currentDay = isCurrentDay(dailyStatus.currentDate);
+    const timePassed = checkTimePassed(dailyStatus.schedule?.end);
+    const effectiveWalkingBusDay = dailyStatus.isWalkingBusDay && !(timePassed && currentDay);
+
+    // Check if walking bus is effectively active
+    if (!effectiveWalkingBusDay) {
+        return PARTICIPANT_STATES.DISABLED;
+    }
+
+    const finalState = participantState ? PARTICIPANT_STATES.ACTIVE : PARTICIPANT_STATES.INACTIVE;
+    console.log('[STATUS][CALC] Final state:', finalState);
+    return finalState;
+}
 
 
-    async function renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
+
+// UI Updates für einzelnen Participant
+function updateParticipantStatusUI(participantElement, state) {
+    //console.log('[STATUS][UI] Updating UI for participant:', participantElement.dataset.participantId);
+    //console.log('[STATUS][UI] Applying state:', state);
+
+    const icon = participantElement.querySelector('.traffic-light');
+    const button = participantElement.querySelector('.status-button');
+    
+    participantElement.classList.remove(
+        'participant-status-active',
+        'participant-status-inactive',
+        'participant-status-disabled'
+    );
+    
+    switch(state) {
+        case PARTICIPANT_STATES.ACTIVE:
+            //console.log('[STATUS][UI] Setting ACTIVE state');
+            participantElement.classList.add('participant-status-active');
+            icon.className = 'fas fa-walking traffic-light icon-active';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
+            button.innerHTML = '<i class="fas fa-check"></i>';
+            button.disabled = false;
+            break;
+            
+        case PARTICIPANT_STATES.INACTIVE:
+            //console.log('[STATUS][UI] Setting INACTIVE state');
+            participantElement.classList.add('participant-status-inactive');
+            icon.className = 'fas fa-person traffic-light icon-inactive';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-danger';
+            button.innerHTML = '<i class="fas fa-times"></i>';
+            button.disabled = false;
+            break;
+            
+        case PARTICIPANT_STATES.DISABLED:
+            //console.log('[STATUS][UI] Setting DISABLED state');
+            participantElement.classList.add('participant-status-disabled');
+            icon.className = 'fas fa-person traffic-light icon-disabled';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-secondary';
+            button.innerHTML = '<i class="fas fa-times"></i>';
+            button.disabled = true;
+            break;
+    }
+}
+
+// Update aller Participant Status
+function updateAllParticipantStates(dailyStatus) {
+    window.appState.participants.forEach((participant, id) => {
+        const element = document.querySelector(`[data-participant-id="${id}"]`);
+        if (element) {
+            const state = calculateParticipantStatusState(id, dailyStatus);
+            updateParticipantStatusUI(element, state);
+        }
+    });
+}
+
+
+
+function setupModalHandling() {
+    console.log('[MODAL] Setting up modal handlers');
+    
+    const modal = document.getElementById('calendarModal');
+    const span = document.getElementsByClassName('close')[0];
+
+    // Close modal when clicking X
+    span.onclick = () => {
+        console.log('[MODAL] Closing via X button');
+        modal.style.display = 'none';
+    };
+
+    // Close modal when clicking outside
+    window.onclick = (event) => {
+        if (event.target === modal) {
+            console.log('[MODAL] Closing via outside click');
+            modal.style.display = 'none';
+        }
+    };
+
+    console.log('[MODAL] Modal handlers initialized');
+}
+
+
+// Funktion zum Auswählen eines Tages
+let isSelectionInProgress = false;
+
+async function selectDay(dateStr) {
+    if (isSelectionInProgress) return;
+    
+    console.log('[SELECT_DAY] Starting selection for date:', dateStr);
+    isSelectionInProgress = true;
+
+    // Setup loading state first
+    const { allWrappers, loadingOverlay } = setupLoadingState(dateStr);
+    
+    try {
+        const dailyStatusResponse = await axios.get('/api/daily-status', {
+            params: { date: dateStr }
+        });
+        
+        const dailyStatus = {
+            ...dailyStatusResponse.data,
+            currentDate: dateStr,
+            reason: createReasonMap(
+                dailyStatusResponse.data.stateReason,
+                dailyStatusResponse.data.holidayData,
+                dailyStatusResponse.data.isWalkingBusDay,
+                dailyStatusResponse.data
+            ),
+            reason_type: dailyStatusResponse.data.stateReason
+        };
+
+        await renderFullView(
+            window.appState.stations,
+            dailyStatus,
+            window.appState.weekOverview
+        );
+
+    } catch (error) {
+        console.error('[SELECT_DAY] Error:', error);
+        showErrorMessage('Fehler beim Laden der Daten');
+    } finally {
+        // Cleanup loading state
+        loadingOverlay.remove();
+        allWrappers.forEach(wrapper => {
+            wrapper.style.pointerEvents = 'auto';
+        });
+        isSelectionInProgress = false;
+    }
+}
+
+
+
+
+function setupLoadingState(dateStr) {
+    // Disable day wrapper interactions
+    const allWrappers = document.querySelectorAll('.calendar-day-wrapper');
+    allWrappers.forEach(wrapper => {
+        wrapper.style.pointerEvents = 'none';
+        wrapper.classList.remove('selected-day');
+    });
+
+    // Create loading overlay
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.classList.add('loading-overlay');
+    loadingOverlay.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Lade Daten...</span>
+        </div>
+    `;
+    document.body.appendChild(loadingOverlay);
+
+    // Update selected day visual
+    const selectedDay = document.querySelector(`[data-date="${dateStr}"]`);
+    if (selectedDay) {
+        selectedDay.closest('.calendar-day-wrapper').classList.add('selected-day');
+    }
+
+    return { allWrappers, loadingOverlay };
+}
+
+
+function updateHeaderAndAlerts(dailyStatus) {
+    const summaryHeader = document.querySelector('.summary-header h5 span:first-child');
+    if (summaryHeader) {
+        summaryHeader.textContent = formatServerDate(new Date(dailyStatus.currentDate));
+    }
+    updateAlerts(dailyStatus.isWalkingBusDay, dailyStatus);
+}
+
+function cleanupLoadingState({ allWrappers, loadingOverlay }) {
+    allWrappers.forEach(wrapper => {
+        wrapper.style.pointerEvents = 'auto';
+    });
+    loadingOverlay.remove();
+    isSelectionInProgress = false;
+}
+
+
+async function openCalendar(participantId) {
+    console.log('[CALENDAR] Opening calendar for participant:', participantId);
+    currentParticipantId = participantId;
+    const modal = document.getElementById('calendarModal');
+
+    // Get participant name from DOM
+    const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+    const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
+
+    // Show modal immediately with loading state
+    modal.style.display = 'block';
+    const modalContent = modal.querySelector('.modal-content');
+    modalContent.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+            <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
+            <h4 class="mb-0 ms-3">${participantName}</h4>
+        </div>
+        <div id="calendar" class="position-relative">
+            <div class="d-flex justify-content-center align-items-center p-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Lade Kalender...</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    try {
+        // Fetch calendar data in background
+        const response = await axios.get(`/api/calendar-data/${participantId}`);
+        const calendarData = response.data;
+        
+        // Replace loading spinner with calendar content
+        await renderCalendar(calendarData);
+        
+        console.log('[CALENDAR] Calendar loaded successfully');
+    } catch (error) {
+        console.error('[CALENDAR] Error loading calendar:', error);
+        // Show error state in modal
+        document.getElementById('calendar').innerHTML = `
+            <div class="alert alert-danger m-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Fehler beim Laden der Kalenderdaten
+            </div>
+        `;
+    }
+}
+
+
+
+function updateStationStats(stationId) {
+    const stationElement = document.querySelector(`[data-station-id="${stationId}"]`);
+    if (!stationElement) return;
+
+    // Get all participants in this station
+    const participants = stationElement.querySelectorAll('.participant-item');
+    const totalParticipants = participants.length;
+    const activeParticipants = Array.from(participants)
+        .filter(p => p.classList.contains('participant-status-active')).length;
+
+    // Update station stats
+    const statsElement = document.getElementById(`stats-station-${stationId}`);
+    if (statsElement) {
+        statsElement.textContent = `${activeParticipants} / ${totalParticipants}`;
+    }
+
+    // Update total stats
+    updateTotalStats();
+}
+
+
+function updateTotalStats() {
+    const allParticipants = document.querySelectorAll('.participant-item');
+    const totalParticipants = allParticipants.length;
+    const activeParticipants = Array.from(allParticipants)
+        .filter(p => p.classList.contains('participant-status-active')).length;
+
+    const totalStats = document.getElementById('stats-total');
+    if (totalStats) {
+        totalStats.textContent = `${activeParticipants} / ${totalParticipants}`;
+    }
+}
+
+
+async function TEST_toggleParticipation(participantId, button) {
+    if (button.querySelector('.fa-spinner')) return;
+    
+    const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+    
+    try {
+        const response = await axios.patch(`/api/participation/${participantId}`, {
+            date: selectedDate
+        });
+
+        if (response.data && response.status === 200) {
+            // Get fresh daily status
+            const dailyStatusResponse = await axios.get('/api/daily-status', {
+                params: { date: selectedDate }
+            });
+            
+            // Update UI with new status
+            updateAllParticipantStates(dailyStatusResponse.data);
+            
+            // Trigger SSE update
+            await axios.post('/api/trigger-update', { date: selectedDate });
+            await render_WeekOverview(selectedDate);
+        }
+    } catch (error) {
+        console.error('[TOGGLE] Error:', error);
+        showErrorMessage('Änderung konnte nicht gespeichert werden');
+    }
+}
+
+
+async function toggleParticipation(participantId, button) {
+    const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+    const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+    const stationId = participantItem.closest('[data-station-id]').dataset.stationId;
+
+    if (participantItem.dataset.updating === 'true') {
+        return;
+    }
+    participantItem.dataset.updating = 'true';
+    
+    const wasActive = participantItem.classList.contains('participant-status-active');
+    const newStatus = !wasActive;
+    const originalButtonContent = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+    const icon = participantItem.querySelector('.traffic-light');
+    const originalIconClass = icon.className;
+    
+    try {
+        // Immediately update visual state
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
+        
+        // Start animation
+        await animateStatusChange(participantItem, newStatus);
+        
+        // Update button appearance
+        button.className = `btn btn-sm rounded-pill status-button ${newStatus ? 'btn-outline-success' : 'btn-outline-danger'}`;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin fa-sm"></i>';
+        
+        const response = await axios.patch(`/api/participation/${participantId}`, {
+            date: selectedDate
+        }, {
+            timeout: 4000
+        });
+
+        if (response.data && response.status === 200) {
+            // Update button content after success
+            button.innerHTML = newStatus ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+            
+            const dailyStatusResponse = await axios.get('/api/daily-status', {
+                params: { date: selectedDate }
+            });
+            
+            updateStationStats(stationId);
+            updateTotalStats();
+            
+            await axios.post('/api/trigger-update', {
+               type: 'PARTICIPANT_STATUS',
+                date: selectedDate
+            });
+        }
+    } catch (error) {
+        console.error('[TOGGLE] Error:', error);
+        
+        // Restore original button content
+        button.innerHTML = originalButtonContent;
+        button.className = `btn btn-sm rounded-pill status-button ${wasActive ? 'btn-outline-success' : 'btn-outline-danger'}`;
+        
+        // Revert visual state
+        icon.className = originalIconClass;
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
+        
+        // Show error indicators
+        const warningIcon = document.createElement('i');
+        warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+        warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+        button.parentElement.insertBefore(warningIcon, button.parentElement.firstChild);
+
+        showErrorMessage('Änderung konnte nicht gespeichert werden');
+        setTimeout(() => warningIcon.remove(), 5000);
+    } finally {
+        participantItem.dataset.updating = 'false';
+    }
+}
+
+
+
+
+async function ALT_toggleParticipation(participantId, button) {
+    if (button.querySelector('.fa-spinner')) return;
+    
+    console.log('[TOGGLE] Starting toggle for participant:', participantId);
+
+    const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
+    const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+    
+    // Store current state for potential rollback
+    const currentState = {
+        status: participantItem.classList.contains('participant-status-active'),
+        buttonContent: button.innerHTML,
+        buttonClasses: [...button.classList]
+    };
+
+    // Show loading state
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    const originalButtonContent = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
+
+    try {
+        const response = await axios.patch(`/api/participation/${participantId}`, {
+            date: selectedDate
+        }, {
+            timeout: 4000
+        });
+
+        if (response.data && response.status === 200) {
+            // Get updated daily status
+            const dailyStatusResponse = await axios.get('/api/daily-status', {
+                params: { date: selectedDate }
+            });
+            
+            // Update UI using our new status functions
+            updateAllParticipantStates(dailyStatusResponse.data);
+            
+            // Trigger SSE update for other clients
+            await axios.post('/api/trigger-update', { date: selectedDate });
+            
+            // Update week overview
+            await render_WeekOverview(selectedDate);
+        }
+    } catch (error) {
+        console.error('[TOGGLE] Error:', error);
+        
+        // Restore original button content
+        button.innerHTML = originalButtonContent;
+        button.className = `btn btn-sm rounded-pill status-button ${wasActive ? 'btn-outline-success' : 'btn-outline-danger'}`;
+        
+        // Revert visual state
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
+        
+        // Show error indicators
+        const warningIcon = document.createElement('i');
+        warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+        warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+        button.parentElement.insertBefore(warningIcon, button.parentElement.firstChild);
+
+        showErrorMessage('Änderung konnte nicht gespeichert werden');
+        setTimeout(() => warningIcon.remove(), 5000);
+    }
+}
+
+
+async function animateStatusChange(element, newStatus) {
+    return new Promise(resolve => {
+        const animationClass = newStatus ? 'inactive-to-active' : 'active-to-inactive';
+        const icon = element.querySelector('.traffic-light');
+        
+        // Update icon immediately with animation
+        icon.className = `fas traffic-light ${
+            newStatus ? 'fa-walking icon-active' : 'fa-person icon-inactive'
+        }`;
+
+        element.addEventListener('animationend', () => {
+            element.classList.remove(animationClass);
+            resolve();
+        }, {once: true});
+        
+        element.classList.add(animationClass);
+    });
+}
+
+
+async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus) {
+    console.log('[RENDER] Starting with daily status:', dailyStatus);
+    const stationsContainer = document.getElementById('stations');
+    stationsContainer.innerHTML = '';
+
+    // 1. Initial Rendering
+    const summaryCard = render_summaryCard(dailyStatus);
+    stationsContainer.appendChild(summaryCard);
+
+    const alertsContainer = render_alertsContainer(dailyStatus);
+    stationsContainer.appendChild(alertsContainer);
+
+    stations.forEach(station => {
+        const stationCard = render_stationCard(station, dailyStatus);
+        stationsContainer.appendChild(stationCard);
+    });
+
+    // 2. Post-Render Updates
+    // Update all participant states based on current daily status
+    updateAllParticipantStates(dailyStatus);
+    
+    // Update time indicators for each station
+    updateTimeIcons(dailyStatus);
+    
+    // Update header information and alert messages
+    updateHeaderAndAlerts(dailyStatus);
+    
+    // 3. Initial Week Overview
+    await render_WeekOverview(dailyStatus.currentDate);
+    
+    // 4. Update Statistics
+    stations.forEach(station => {
+        updateStationStats(station.id);
+    });
+    updateTotalStats();
+
+    console.log('[RENDER] Complete station render and updates finished');
+}
+
+
+function render_summaryCard(dailyStatus) {
+    const card = document.createElement('div');
+    card.classList.add('station-card');
+    card.id = 'summary-card';
+
+    const header = document.createElement('div');
+    header.classList.add('station-header', 'summary-header');
+    header.innerHTML = `
+        <h5 class="d-flex justify-content-between align-items-center mb-0">
+            <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
+            <span class="badge bg-light text-dark" id="stats-total"></span>
+        </h5>
+    `;
+
+    const weekContainer = document.createElement('div');
+    weekContainer.classList.add('week-container', 'list-group', 'list-group-flush', 'participants-list');
+
+    card.appendChild(header);
+    card.appendChild(weekContainer);
+    return card;
+}
+
+
+function render_alertsContainer(dailyStatus) {
+    const container = document.createElement('div');
+    container.id = 'alerts-container';
+    container.innerHTML = `
+        <div id="connection-alert" class="alert alert-danger d-none" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            Die Verbindung zum Server wurde unterbrochen.
+        </div>
+        <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-info-circle me-2"></i>
+                <span id="walkingbus-reason"></span>
+            </div>
+        </div>
+        <div id="note-alert" class="alert alert-warning d-none" role="alert">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-sticky-note me-2"></i>
+                <span id="walkingbus-note"></span>
+            </div>
+        </div>
+    `;
+    return container;
+}
+
+
+function render_stationCard(station, dailyStatus) {
+    const isTimePassedForToday = isCurrentDay(dailyStatus.currentDate) &&
+                                dailyStatus.schedule?.end &&
+                                checkTimePassed(dailyStatus.schedule.end);
+                                
+    const effectiveWalkingBusDay = dailyStatus.isWalkingBusDay && !isTimePassedForToday;
+    
+    const card = document.createElement('div');
+    card.classList.add('station-card');
+    card.dataset.stationId = station.id;
+
+    // Station Header
+    const header = render_stationHeader(station);
+    card.appendChild(header);
+
+    // Participants List
+    const participantsList = document.createElement('ul');
+    participantsList.classList.add('list-group', 'list-group-flush', 'participants-list');
+    participantsList.dataset.stationId = station.id;
+
+    station.participants.forEach(participant => {
+        const participantElement = render_participantItem(participant, dailyStatus, isTimePassedForToday);
+        participantsList.appendChild(participantElement);
+    });
+
+    card.appendChild(participantsList);
+    return card;
+}
+
+
+
+function render_stationHeader(station) {
+    const header = document.createElement('div');
+    header.classList.add('station-header');
+    header.innerHTML = `
+        <h5 class="d-flex justify-content-between align-items-center mb-0">
+            <span class="station-title">
+                <i class="fas fa-bus-simple me-2"></i>
+                ${station.name}
+            </span>
+            <div class="d-flex align-items-center gap-2">
+                ${station.arrival_time ? `
+                    <span class="badge bg-light text-dark time-badge" data-station-id="${station.id}">
+                        <i class="fas fa-clock"></i>
+                        <span class="ms-1">${station.arrival_time}</span>
+                    </span>
+                ` : ''}
+                <span class="badge bg-light text-dark" id="stats-station-${station.id}">0 / 0</span>
+            </div>
+        </h5>
+    `;
+    return header;
+}
+
+
+function render_participantItem(participant, dailyStatus) {
+    const item = document.createElement('li');
+    item.classList.add(
+        'list-group-item',
+        'py-1',
+        'd-flex',
+        'justify-content-between',
+        'align-items-center',
+        'participant-item'
+    );
+    item.dataset.participantId = participant.id;
+
+    // Name with icon
+    const nameSpan = document.createElement('span');
+    nameSpan.classList.add('text-truncate', 'me-2', 'participant-name');
+    
+    const icon = document.createElement('i');
+    icon.classList.add('fas', 'traffic-light');
+    nameSpan.appendChild(icon);
+    nameSpan.appendChild(document.createTextNode(participant.name));
+
+    // Buttons container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.classList.add('d-flex', 'align-items-center');
+
+    // Status button
+    const statusButton = document.createElement('button');
+    statusButton.classList.add('btn', 'btn-sm', 'rounded-pill', 'status-button');
+    statusButton.onclick = (e) => {
+        e.preventDefault();
+        toggleParticipation(participant.id, statusButton);
+    };
+
+    // Calendar button
+    const calendarButton = document.createElement('button');
+    calendarButton.classList.add('calendar-btn');
+    calendarButton.innerHTML = '<i class="fas fa-calendar-alt"></i>';
+    calendarButton.onclick = (e) => {
+        e.stopPropagation();
+        openCalendar(participant.id);
+    };
+
+    buttonContainer.appendChild(statusButton);
+    buttonContainer.appendChild(calendarButton);
+
+    item.appendChild(nameSpan);
+    item.appendChild(buttonContainer);
+
+    // Apply initial status
+    const state = calculateParticipantStatusState(participant.id, dailyStatus);
+    updateParticipantStatusUI(item, state);
+
+    return item;
+}
+
+
+function render_WeekOverview(weekData, selectedDate) {
+    // Create main week element
+    const weekElement = document.createElement('div');
+    weekElement.className = 'week d-flex justify-content-between';
+    
+    // Ensure valid selectedDate
+    const currentSelectedDate = selectedDate || new Date().toISOString().split('T')[0];
+
+    // Render each day
+    weekData.forEach(dayData => {
+        const dayElement = render_WeekDay(dayData, currentSelectedDate);
+        weekElement.appendChild(dayElement);
+    });
+
+    // Add click handling
+    weekElement.addEventListener('click', render_handleDayClick);
+    
+    // Return the DOM node instead of handling insertion
+    return weekElement;
+}
+
+function render_WeekContainer() {
+    const weekElement = document.createElement('div');
+    weekElement.className = 'week d-flex justify-content-between';
+    return weekElement;
+}
+
+function render_WeekDay(dayData, selectedDate) {
+    const wrapper = document.createElement('div');
+    wrapper.className = `calendar-day-wrapper ${dayData.date === selectedDate ? 'selected-day' : ''}`;
+
+    const dayElement = document.createElement('div');
+    dayElement.className = 'calendar-day';
+    dayElement.dataset.date = dayData.date;
+    
+    // Apply status classes
+    render_applyDayStatus(dayElement, dayData);
+    
+    // Add indicators if needed
+    render_addDayIndicators(dayElement, dayData);
+    
+    // Add day label
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'day-label';
+    labelDiv.textContent = render_getDayLabel(dayData.date);
+    dayElement.appendChild(labelDiv);
+
+    wrapper.appendChild(dayElement);
+    return wrapper;
+}
+
+function render_applyDayStatus(dayElement, dayData) {
+    const baseClasses = ['calendar-day'];
+    
+    // Map state to visual class
+    const stateClassMap = {
+        [WALKING_BUS_STATES.SCHEDULED]: 'day-green',
+        [WALKING_BUS_STATES.HOLIDAY]: 'day-gray',
+        [WALKING_BUS_STATES.OVERRIDE]: 'day-red',
+        [WALKING_BUS_STATES.TIME_PASSED]: 'day-gray'
+    };
+    
+    // Determine current state
+    let currentState;
+    if (dayData.is_today && dayData.reason_type === 'TIME_PASSED') {
+        currentState = WALKING_BUS_STATES.TIME_PASSED;
+    } else if (dayData.reason_type === 'HOLIDAY') {
+        currentState = WALKING_BUS_STATES.HOLIDAY;
+    } else if (dayData.reason_type === 'MANUAL_OVERRIDE') {
+        currentState = WALKING_BUS_STATES.OVERRIDE;
+    } else if (dayData.is_active) {
+        currentState = WALKING_BUS_STATES.SCHEDULED;
+    } else {
+        currentState = WALKING_BUS_STATES.HOLIDAY; // Default to holiday style for inactive days
+    }
+    
+    // Apply state class
+    baseClasses.push(stateClassMap[currentState]);
+    
+    // Add today marker if applicable
+    if (dayData.is_today) {
+        baseClasses.push('day-today');
+    }
+    
+    dayElement.className = baseClasses.join(' ');
+}
+
+function render_addDayIndicators(dayElement, dayData) {
+    if (dayData.has_override || dayData.reason_type === 'HOLIDAY') {
+        const overrideIcon = document.createElement('i');
+        overrideIcon.className = 'fa-solid fa-triangle-exclamation override-icon';
+        dayElement.appendChild(overrideIcon);
+    }
+    
+    if (dayData.has_note) {
+        const noteIcon = document.createElement('i');
+        noteIcon.className = 'fa-solid fa-circle-info note-icon';
+        dayElement.appendChild(noteIcon);
+    }
+}
+
+function render_getDayLabel(dateStr) {
+    const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+    const date = new Date(dateStr);
+    return days[date.getDay()];
+}
+
+function render_handleDayClick(event) {
+    if (isSelectionInProgress) return;
+    
+    const wrapper = event.target.closest('.calendar-day-wrapper');
+    if (!wrapper) return;
+    
+    const dateStr = wrapper.querySelector('.calendar-day').dataset.date;
+    selectDay(dateStr);
+}
+
+
+
+    async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus) {
+    console.log('[RENDER] Starting with daily status:', dailyStatus);
+    const stationsContainer = document.getElementById('stations');
+    stationsContainer.innerHTML = '';
+
+    // Create and append station cards
+    stations.forEach(station => {
+        const stationCard = document.createElement('div');
+        stationCard.classList.add('station-card');
+        stationCard.dataset.stationId = station.id;
+
+        // Create participants list
+        const participantsList = document.createElement('ul');
+        participantsList.classList.add('list-group', 'list-group-flush', 'participants-list');
+
+        station.participants.forEach(participant => {
+            // Use participantStates for status
+            const status = dailyStatus.participantStates[participant.id];
+            console.log(`[RENDER] Participant ${participant.id} status:`, status);
+            
+            const participantElement = createParticipantElement(
+                participant, 
+                status, 
+                dailyStatus
+            );
+            participantsList.appendChild(participantElement);
+        });
+
+        stationCard.appendChild(participantsList);
+        stationsContainer.appendChild(stationCard);
+    });
+}
+
+// 2. Update createParticipantElement function
+function ALT_createParticipantElement(participant, status, dailyStatus) {
+    const element = document.createElement('li');
+    element.dataset.participantId = participant.id;
+    
+    const state = calculateParticipantStatusState(participant.id, dailyStatus);
+    updateParticipantStatusUI(element, state);
+    
+    return element;
+}
+
+
+
+
+async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus, selectedDate = null) {
         console.log('Daily Status:', dailyStatus);
         console.log('Time Passed:', dailyStatus.reason_type === "TIME_PASSED");
         // Check if time has passed
@@ -1181,12 +1743,483 @@
 
             stationDiv.appendChild(list);
             stationsContainer.appendChild(stationDiv);
+            // Update time icons
+            updateTimeIcons(dailyStatus);
+            // Update Station Stats
+            stations.forEach(station => {
+                updateStationStats(station.id);
+            });
         }
     }
 
 
+function formatServerDate(date) {
+    const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+    const dayName = days[date.getDay()];
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    
+    return `${dayName}, ${day}.${month}.${year}`;
+}
 
-    function createAlertsContainer(isWalkingBusDay, dailyStatus) {
+
+function createStationHeader(station, isWalkingBusDay) {
+            return `
+            <div class="station-header">
+                <h5 class="d-flex justify-content-between align-items-center mb-0">
+                    <span class="station-title">
+                        <i class="fas fa-bus-simple me-2"></i>
+                        ${station.name}
+                    </span>
+                    <div class="d-flex align-items-center gap-2">
+                        ${station.arrival_time ? 
+                            `<span class="badge bg-light text-dark time-badge" data-station-id="${station.id}">
+                                <i class="fas fa-clock"></i>
+                                <span class="ms-1">${station.arrival_time}</span>
+                            </span>`
+                            : ''}
+                        <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                            ${getStationStats(station)}
+                        </span>
+                    </div>
+                </h5>
+            </div>`;
+    }
+
+function getStationStats(station) {
+    const totalParticipants = station.participants.length;
+    const confirmedParticipants = isWalkingBusDay ? 
+        station.participants.filter(p => p.today_status).length : 0;
+    return `${confirmedParticipants} / ${totalParticipants}`;
+}
+
+async function createParticipantItem(participant, isWalkingBusDay) {
+    const item = document.createElement('li');
+    item.classList.add(
+        'list-group-item',
+        'py-1',
+        'd-flex',
+        'justify-content-between',
+        'align-items-center',
+        'participant-item'
+    );
+    
+    if (isWalkingBusDay) {
+        item.classList.add(participant.status ? 'participant-status-active' : 'participant-status-inactive');
+    } else {
+        item.classList.add('participant-status-disabled');
+    }
+    
+    item.dataset.participantId = participant.id;
+    return item;
+}
+
+
+function createNameSpan(participant, isWalkingBusDay) {
+    const nameSpan = document.createElement('span');
+    nameSpan.classList.add('text-truncate', 'me-2', 'participant-name');
+
+    const iconContainer = document.createElement('span');
+    iconContainer.classList.add('icon-container');
+
+    const currentIcon = document.createElement('i');
+    currentIcon.classList.add('fas', 'traffic-light', 'current-icon');
+
+    const nextIcon = document.createElement('i');
+    nextIcon.classList.add('fas', 'traffic-light', 'next-icon');
+
+    if (!isWalkingBusDay) {
+        currentIcon.classList.add('fa-person', 'icon-disabled');
+        nextIcon.classList.add('fa-person', 'icon-disabled');
+    } else {
+        currentIcon.classList.add(
+            participant.status ? 'fa-walking' : 'fa-person',
+            participant.status ? 'icon-active' : 'icon-inactive'
+        );
+        nextIcon.classList.add(
+            participant.status ? 'fa-person' : 'fa-walking',
+            participant.status ? 'icon-inactive' : 'icon-active'
+        );
+    }
+
+    iconContainer.appendChild(currentIcon);
+    iconContainer.appendChild(nextIcon);
+    nameSpan.appendChild(iconContainer);
+    nameSpan.appendChild(document.createTextNode(participant.name));
+    return nameSpan;
+}
+
+function createStatusButton(participant, isWalkingBusDay) {
+    const button = document.createElement('button');
+    button.classList.add(
+        'btn', 
+        'btn-sm', 
+        'rounded-pill', 
+        'status-button',
+        'touch-target'
+    );
+
+    button.onclick = (e) => {
+        e.preventDefault();
+        toggleParticipation(participant.id, button);
+    };
+
+    if (!isWalkingBusDay) {
+        button.classList.add('btn-outline-secondary', 'status-button-disabled');
+        button.innerHTML = '<i class="fas fa-times"></i>';
+        button.disabled = true;
+    } else {
+        // Use the status field from our API response
+        button.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
+        button.innerHTML = participant.status ? 
+            '<i class="fas fa-check"></i>' : 
+            '<i class="fas fa-times"></i>';
+    }
+
+    return button;
+}
+
+
+function updateTimeIcons(dailyStatus) {
+    const now = new Date();
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Force comparison with actual today's date, regardless of selection
+    const isToday = dailyStatus.currentDate === today;
+
+    document.querySelectorAll('.time-badge').forEach(badge => {
+        const timeText = badge.querySelector('span').textContent;
+        const [hours, minutes] = timeText.split(':');
+        const arrivalTime = parseInt(hours) * 60 + parseInt(minutes);
+        const icon = badge.querySelector('i');
+
+        // Only show walking animation if it's actually today
+        if (isToday && dailyStatus.schedule?.end) {
+            const [endHours, endMinutes] = dailyStatus.schedule.end.split(':');
+            const scheduleEnd = parseInt(endHours) * 60 + parseInt(endMinutes);
+
+            if (currentTime > arrivalTime && currentTime < scheduleEnd) {
+                icon.className = 'fas fa-person-walking fa-beat-fade';
+            } else {
+                icon.className = 'fas fa-clock';
+            }
+        } else {
+            icon.className = 'fas fa-clock';
+        }
+    });
+}
+
+
+
+async function renderCalendar(calendarData) {
+    console.log('[CALENDAR] Starting calendar render');
+    
+    // Parallel API calls for better performance
+    const [selectedDateStatus, todayStatus] = await Promise.all([
+        axios.post('/api/initialize-daily-status', {
+            date: document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0]
+        }),
+        axios.post('/api/initialize-daily-status', {
+            date: new Date().toISOString().split('T')[0]
+        })
+    ]);
+
+    if (!calendarData?.length) {
+        console.error('[CALENDAR] No calendar data available');
+        return;
+    }
+
+    const calendar = document.getElementById('calendar');
+    calendar.innerHTML = '';
+
+    // Pre-calculate frequently used values
+    const today = new Date().toISOString().split('T')[0];
+    const currentTime = new Date();
+    currentTime.setHours(0, 0, 0, 0);
+
+    // Build calendar structure
+    calendar_renderHeader(calendar);
+    
+    const calendarBounds = calendar_calculateBounds(calendarData[0].date);
+    
+    calendar_renderContent(calendar, calendarBounds, {
+        calendarData,
+        todayStatus: todayStatus.data,
+        currentTime,
+        today,
+        currentParticipantId
+    });
+}
+
+function calendar_renderHeader(calendar) {
+    const weekdayHeader = document.createElement('div');
+    weekdayHeader.className = 'week';
+    
+    ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].forEach(day => {
+        const dayHeader = document.createElement('div');
+        dayHeader.className = 'calendar-day-header';
+        dayHeader.textContent = day;
+        weekdayHeader.appendChild(dayHeader);
+    });
+    
+    calendar.appendChild(weekdayHeader);
+}
+
+function calendar_calculateBounds(firstDate) {
+    const startOfWeek = new Date(firstDate);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
+    return startOfWeek;
+}
+
+function calendar_renderContent(calendar, startOfWeek, config) {
+    const { calendarData, todayStatus, currentTime, today, currentParticipantId } = config;
+
+    for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
+        const weekDiv = document.createElement('div');
+        weekDiv.className = 'week';
+        
+        calendar_renderWeek(weekDiv, weekIndex, startOfWeek, config);
+        calendar.appendChild(weekDiv);
+    }
+}
+
+function calendar_renderWeek(weekDiv, weekIndex, startOfWeek, config) {
+    const { calendarData, todayStatus, currentTime, today, currentParticipantId } = config;
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const currentDate = new Date(startOfWeek);
+        currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
+        const dateStr = currentDate.toISOString().split('T')[0];
+
+        const dayDiv = calendar_createDayElement(
+            dateStr,
+            currentDate,
+            calendarData,
+            todayStatus,
+            currentParticipantId
+        );
+
+        weekDiv.appendChild(dayDiv);
+    }
+}
+
+function calendar_createDayElement(dateStr, currentDate, calendarData, todayStatus, currentParticipantId) {
+    const dayDiv = document.createElement('div');
+    dayDiv.className = 'calendar-day';
+    dayDiv.textContent = currentDate.getDate();
+
+    const dayData = calendarData.find(d => d.date === dateStr) || {
+        date: dateStr,
+        status: false,
+        is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
+        is_past: currentDate < new Date(new Date().setHours(0,0,0,0)),
+        is_today: dateStr === todayStatus.currentDate
+    };
+
+    calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentParticipantId);
+    return dayDiv;
+}
+
+function calendar_applyDayStyles(dayDiv, dayData, dateStr, todayStatus, currentParticipantId) {
+    const isToday = dateStr === todayStatus.currentDate;
+    const shouldDisableDay = !dayData.is_schedule_day || 
+                           dayData.is_past || 
+                           (isToday && todayStatus.reason_type === "TIME_PASSED");
+
+    if (shouldDisableDay) {
+        dayDiv.classList.add('day-gray');
+    } else {
+        dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
+        dayDiv.onclick = () => toggleParticipationCalendar(currentParticipantId, dateStr, dayDiv);
+    }
+
+    if (dayData.is_today) {
+        dayDiv.classList.add('day-today');
+    }
+}
+
+
+async function toggleParticipationCalendar(participantId, dateString, dayDiv, selectedDate) {
+    console.log('[CALENDAR_TOGGLE] Starting toggle for date:', dateString);
+    
+    if (dayDiv.querySelector('.fa-spinner')) return;
+
+    const wasGreen = dayDiv.classList.contains('day-green');
+    const originalContent = dayDiv.textContent;
+    const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
+
+    calendar_updateDayVisualState(dayDiv, !wasGreen, true);
+
+    try {
+        // Get daily status for the currently displayed date
+        const [statusResponse, calendarResponse] = await Promise.all([
+            axios.post('/api/initialize-daily-status', {
+                date: currentlyDisplayedDate
+            }),
+            axios.post('/api/calendar-status', {
+                participant_id: participantId,
+                date: dateString,
+                status: !wasGreen
+            }, {
+                timeout: 4000
+            })
+        ]);
+
+        if (calendarResponse.data && calendarResponse.status === 200) {
+            dayDiv.textContent = originalContent;
+
+            // Update participant state in our central map
+            const participantData = window.appState.participants.get(participantId);
+            if (participantData) {
+                participantData.state = !wasGreen ? 
+                    PARTICIPANT_STATES.ACTIVE : 
+                    PARTICIPANT_STATES.INACTIVE;
+            }
+
+            // Trigger update for all clients
+            await axios.post('/api/trigger-update', {
+               type: 'PARTICIPANT_STATUS',
+                date: dateString
+            });
+            
+            // Update main view if needed
+            if (dateString === currentlyDisplayedDate) {
+                const dailyStatus = {
+                    ...statusResponse.data,
+                    participantStates: {
+                        ...statusResponse.data.participantStates,
+                        [participantId]: !wasGreen
+                    }
+                };
+
+                // Update all participant states based on new status
+                // updateAllParticipantStates(dailyStatus);
+                
+                // Update statistics
+                const stationId = window.appState.participants.get(participantId).stationId;
+                updateStationStats(stationId);
+                updateTotalStats();
+            }
+            
+            // Update week overview with current date
+            // await render_WeekOverview(currentlyDisplayedDate);
+        }
+
+    } catch (error) {
+        console.error('[CALENDAR_TOGGLE] Error:', error);
+        calendar_handleToggleError(dayDiv, wasGreen, originalContent);
+    }
+}
+
+
+
+function calendar_updateDayVisualState(dayDiv, isActive, isLoading = false) {
+    dayDiv.classList.remove('day-green', 'day-red', 'gray');
+    dayDiv.classList.add(isActive ? 'day-green' : 'day-red');
+    
+    if (isLoading) {
+        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    }
+}
+
+function calendar_handleToggleError(dayDiv, wasGreen, originalContent) {
+    calendar_updateDayVisualState(dayDiv, wasGreen);
+    dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
+
+    const errorAlert = document.createElement('div');
+    errorAlert.classList.add(
+        'alert', 'alert-danger', 'position-fixed',
+        'bottom-0', 'start-50', 'translate-middle-x',
+        'm-3', 'z-index-top'
+    );
+    errorAlert.innerHTML = `
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        Änderung konnte nicht gespeichert werden
+    `;
+    document.body.appendChild(errorAlert);
+
+    setTimeout(() => {
+        dayDiv.textContent = originalContent;
+        errorAlert.remove();
+    }, 5000);
+}
+
+
+async function ALT_renderWeekOverview(selectedDate = null) {
+        const response = await axios.get('/api/week-overview');
+        const weekData = response.data;
+        
+        const weekOverview = document.createElement('div');
+        weekOverview.className = 'week d-flex justify-content-between';
+            
+        // Ensure we have a valid selectedDate
+        if (!selectedDate) {
+            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
+                || new Date().toISOString().split('T')[0];
+        }
+        
+        weekOverview.innerHTML = weekData.map(day => `
+            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
+                <div class="calendar-day ${getWeekDayClass(day)}"
+                     data-date="${day.date}">
+                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
+                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
+                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
+                    <div class="day-label">${getDayLabel(day.date)}</div>
+                </div>
+            </div>
+        `).join('');
+
+        
+        // Add click handler to the wrapper instead of the day
+        weekOverview.addEventListener('click', (e) => {
+            const wrapperElement = e.target.closest('.calendar-day-wrapper');
+            if (wrapperElement && !isSelectionInProgress) {
+                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
+                selectDay(dateStr);
+            }
+        });
+        
+        const weekContainer = document.querySelector('.week-container');
+        if (weekContainer) {
+            weekContainer.innerHTML = '';
+            weekContainer.appendChild(weekOverview);
+        }
+    }
+
+function getWeekDayClass(day) {
+    const classes = [];
+    
+    // First determine background color
+    if (day.is_today && day.reason_type === 'TIME_PASSED') {
+        classes.push('day-gray');
+    } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+        classes.push('day-red');
+    } else if (!day.is_schedule_day || !day.is_active) {
+        classes.push('day-gray');
+    } else {
+        classes.push('day-green');
+    }
+    
+    // Add today marker if applicable
+    if (day.is_today) {
+        classes.push('day-today');
+    }
+    
+    return classes.join(' ');
+}
+
+
+function getDayLabel(dateStr) {
+    const days = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+    const date = new Date(dateStr);
+    return days[date.getDay()];
+}
+
+
+function createAlertsContainer(isWalkingBusDay, dailyStatus) {
         const alertsContainer = document.createElement('div');
         alertsContainer.id = 'alerts-container';
         alertsContainer.innerHTML = `
@@ -1211,114 +2244,40 @@
         return alertsContainer;
     }
 
-    // Helper function for alerts update
-    function updateAlerts(isWalkingBusDay, dailyStatus) {
-        const walkingbusAlert = document.getElementById('walkingbus-alert');
-        const walkingbusReason = document.getElementById('walkingbus-reason');
-        const noteAlert = document.getElementById('note-alert');
-        const walkingbusNote = document.getElementById('walkingbus-note');
+// Helper function for alerts update
+function updateAlerts(isWalkingBusDay, dailyStatus) {
+    const walkingbusAlert = document.getElementById('walkingbus-alert');
+    const walkingbusReason = document.getElementById('walkingbus-reason');
+    const noteAlert = document.getElementById('note-alert');
+    const walkingbusNote = document.getElementById('walkingbus-note');
 
-        if (walkingbusAlert && walkingbusReason) {
-            walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-            if (!isWalkingBusDay && dailyStatus.reason) {
+    const currentDay = isCurrentDay(dailyStatus.currentDate);
+    const timePassed = checkTimePassed(dailyStatus.schedule?.end);
+    const effectiveWalkingBusDay = isWalkingBusDay && !(timePassed && currentDay);
+
+    if (walkingbusAlert && walkingbusReason) {
+        walkingbusAlert.classList.toggle('d-none', effectiveWalkingBusDay);
+        
+        if (!effectiveWalkingBusDay) {
+            if (isWalkingBusDay && currentDay && timePassed) {
+                walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
+            } else if (dailyStatus.reason) {
                 walkingbusReason.textContent = dailyStatus.reason;
             }
         }
+    }
 
-        if (noteAlert && walkingbusNote) {
-            const hasNote = dailyStatus.note && dailyStatus.note.trim() !== '';
-            noteAlert.classList.toggle('d-none', !hasNote);
-            if (hasNote) {
-                walkingbusNote.textContent = dailyStatus.note;
-            }
+    if (noteAlert && walkingbusNote) {
+        const hasNote = dailyStatus.note && dailyStatus.note.trim() !== '';
+        noteAlert.classList.toggle('d-none', !hasNote);
+        if (hasNote) {
+            walkingbusNote.textContent = dailyStatus.note;
         }
     }
+}
 
 
-    function formatServerDate(date) {
-        const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
-        const dayName = days[date.getDay()];
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        
-        return `${dayName}, ${day}.${month}.${year}`;
-    }
-
-    function createStationHeader(station, isWalkingBusDay) {
-            return `
-            <div class="station-header">
-                <h5 class="d-flex justify-content-between align-items-center mb-0">
-                    <span class="station-title">
-                        <i class="fas fa-bus-simple me-2"></i>
-                        ${station.name}
-                    </span>
-                    <div class="d-flex align-items-center gap-2">
-                        ${station.arrival_time ? 
-                            `<span class="badge bg-light text-dark time-badge" data-station-id="${station.id}">
-                                <i class="fas fa-clock"></i>
-                                <span class="ms-1">${station.arrival_time}</span>
-                            </span>`
-                            : ''}
-                        <span class="badge bg-light text-dark" id="stats-station-${station.id}">
-                            ${getStationStats(station)}
-                        </span>
-                    </div>
-                </h5>
-            </div>`;
-    }
-
-    function updateTimeIcons(dailyStatus) {
-        const now = new Date();
-        const currentTime = now.getHours() * 60 + now.getMinutes();
-        const today = new Date().toISOString().split('T')[0];
-        const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
-        
-        document.querySelectorAll('.time-badge').forEach(badge => {
-            const timeText = badge.querySelector('span').textContent;
-            const [hours, minutes] = timeText.split(':');
-            const arrivalTime = parseInt(hours) * 60 + parseInt(minutes);
-            
-            const icon = badge.querySelector('i');
-            
-            if (selectedDate === today && dailyStatus.schedule?.end) {
-                const [endHours, endMinutes] = dailyStatus.schedule.end.split(':');
-                const scheduleEnd = parseInt(endHours) * 60 + parseInt(endMinutes);
-                
-                if (currentTime > arrivalTime && currentTime < scheduleEnd) {
-                    icon.className = 'fas fa-person-walking fa-beat-fade';
-                } else {
-                    icon.className = 'fas fa-clock';
-                }
-            } else {
-                icon.className = 'fas fa-clock';
-            }
-        });
-    }
-
-
-    async function createParticipantItem(participant, isWalkingBusDay) {
-        const item = document.createElement('li');
-        item.classList.add(
-            'list-group-item',
-            'py-1',
-            'd-flex',
-            'justify-content-between',
-            'align-items-center',
-            'participant-item'
-        );
-        
-        if (isWalkingBusDay) {
-            item.classList.add(participant.status ? 'participant-status-active' : 'participant-status-inactive');
-        } else {
-            item.classList.add('participant-status-disabled');
-        }
-        
-        item.dataset.participantId = participant.id;
-        return item;
-    }
-
-    function initializeSizeControls() {
+function initializeSizeControls() {
         const slider = document.getElementById('fontSizeSlider');
         const stationsContainer = document.getElementById('stations');
         const COMPACT_THRESHOLD = 1.05; // Threshold for switching to compact view
@@ -1359,464 +2318,152 @@
     }
 
 
-    function initializeViewToggle() {
-        const viewToggle = document.getElementById('viewToggle');
-        const stationsContainer = document.getElementById('stations');
+function initializeViewToggle() {
+    const viewToggle = document.getElementById('viewToggle');
+    const stationsContainer = document.getElementById('stations');
+    
+    // Load saved preference
+    const isCompactView = localStorage.getItem('compactView') === 'true';
+    if (isCompactView) {
+        stationsContainer.classList.add('compact-view');
+        viewToggle.innerHTML = '<i class="fas fa-expand"></i>';
+    }
+    
+    viewToggle.addEventListener('click', () => {
+        stationsContainer.classList.toggle('compact-view');
+        const isNowCompact = stationsContainer.classList.contains('compact-view');
         
-        // Load saved preference
-        const isCompactView = localStorage.getItem('compactView') === 'true';
-        if (isCompactView) {
-            stationsContainer.classList.add('compact-view');
-            viewToggle.innerHTML = '<i class="fas fa-expand"></i>';
-        }
-        
-        viewToggle.addEventListener('click', () => {
-            stationsContainer.classList.toggle('compact-view');
-            const isNowCompact = stationsContainer.classList.contains('compact-view');
+        // Update button icon
+        viewToggle.innerHTML = isNowCompact ? 
+            '<i class="fas fa-expand"></i>' : 
+            '<i class="fas fa-compress"></i>';
             
-            // Update button icon
-            viewToggle.innerHTML = isNowCompact ? 
-                '<i class="fas fa-expand"></i>' : 
-                '<i class="fas fa-compress"></i>';
-                
-            // Save preference
-            localStorage.setItem('compactView', isNowCompact);
-        });
-    }
+        // Save preference
+        localStorage.setItem('compactView', isNowCompact);
+    });
+}
 
 
-    function createNameSpan(participant, isWalkingBusDay) {
-        const nameSpan = document.createElement('span');
-        nameSpan.classList.add('text-truncate', 'me-2', 'participant-name');
+function initializeSSE() {
+    console.log('[SSE] Initializing server connection');
+    globalEventSource = new EventSource('/stream');
+    
+    globalEventSource.onopen = function() {
+        console.log('[SSE] Connection established');
+        SSE_updateConnectionStatus('connected');
+    };
+    
+    globalEventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        console.log('[SSE] Received update:', data);
 
-        const iconContainer = document.createElement('span');
-        iconContainer.classList.add('icon-container');
-
-        const currentIcon = document.createElement('i');
-        currentIcon.classList.add('fas', 'traffic-light', 'current-icon');
-
-        const nextIcon = document.createElement('i');
-        nextIcon.classList.add('fas', 'traffic-light', 'next-icon');
-
-        if (!isWalkingBusDay) {
-            currentIcon.classList.add('fa-person', 'icon-disabled');
-            nextIcon.classList.add('fa-person', 'icon-disabled');
-        } else {
-            currentIcon.classList.add(
-                participant.status ? 'fa-walking' : 'fa-person',
-                participant.status ? 'icon-active' : 'icon-inactive'
-            );
-            nextIcon.classList.add(
-                participant.status ? 'fa-person' : 'fa-walking',
-                participant.status ? 'icon-inactive' : 'icon-active'
-            );
+        switch(data.type) {
+            case 'status_change':
+                SSE_handleStatusUpdate(data);
+                break;
+            case 'time_update':
+                SSE_updateTimeDisplay(data.time);
+                break;
         }
+    };
+    
+    globalEventSource.onerror = SSE_handleError;
+}
 
-        iconContainer.appendChild(currentIcon);
-        iconContainer.appendChild(nextIcon);
-        nameSpan.appendChild(iconContainer);
-        nameSpan.appendChild(document.createTextNode(participant.name));
-        return nameSpan;
+// Visibility change handler
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        console.log('[SSE] Page hidden, closing connection');
+        if (globalEventSource) {
+            globalEventSource.close();
+        }
+    } else {
+        console.log('[SSE] Page visible, reinitializing connection');
+        initializeSSE();
     }
+});
 
-    function createStatusButton(participant, isWalkingBusDay) {
-        const button = document.createElement('button');
-        button.classList.add(
-            'btn', 
-            'btn-sm', 
-            'rounded-pill', 
-            'status-button',
-            'touch-target'
-        );
 
-        button.onclick = (e) => {
-            e.preventDefault();
-            toggleParticipation(participant.id, button);
+function SSE_handleStatusUpdate(data) {
+    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+    
+    // Only proceed if we're viewing the date that was updated
+    if (selectedDate === data.date) {
+        const participantStates = {};
+        data.stations.forEach(station => {
+            station.participants.forEach(participant => {
+                participantStates[participant.id] = participant.status;
+            });
+        });
+
+        const dailyStatus = {
+            currentDate: data.date,
+            participantStates: participantStates,
+            schedule: data.schedule,
+            isWalkingBusDay: data.isWalkingBusDay
         };
 
-        if (!isWalkingBusDay) {
-            button.classList.add('btn-outline-secondary', 'status-button-disabled');
-            button.innerHTML = '<i class="fas fa-times"></i>';
-            button.disabled = true;
-        } else {
-            // Use the status field from our API response
-            button.classList.add(participant.status ? 'btn-outline-success' : 'btn-outline-danger');
-            button.innerHTML = participant.status ? 
-                '<i class="fas fa-check"></i>' : 
-                '<i class="fas fa-times"></i>';
-        }
-
-        return button;
-    }
-
-
-    function getStationStats(station) {
-        const totalParticipants = station.participants.length;
-        const confirmedParticipants = isWalkingBusDay ? 
-            station.participants.filter(p => p.today_status).length : 0;
-        return `${confirmedParticipants} / ${totalParticipants}`;
-    }
-
-    function updateStationStats(stationId) {
-        fetchWithAuth(`/api/stations/${stationId}/stats`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                // Update individual station stats
-                const statsElement = document.getElementById(`stats-station-${stationId}`);
-                if (statsElement) {
-                    statsElement.textContent = `${data.active} / ${data.total}`;
-                }
-                
-                // Update total stats
-                return fetchWithAuth('/api/stations/stats/total');
-            })
-            .then(response => response.json())
-            .then(totalData => {
-                const totalStats = document.getElementById('stats-total');
-                if (totalStats) {
-                    totalStats.textContent = `${totalData.active} / ${totalData.total}`;
-                }
-            })
-            .catch(error => {
-                console.error('Stats update failed:', error);
-                // Optionally update UI to show error state
-            });
-    }
-
-    async function toggleParticipation(participantId, button) {
-        // Prevent multiple clicks while request is pending
-        if (button.querySelector('.fa-spinner')) {
-            return;
-        }
-
-        // Get DOM elements and current states
-        const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-        const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
-        const wasActive = participantItem.classList.contains('participant-status-active');
-        const newStatus = !wasActive;
-        const originalButtonContent = button.innerHTML;
-
-        // Immediate UI updates
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-        participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
-        await animateStatusChange(participantItem, newStatus);
-
-        // Update icon
-        const icon = participantItem.querySelector('.traffic-light.current-icon');
-        icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-        icon.classList.add(
-            newStatus ? 'fa-walking' : 'fa-person',
-            newStatus ? 'icon-active' : 'icon-inactive'
-        );
-
-        // Show spinner
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-        try {
-            const response = await axios.patch(`/api/participation/${participantId}`, {
-                date: selectedDate
-            }, {
-                timeout: 2000
-            });
-
-            if (response.data && response.status === 200) {
-                // Success: Update button state
-                button.classList.remove('btn-outline-success', 'btn-outline-danger');
-                button.classList.add(newStatus ? 'btn-outline-success' : 'btn-outline-danger');
-                button.innerHTML = newStatus ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
-                await renderWeekOverview(selectedDate);
-            }
-        } catch (error) {
-            // Revert all UI changes
-            participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-            participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
-
-            icon.classList.remove('fa-walking', 'fa-person', 'icon-active', 'icon-inactive');
-            icon.classList.add(
-                wasActive ? 'fa-walking' : 'fa-person',
-                wasActive ? 'icon-active' : 'icon-inactive'
-            );
-
-            button.classList.remove('btn-outline-success', 'btn-outline-danger');
-            button.classList.add(wasActive ? 'btn-outline-success' : 'btn-outline-danger');
-            button.innerHTML = originalButtonContent;
-
-            // Show warnings
-            const warningIcon = document.createElement('i');
-            warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
-            warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-            
-            const buttonContainer = button.parentElement;
-            buttonContainer.insertBefore(warningIcon, buttonContainer.firstChild);
-
-            const errorAlert = document.createElement('div');
-            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-            errorAlert.innerHTML = `
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Änderung konnte nicht gespeichert werden
-            `;
-            document.body.appendChild(errorAlert);
-
-            // Remove error indicators after 5 seconds
-            setTimeout(() => {
-                warningIcon.remove();
-                errorAlert.remove();
-            }, 5000);
-        }
-    }
-
-
-    async function openCalendar(participantId) {
-        currentParticipantId = participantId;
-        const modal = document.getElementById('calendarModal');
-
-        // Get participant name directly using the participant ID
-       const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-       const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
-
-        const modalContent = modal.querySelector('.modal-content');
-        modalContent.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
-                <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
-                <h4 class="mb-0 ms-3">${participantName}</h4>
-            </div>
-            <div id="calendar"></div>
-        `;
-
-        try {
-            // Try online first
-            const response = await fetchWithAuth(`/api/calendar-data/${participantId}`);
-            if (response.ok) {
-                const calendarData = await response.json();
-                // Store in IndexedDB for offline use
-                const db = await dbPromise;
-                const tx = db.transaction('calendarData', 'readwrite');
-                const store = tx.objectStore('calendarData');
-                
-                for (const day of calendarData) {
-                    await store.put({
-                        participantId,
-                        date: day.date,
-                        status: day.status,
-                        is_schedule_day: day.is_schedule_day,
-                        is_past: day.is_past,
-                        is_today: day.is_today
-                    });
-                }
-                await renderCalendar(calendarData);
-            } else {
-                throw new Error('Network response was not ok');
-            }
-           } catch (error) {
-               // Offline path - enhance data transformation
-               const db = await dbPromise;
-               const tx = db.transaction('calendarData', 'readonly');
-               const store = tx.objectStore('calendarData');
-               const range = IDBKeyRange.bound([participantId, ""], [participantId, "\uffff"]);
-               
-               const offlineData = await new Promise((resolve, reject) => {
-                   const request = store.getAll(range);
-                   request.onsuccess = () => resolve(request.result);
-                   request.onerror = () => reject(request.error);
-               });
-
-               // Get current participant's status for today
-               const participantItem = document.querySelector(`.participant-item[data-participant-id="${participantId}"]`);
-               const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
-               const today = new Date().toISOString().split('T')[0];
-
-               // Transform offline data with special handling for today
-               const transformedData = offlineData.map(item => {
-                   const isToday = item.date === today;
-                   return {
-                       date: item.date,
-                       // Use current status for today, stored status for other days
-                       status: isToday ? currentStatus : item.status,
-                       // Ensure weekdays (including today) are always schedule days
-                       is_schedule_day: new Date(item.date).getDay() !== 0 && new Date(item.date).getDay() !== 6,
-                       is_past: new Date(item.date) < new Date(),
-                       is_today: isToday
-                   };
-               });
-
-               await renderCalendar(transformedData);
-           }
-
-        modal.style.display = 'block';
-    }
-
-
-
-    async function initializeDailyStatus() {
-        try {
-            const response = await axios.post('/api/initialize-daily-status');
-            return response.data.currentDate;
-        } catch (error) {
-            console.error('Error initializing daily status:', error);
-        }
-    }
-
-    async function renderCalendar(calendarData) {
-         // Get current selected date or use today's date
-        const selectedDate = document.querySelector('.selected-day')?.dataset.date || new Date().toISOString().split('T')[0];
-        // Get daily status from server
-        const todayStatusResponse = await axios.post('/api/initialize-daily-status', {
-            date: new Date().toISOString().split('T')[0]  // Always check current day
+        updateAllParticipantStates(dailyStatus);
+        document.querySelectorAll('[data-station-id]').forEach(station => {
+            updateStationStats(station.dataset.stationId);
         });
-        const todayStatus = todayStatusResponse.data;
+        updateTotalStats();
+    }
+}
+
+
+
+function SSE_handleError() {
+    console.log('[SSE] Connection error');
+    SSE_updateConnectionStatus('disconnected');
+    
+    const connectionAlert = document.getElementById('connection-alert');
+    if (connectionAlert) {
+        connectionAlert.classList.remove('d-none');
+    }
+}
+
+function SSE_updateConnectionStatus(status) {
+    const indicator = document.querySelector('.connection-indicator');
+    const connectionAlert = document.getElementById('connection-alert');
+    
+    if (indicator) {
+        indicator.classList.remove('connected', 'disconnected');
+        indicator.classList.add(status);
         
-        if (!calendarData || !calendarData.length) {
-            console.error('No calendar data available');
-            return;
-        }
-        
-        const calendar = document.getElementById('calendar');
-        calendar.innerHTML = '';
-
-        // Create weekday header row
-        const weekdayHeader = document.createElement('div');
-        weekdayHeader.className = 'week';
-        const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-        
-        weekdays.forEach(day => {
-            const dayHeader = document.createElement('div');
-            dayHeader.className = 'calendar-day-header';
-            dayHeader.textContent = day;
-            weekdayHeader.appendChild(dayHeader);
-        });
-        calendar.appendChild(weekdayHeader);
-
-        // Get current participant's status
-        const participantItem = document.querySelector(`.participant-item[data-participant-id="${currentParticipantId}"]`);
-        const currentStatus = participantItem?.classList.contains('participant-status-active') || false;
-
-        // Set up calendar grid starting point
-        const firstDate = new Date(calendarData[0].date);
-        const startOfWeek = new Date(firstDate);
-        startOfWeek.setDate(firstDate.getDate() - firstDate.getDay() + 1);
-
-        // Generate calendar weeks
-        for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
-            const weekDiv = document.createElement('div');
-            weekDiv.className = 'week';
-
-            // Generate days within each week
-            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-                const currentDate = new Date(startOfWeek);
-                currentDate.setDate(startOfWeek.getDate() + (weekIndex * 7) + dayIndex);
-                const dateStr = currentDate.toISOString().split('T')[0];
-
-                const dayDiv = document.createElement('div');
-                dayDiv.className = 'calendar-day';
-                dayDiv.textContent = currentDate.getDate();
-
-                // Combine server data with local date checks
-                const dayData = calendarData.find(d => d.date === dateStr) || {
-                    date: dateStr,
-                    status: false,
-                    is_schedule_day: currentDate.getDay() !== 0 && currentDate.getDay() !== 6,
-                    is_past: currentDate < new Date(new Date().setHours(0,0,0,0)),
-                    is_today: dateStr === dailyStatus.currentDate
-                };
-
-                // Determine day state using combined logic
-                const isToday = dateStr === todayStatus.currentDate;
-                const shouldDisableDay = 
-                    !dayData.is_schedule_day || 
-                    dayData.is_past || 
-                    (isToday && todayStatus.reason_type === "TIME_PASSED");
-
-                if (shouldDisableDay) {
-                    dayDiv.classList.add('day-gray');
-                } else {
-                    dayDiv.classList.add(dayData.status ? 'day-green' : 'day-red');
-                    dayDiv.onclick = () => CalendarToggleDayStatus(currentParticipantId, dateStr, dayDiv);
-                }
-
-                // Mark today's date
-                if (dayData.is_today) {
-                    dayDiv.classList.add('day-today');
-                }
-
-                weekDiv.appendChild(dayDiv);
-            }
-            calendar.appendChild(weekDiv);
+        if (status === 'connected' && connectionAlert) {
+            connectionAlert.classList.add('d-none');
         }
     }
-
-    async function CalendarToggleDayStatus(participantId, dateString, dayDiv) {
-        // Prevent multiple clicks while request is pending
-        if (dayDiv.querySelector('.fa-spinner')) {
-            return;
-        }
-
-        // Store initial state
-        const wasGreen = dayDiv.classList.contains('day-green');
-        const originalContent = dayDiv.textContent;
-        const currentlyDisplayedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
-
-        // Show spinner and update visual state immediately
-        dayDiv.classList.remove('day-green', 'day-red', 'gray');
-        dayDiv.classList.add(wasGreen ? 'day-red' : 'day-green');
-        dayDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-        try {
-            const response = await axios.post('/api/calendar-status', {
-                participant_id: participantId,
-                date: dateString,
-                status: !wasGreen
-            }, {
-                timeout: 2000 // Request times out after 2 seconds
-            });
-
-            // Success: Update UI with confirmation
-            dayDiv.textContent = originalContent;
-            
-            // Refresh week overview and stations if needed
-            await renderWeekOverview(currentlyDisplayedDate);
-            if (dateString === currentlyDisplayedDate) {
-                await loadStations(null, dateString);
-            }
-
-        } catch (error) {
-            // Error: Revert to original state and show error
-            dayDiv.classList.remove('day-green', 'day-red', 'gray');
-            dayDiv.classList.add(wasGreen ? 'day-green' : 'day-red');
-            dayDiv.innerHTML = '<i class="fas fa-exclamation-triangle warning-icon"></i>';
-
-            // Show error alert
-            const errorAlert = document.createElement('div');
-            errorAlert.classList.add('alert', 'alert-danger', 'position-fixed', 'bottom-0', 'start-50', 'translate-middle-x', 'm-3', 'z-index-top');
-            errorAlert.innerHTML = `
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Änderung konnte nicht gespeichert werden
-            `;
-            document.body.appendChild(errorAlert);
-
-            // Remove error indicators after 5 seconds
-            setTimeout(() => {
-                dayDiv.textContent = originalContent;
-                errorAlert.remove();
-            }, 5000);
-        }
-    }
+}
 
 
-    async function animateStatusChange(element, newStatus) {
-        return new Promise(resolve => {
-            const animationClass = newStatus ? 'inactive-to-active' : 'active-to-inactive';
-            element.addEventListener('animationend', () => {
-                element.classList.remove(animationClass);
-                resolve();
-            }, {once: true});
-            element.classList.add(animationClass);
-        });
-    }
+function showErrorMessage(message) {
+    const errorAlert = document.createElement('div');
+    errorAlert.classList.add(
+        'alert', 
+        'alert-danger', 
+        'position-fixed', 
+        'bottom-0', 
+        'start-50', 
+        'translate-middle-x', 
+        'm-3', 
+        'z-index-top'
+    );
+    errorAlert.innerHTML = `
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        ${message}
+    `;
+    document.body.appendChild(errorAlert);
+    
+    setTimeout(() => errorAlert.remove(), 5000);
+}
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+
 
 
     function updateWeekOverviewNumbers(weekData, selectedDate) {
@@ -1856,7 +2503,7 @@
     let isReconnecting = false;
 
     // Modify initializeSSE to handle mobile focus better
-    async function initializeSSE() {
+    async function ALT_initializeSSE() {
         console.log('Starting SSE connection...');
         
         if (globalEventSource) {

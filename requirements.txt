@@ -8,3 +8,4 @@ gevent
 requests
 PyJWT
 qrcode[pil]
+redis

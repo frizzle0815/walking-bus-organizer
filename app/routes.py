@@ -28,6 +28,7 @@ import json
 import time
 from os import environ
 from .init_buses import init_walking_buses
+from . import redis_client
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -125,6 +126,131 @@ def revoke_auth_token(token_id):
         db.session.commit()
         return jsonify({"success": True})
     return jsonify({"error": "Token not found"}), 404
+
+########################################
+########################################
+
+
+@bp.route("/api/initial-load")
+@require_auth
+def get_initial_load():
+    """
+    Initial load provides only structural data: stations and their participants
+    """
+    try:
+        walking_bus_id = get_current_walking_bus_id()
+        app.logger.info("[INITIAL_LOAD] Starting initial data load")
+
+        # Get stations with participants
+        stations_data = get_stations_data(walking_bus_id)
+        app.logger.info("[INITIAL_LOAD] Stations data loaded")
+
+        response_data = {
+            "stations": stations_data
+        }
+
+        app.logger.info("[INITIAL_LOAD] Data compilation complete")
+        return jsonify(response_data)
+
+    except Exception as e:
+        app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+def get_stations_data(walking_bus_id):
+    """Helper function to get stations with participants"""
+    stations = (Station.query
+               .filter_by(walking_bus_id=walking_bus_id)
+               .order_by(Station.position)
+               .all())
+
+    return [{
+        "id": station.id,
+        "name": station.name,
+        "position": station.position,
+        "arrival_time": station.arrival_time.strftime("%H:%M") if station.arrival_time else None,
+        "participants": [{
+            "id": p.id,
+            "name": p.name
+        } for p in station.participants]
+    } for station in stations]
+
+
+
+
+def get_week_overview_data(walking_bus_id):
+    """Helper function to get week overview"""
+    today = get_current_date()
+    week_data = []
+    
+    for i in range(6):
+        current_date = today + timedelta(days=i)
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date,
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        
+        week_data.append({
+            'date': current_date.isoformat(),
+            'is_active': is_active,
+            'reason': reason,
+            'reason_type': reason_type,
+            'total_confirmed': calculate_total_confirmed(walking_bus_id, current_date, is_active)
+        })
+    
+    return week_data
+
+
+def calculate_total_confirmed(walking_bus_id, target_date, is_active):
+    """
+    Calculate total confirmed participants for a specific date
+    Args:
+        walking_bus_id: ID of the walking bus
+        target_date: Date to check
+        is_active: Whether walking bus operates on this date
+    Returns:
+        int: Number of confirmed participants
+    """
+    if not is_active:
+        return 0
+        
+    # Get all participants with stations
+    participants = Participant.query.filter(
+        Participant.walking_bus_id == walking_bus_id,
+        Participant.station_id.isnot(None)
+    ).all()
+    
+    # Get calendar entries for this date
+    calendar_entries = CalendarStatus.query.filter_by(
+        walking_bus_id=walking_bus_id,
+        date=target_date
+    ).all()
+    
+    # Create lookup dictionary for quick access
+    calendar_lookup = {entry.participant_id: entry.status for entry in calendar_entries}
+    
+    # Count confirmed participants
+    total_confirmed = 0
+    weekday = WEEKDAY_MAPPING[target_date.weekday()]
+    
+    for participant in participants:
+        # Check calendar override first, then default weekday setting
+        if participant.id in calendar_lookup:
+            if calendar_lookup[participant.id]:
+                total_confirmed += 1
+        elif getattr(participant, weekday, True):
+            total_confirmed += 1
+            
+    app.logger.debug(f"[TOTAL_CONFIRMED] Date: {target_date}, Active: {is_active}, Count: {total_confirmed}")
+    return total_confirmed
+
+
+
+########################################
+########################################
+
+
 
 
 # Station Routes
@@ -580,6 +706,94 @@ def get_participant_weekday_status(participant_id, weekday):
     
     status = getattr(participant, weekday, True)
     return jsonify({"status": status})
+
+#################################
+#################################
+
+@bp.route("/api/daily-status", methods=["GET", "POST"])
+@require_auth
+def get_daily_status():
+    walking_bus_id = get_current_walking_bus_id()
+
+    # Handle both GET and POST parameters
+    if request.method == "POST":
+        data = request.get_json()
+        date_str = data.get('date')
+    else:
+        date_str = request.args.get('date')
+        
+    target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else get_current_date()
+
+    # Get schedule information
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    weekday = WEEKDAY_MAPPING[target_date.weekday()]
+    
+    schedule_data = None
+    if schedule:
+        start_time = getattr(schedule, f"{weekday}_start", None)
+        end_time = getattr(schedule, f"{weekday}_end", None)
+        schedule_data = {
+            "start": start_time.strftime("%H:%M") if start_time else None,
+            "end": end_time.strftime("%H:%M") if end_time else None
+        }
+
+    # Get walking bus status with reason
+    is_active, reason, reason_type = check_walking_bus_day(
+        target_date,
+        include_reason=True,
+        walking_bus_id=walking_bus_id
+    )
+
+    # Get holiday information
+    holiday = SchoolHoliday.query.filter(
+        SchoolHoliday.start_date <= target_date,
+        SchoolHoliday.end_date >= target_date
+    ).first()
+
+    holiday_data = {
+        "name": holiday.name,
+        "start_date": holiday.start_date.isoformat(),
+        "end_date": holiday.end_date.isoformat()
+    } if holiday else None
+
+    # Get daily note
+    daily_note = DailyNote.query.filter_by(
+        date=target_date,
+        walking_bus_id=walking_bus_id
+    ).first()
+
+    # Get participant states for this date
+    participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
+    participant_states = {}
+    
+    for participant in participants:
+        calendar_entry = CalendarStatus.query.filter_by(
+            participant_id=participant.id,
+            date=target_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        participant_states[participant.id] = calendar_entry.status if calendar_entry else getattr(
+            participant,
+            weekday,
+            True
+        )
+
+    return jsonify({
+        "currentDate": target_date.isoformat(),
+        "isWalkingBusDay": is_active,
+        "stateReason": reason_type,
+        "reason": reason,
+        "holidayData": holiday_data,
+        "note": daily_note.note if daily_note else None,
+        "schedule": schedule_data,
+        "participantStates": participant_states
+    })
+
+
+#####################################################
+######################################################
+
 
 
 # Schedule and Calendar Routes
@@ -1062,6 +1276,9 @@ def get_calendar_data(participant_id):
         return jsonify({'error': str(e)}), 500
 
 
+
+
+
 @bp.route("/api/update-future-entries", methods=["PUT"])
 @require_auth
 def update_future_entries():
@@ -1122,8 +1339,121 @@ def update_future_entries():
     return jsonify({"success": True})
 
 
+@bp.route('/api/trigger-update', methods=['POST'])
+@require_auth
+def trigger_update():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    # Convert string date to datetime object
+    if data and 'date' in data:
+        update_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+    else:
+        update_date = get_current_date()
+
+    # Get walking bus status with reason
+    is_active, reason, reason_type = check_walking_bus_day(
+        update_date,
+        include_reason=True,
+        walking_bus_id=walking_bus_id
+    )
+    
+    current_status = get_current_status(walking_bus_id, update_date)
+    
+    status_data = {
+        "type": "status_change",
+        "date": update_date.isoformat(),
+        "stations": current_status['stations'],
+        "isWalkingBusDay": is_active,
+        "reason": reason,
+        "reason_type": reason_type
+    }
+    
+    app.logger.info(f"[TRIGGER] Publishing status update for date: {update_date}")
+    app.logger.debug(f"[TRIGGER] Status data: {status_data}")
+    
+    redis_client.publish('status_updates', json.dumps(status_data))
+    app.logger.info("[TRIGGER] Status update published to Redis")
+    
+    return jsonify({"success": True})
+
+
+def get_current_status(walking_bus_id, target_date):
+    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    stations_data = []
+    for station in stations:
+        participants_data = []
+        for p in station.participants:
+            calendar_entry = CalendarStatus.query.filter_by(
+                participant_id=p.id,
+                date=target_date,
+                walking_bus_id=walking_bus_id
+            ).first()
+            
+            status = calendar_entry.status if calendar_entry else getattr(
+                p, 
+                WEEKDAY_MAPPING[target_date.weekday()], 
+                True
+            )
+            
+            participants_data.append({
+                "id": p.id,
+                "status": status,
+                "date": target_date.isoformat()
+            })
+        
+        stations_data.append({
+            "id": station.id,
+            "participants": participants_data
+        })
+
+    return {
+        "date": target_date.isoformat(),
+        "stations": stations_data
+    }
+
+
 @bp.route('/stream')
 def stream():
+    def event_stream():
+        pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
+        pubsub.subscribe('status_updates')
+        last_time = None
+        
+        while True:
+            try:
+                # Time updates (check current minute)
+                current_time = get_current_time().strftime("%H:%M")
+                if current_time != last_time:
+                    yield f"data: {json.dumps({'type': 'time_update', 'time': current_time})}\n\n"
+                    last_time = current_time
+
+                # Get Redis messages - this is blocking until message arrives
+                message = pubsub.get_message(timeout=60.0)  # Block until message or next minute
+                if message and message['type'] == 'message':
+                    yield f"data: {message['data'].decode()}\n\n"
+
+            except Exception as e:
+                app.logger.error(f"[STREAM] Error: {e}")
+                yield "event: error\ndata: Connection error\n\n"
+                break
+
+        pubsub.unsubscribe()
+        pubsub.close()
+
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        }
+    )
+
+
+@bp.route('/ALT_stream')
+def ALT_stream():
     def event_stream():
         retry_count = 0
         max_retries = 3
