@@ -637,6 +637,19 @@ const REASON_TYPES = {
     NO_SCHEDULE: 'NO_SCHEDULE'
 };
 
+
+const isCurrentDay = (dateStr) => dateStr === new Date().toISOString().split('T')[0];
+
+const checkTimePassed = (endTime) => {
+    if (!endTime) return false;
+    const [hours, minutes] = endTime.split(':').map(Number);
+    const endDateTime = new Date();
+    endDateTime.setHours(hours, minutes, 0);
+    return new Date() > endDateTime;
+};
+
+
+
 function createParticipantMap(stations) {
     const map = new Map();
     stations.forEach(station => {
@@ -653,10 +666,6 @@ function createParticipantMap(stations) {
 }
 
 function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData) {
-    if (scheduleData?.end && isTimePassed(scheduleData.end)) {
-        return 'Der Walking Bus hat heute bereits stattgefunden.';
-    }
-
     if (stateReason === REASON_TYPES.HOLIDAY && holidayData) {
         return `Heute sind ${holidayData.name}`;
     }
@@ -812,18 +821,18 @@ function calculateParticipantStatusState(participantId, dailyStatus) {
         return PARTICIPANT_STATES.DISABLED;
     }
 
-    const participantState = dailyStatus.participantStates[participantId];
-    //console.log('[STATUS][CALC] Participant state:', participantState);
-
     if (!dailyStatus.isWalkingBusDay) {
         //console.log('[STATUS][CALC] Not a walking bus day');
         return PARTICIPANT_STATES.DISABLED;
     }
 
-    if (isCurrentDay(dailyStatus.currentDate) && 
-        dailyStatus.schedule?.end && 
-        isTimePassed(dailyStatus.schedule.end)) {
-        //console.log('[STATUS][CALC] Time passed for today');
+    const participantState = dailyStatus.participantStates[participantId];
+    const currentDay = isCurrentDay(dailyStatus.currentDate);
+    const timePassed = checkTimePassed(dailyStatus.schedule?.end);
+    const effectiveWalkingBusDay = dailyStatus.isWalkingBusDay && !(timePassed && currentDay);
+
+    // Check if walking bus is effectively active
+    if (!effectiveWalkingBusDay) {
         return PARTICIPANT_STATES.DISABLED;
     }
 
@@ -832,26 +841,6 @@ function calculateParticipantStatusState(participantId, dailyStatus) {
     return finalState;
 }
 
-
-function isTimePassed(endTime) {
-    if (!endTime) return false;
-    
-    //console.log('[TIME] Checking if time has passed:', endTime);
-    
-    // Parse the end time (format: "HH:MM")
-    const [hours, minutes] = endTime.split(':').map(Number);
-    const endDateTime = new Date();
-    endDateTime.setHours(hours, minutes, 0);
-    
-    const currentTime = new Date();
-    const result = currentTime > endDateTime;
-    
-    //console.log('[TIME] Current time:', currentTime);
-    //console.log('[TIME] End time:', endDateTime);
-    //console.log('[TIME] Has passed:', result);
-    
-    return result;
-}
 
 
 // UI Updates für einzelnen Participant
@@ -1395,9 +1384,12 @@ function render_alertsContainer(dailyStatus) {
 
 
 function render_stationCard(station, dailyStatus) {
-    const isTimePassedForToday = isCurrentDay(dailyStatus.currentDate) && 
-                                dailyStatus.schedule?.end && 
-                                isTimePassed(dailyStatus.schedule.end);
+    const isTimePassedForToday = isCurrentDay(dailyStatus.currentDate) &&
+                                dailyStatus.schedule?.end &&
+                                checkTimePassed(dailyStatus.schedule.end);
+                                
+    const effectiveWalkingBusDay = dailyStatus.isWalkingBusDay && !isTimePassedForToday;
+    
     const card = document.createElement('div');
     card.classList.add('station-card');
     card.dataset.stationId = station.id;
@@ -1419,6 +1411,7 @@ function render_stationCard(station, dailyStatus) {
     card.appendChild(participantsList);
     return card;
 }
+
 
 
 function render_stationHeader(station) {
@@ -2258,16 +2251,17 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
     const noteAlert = document.getElementById('note-alert');
     const walkingbusNote = document.getElementById('walkingbus-note');
 
+    const currentDay = isCurrentDay(dailyStatus.currentDate);
+    const timePassed = checkTimePassed(dailyStatus.schedule?.end);
+    const effectiveWalkingBusDay = isWalkingBusDay && !(timePassed && currentDay);
+
     if (walkingbusAlert && walkingbusReason) {
-        // First check if this is a scheduled Walking Bus day
-        if (isWalkingBusDay && isCurrentDay(dailyStatus.currentDate) && 
-            dailyStatus.schedule?.end && isTimePassed(dailyStatus.schedule.end)) {
-            // Show "already happened" only on Walking Bus days
-            walkingbusAlert.classList.remove('d-none');
-            walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
-        } else {
-            walkingbusAlert.classList.toggle('d-none', isWalkingBusDay);
-            if (!isWalkingBusDay && dailyStatus.reason) {
+        walkingbusAlert.classList.toggle('d-none', effectiveWalkingBusDay);
+        
+        if (!effectiveWalkingBusDay) {
+            if (isWalkingBusDay && currentDay && timePassed) {
+                walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
+            } else if (dailyStatus.reason) {
                 walkingbusReason.textContent = dailyStatus.reason;
             }
         }
