@@ -1040,32 +1040,44 @@ async function openCalendar(participantId) {
     const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
     const participantName = participantItem.querySelector('.text-truncate').textContent.trim();
 
-    // Set up modal content
+    // Show modal immediately with loading state
+    modal.style.display = 'block';
     const modalContent = modal.querySelector('.modal-content');
     modalContent.innerHTML = `
         <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
             <span class="close" onclick="document.getElementById('calendarModal').style.display='none'">×</span>
             <h4 class="mb-0 ms-3">${participantName}</h4>
         </div>
-        <div id="calendar"></div>
+        <div id="calendar" class="position-relative">
+            <div class="d-flex justify-content-center align-items-center p-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Lade Kalender...</span>
+                </div>
+            </div>
+        </div>
     `;
 
     try {
-        // Direct API call to get calendar data
+        // Fetch calendar data in background
         const response = await axios.get(`/api/calendar-data/${participantId}`);
         const calendarData = response.data;
         
-        // Render calendar with received data
+        // Replace loading spinner with calendar content
         await renderCalendar(calendarData);
         
-        // Show modal
-        modal.style.display = 'block';
-        
-        console.log('[CALENDAR] Calendar opened successfully');
+        console.log('[CALENDAR] Calendar loaded successfully');
     } catch (error) {
-        console.error('[CALENDAR] Error opening calendar:', error);
+        console.error('[CALENDAR] Error loading calendar:', error);
+        // Show error state in modal
+        document.getElementById('calendar').innerHTML = `
+            <div class="alert alert-danger m-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Fehler beim Laden der Kalenderdaten
+            </div>
+        `;
     }
 }
+
 
 
 function updateStationStats(stationId) {
