@@ -665,10 +665,15 @@ function createParticipantMap(stations) {
     return map;
 }
 
-function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData) {
+function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData, reason) {
     if (stateReason === REASON_TYPES.HOLIDAY && holidayData) {
-        return `Heute sind ${holidayData.name}`;
+        return `Heute findet kein Walking Bus statt.<br>${holidayData.name}`;
     }
+
+    if (stateReason === REASON_TYPES.MANUAL_OVERRIDE) {
+        return `Heute findet kein Walking Bus statt.<br>${reason}`;
+    }
+
     const reasonMap = {
         [REASON_TYPES.ACTIVE]: '',
         [REASON_TYPES.HOLIDAY]: 'Es sind Ferien.',
@@ -744,13 +749,23 @@ async function loadInitialData() {
             params: { date: new Date().toISOString().split('T')[0] }
         });
 
+        console.log('[DAILY_STATUS] Full response:', {
+            stateReason: dailyStatusResponse.data.stateReason,
+            reason: dailyStatusResponse.data.reason,
+            holidayData: dailyStatusResponse.data.holidayData,
+            isWalkingBusDay: dailyStatusResponse.data.isWalkingBusDay,
+            schedule: dailyStatusResponse.data.schedule,
+            fullData: dailyStatusResponse.data
+        });
+
         const enhancedDailyStatus = {
             ...dailyStatusResponse.data,
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
                 dailyStatusResponse.data.holidayData,
                 dailyStatusResponse.data.isWalkingBusDay,
-                dailyStatusResponse.data.schedule
+                dailyStatusResponse.data.schedule,
+                dailyStatusResponse.data.reason
             ),
             reason_type: dailyStatusResponse.data.stateReason
         };
@@ -948,7 +963,8 @@ async function selectDay(dateStr) {
                 dailyStatusResponse.data.stateReason,
                 dailyStatusResponse.data.holidayData,
                 dailyStatusResponse.data.isWalkingBusDay,
-                dailyStatusResponse.data
+                dailyStatusResponse.data.schedule,
+                dailyStatusResponse.data.reason
             ),
             reason_type: dailyStatusResponse.data.stateReason
         };
@@ -2260,9 +2276,9 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
         
         if (!effectiveWalkingBusDay) {
             if (isWalkingBusDay && currentDay && timePassed) {
-                walkingbusReason.textContent = 'Der Walking Bus hat heute bereits stattgefunden.';
+                walkingbusReason.innerHTML = createReasonMap(REASON_TYPES.TIME_PASSED);
             } else if (dailyStatus.reason) {
-                walkingbusReason.textContent = dailyStatus.reason;
+                walkingbusReason.innerHTML = dailyStatus.reason;
             }
         }
     }
