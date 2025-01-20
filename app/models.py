@@ -150,3 +150,19 @@ class AuthToken(db.Model):
         self.is_active = False
         self.invalidation_reason = reason
         self.invalidated_at = datetime.now()
+
+
+class Weather(db.Model):
+    __tablename__ = 'weather'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, nullable=False)
+    forecast_type = db.Column(db.String(10), nullable=False)
+    precipitation = db.Column(db.Float, default=0.0)
+    total_precipitation = db.Column(db.Float, nullable=True)
+    pop = db.Column(db.Float, nullable=True)
+    weather_icon = db.Column(db.String(10), nullable=True)
+    created_at = db.Column(db.DateTime, default=get_current_time)
+
+    def __repr__(self):
+        return f'<Weather {self.forecast_type} {self.timestamp}: {self.precipitation if self.forecast_type == "minutely" else self.total_precipitation} mm/h>'
