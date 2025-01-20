@@ -2399,6 +2399,13 @@ function SSE_handleStatusUpdate(data) {
 }
 
 
+function SSE_updateTimeDisplay(time) {
+    const timeElement = document.getElementById('current-time');
+    if (timeElement && time !== timeElement.textContent) {
+        timeElement.textContent = time;
+    }
+}
+
 
 function SSE_handleError() {
     console.log('[SSE] Connection error');
