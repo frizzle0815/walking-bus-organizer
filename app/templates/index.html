@@ -1900,7 +1900,7 @@ function updateTimeIcons(dailyStatus) {
             const [endHours, endMinutes] = dailyStatus.schedule.end.split(':');
             const scheduleEnd = parseInt(endHours) * 60 + parseInt(endMinutes);
 
-            if (currentTime > arrivalTime && currentTime < scheduleEnd) {
+            if (currentTime >= arrivalTime && currentTime < scheduleEnd) {
                 icon.className = 'fas fa-person-walking fa-beat-fade';
             } else {
                 icon.className = 'fas fa-clock';
