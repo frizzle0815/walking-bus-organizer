@@ -2370,19 +2370,6 @@ function initializeSSE() {
     globalEventSource.onerror = SSE_handleError;
 }
 
-// Visibility change handler
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        console.log('[SSE] Page hidden, closing connection');
-        if (globalEventSource) {
-            globalEventSource.close();
-        }
-    } else {
-        console.log('[SSE] Page visible, reinitializing connection');
-        initializeSSE();
-    }
-});
-
 
 function SSE_handleStatusUpdate(data) {
     const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
@@ -2460,13 +2447,54 @@ function showErrorMessage(message) {
 }
 
 
+// Unified visibility and page show handling
+document.addEventListener('visibilitychange', () => {
+    isPageVisible = !document.hidden;
+    
+    if (document.hidden) {
+        console.log('[SSE] Page hidden, closing connection');
+        if (globalEventSource) {
+            globalEventSource.close();
+        }
+    } else {
+        console.log('[SSE] Page visible, performing full reload');
+        
+        // Clear any existing alert
+        const connectionAlert = document.getElementById('connection-alert');
+        connectionAlert.classList.add('d-none');
+        
+        // Perform full initial load
+        loadInitialData().then(() => {
+            console.log('[RELOAD] Initial load complete');
+            initializeSSE();
+        }).catch(error => {
+            console.error('[RELOAD] Error during reload:', error);
+            showErrorMessage('Fehler beim Neuladen der Daten');
+        });
+    }
+});
+
+
+// Keep pageshow handler for browser cache scenarios
+window.addEventListener('pageshow', (event) => {
+    if (event.persisted) {
+        loadInitialData().then(() => {
+            console.log('[PAGESHOW] Initial load complete');
+            initializeSSE();
+        }).catch(error => {
+            console.error('[PAGESHOW] Error during reload:', error);
+            showErrorMessage('Fehler beim Neuladen der Daten');
+        });
+    }
+});
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
 
 
 
-    function updateWeekOverviewNumbers(weekData, selectedDate) {
+    function ALT_updateWeekOverviewNumbers(weekData, selectedDate) {
         weekData.forEach(dayData => {
             const dayElement = document.querySelector(`.calendar-day[data-date="${dayData.date}"]`);
             if (dayElement) {
@@ -2483,7 +2511,7 @@ function showErrorMessage(message) {
         });
     }
 
-    function updateDayStatusClasses(dayElement, dayData) {
+    function ALT_updateDayStatusClasses(dayElement, dayData) {
         dayElement.classList.remove('day-green', 'day-red', 'day-gray');
         
         if (dayData.reason_type === 'TIME_PASSED') {
@@ -2670,43 +2698,8 @@ function showErrorMessage(message) {
     }
 
 
-    // Add visibility change handling for mobile users
-    document.addEventListener('visibilitychange', () => {
-        isPageVisible = !document.hidden;
-        
-        if (!document.hidden) {
-            // Clear any existing alert immediately
-            const connectionAlert = document.getElementById('connection-alert');
-            connectionAlert.classList.add('d-none');
-            
-            // Reset to current date and reload data
-            const today = new Date().toISOString().split('T')[0];
-            selectDay(today);
-            
-            // Reset SSE connection
-            if (eventSource) {
-                eventSource.close();
-            }
-            initializeSSE();
-            
-        }
-    });
 
-    window.addEventListener('pageshow', (event) => {
-        // Check if page is loaded from cache (bfcache)
-        if (event.persisted) {
-            const today = new Date().toISOString().split('T')[0];
-            selectDay(today);
-            
-            if (globalEventSource) {
-                globalEventSource.close();
-            }
-            initializeSSE();
-        }
-    });
-
-
-    function updateConnectionStatus(status) {
+    function ALT_updateConnectionStatus(status) {
         const connectionAlert = document.getElementById('connection-alert');
         const connectionIndicator = document.querySelector('.connection-indicator');
         
