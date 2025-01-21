@@ -3,7 +3,7 @@ from datetime import time as datetime_time
 from flask import (
     Blueprint, render_template, session, jsonify, 
     request, Response, stream_with_context,
-    send_from_directory, current_app as app, 
+    send_from_directory, current_app, 
     redirect, url_for
 )
 from .models import (
@@ -16,6 +16,7 @@ from .models import (
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
+from . import reconfigure_weather_scheduler
 from app import get_git_revision
 from .auth import (
     require_auth, SECRET_KEY, is_ip_allowed, 
@@ -100,20 +101,20 @@ def temp_login_route(token):
 @require_auth
 def delete_temp_token(token):
     try:
-        app.logger.info(f"Attempting to delete token: {token}")
+        current_app.logger.info(f"Attempting to delete token: {token}")
         token_data = TempToken.query.get(token)
         
         if token_data and token_data.walking_bus_id == session['walking_bus_id']:
             db.session.delete(token_data)
             db.session.commit()
-            app.logger.info(f"Token {token} successfully deleted")
+            current_app.logger.info(f"Token {token} successfully deleted")
             return jsonify({"success": True})
         else:
-            app.logger.warning(f"Token {token} not found")
+            current_app.logger.warning(f"Token {token} not found")
             return jsonify({"error": "Token not found"}), 404
             
     except Exception as e:
-        app.logger.error(f"Error deleting token: {str(e)}")
+        current_app.logger.error(f"Error deleting token: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
@@ -151,21 +152,21 @@ def get_initial_load():
     """
     try:
         walking_bus_id = get_current_walking_bus_id()
-        app.logger.info("[INITIAL_LOAD] Starting initial data load")
+        current_app.logger.info("[INITIAL_LOAD] Starting initial data load")
 
         # Get stations with participants
         stations_data = get_stations_data(walking_bus_id)
-        app.logger.info("[INITIAL_LOAD] Stations data loaded")
+        current_app.logger.info("[INITIAL_LOAD] Stations data loaded")
 
         response_data = {
             "stations": stations_data
         }
 
-        app.logger.info("[INITIAL_LOAD] Data compilation complete")
+        current_app.logger.info("[INITIAL_LOAD] Data compilation complete")
         return jsonify(response_data)
 
     except Exception as e:
-        app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
+        current_app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -254,7 +255,7 @@ def calculate_total_confirmed(walking_bus_id, target_date, is_active):
         elif getattr(participant, weekday, True):
             total_confirmed += 1
             
-    app.logger.debug(f"[TOTAL_CONFIRMED] Date: {target_date}, Active: {is_active}, Count: {total_confirmed}")
+    current_app.logger.debug(f"[TOTAL_CONFIRMED] Date: {target_date}, Active: {is_active}, Count: {total_confirmed}")
     return total_confirmed
 
 
@@ -383,7 +384,7 @@ def create_station():
     db.session.add(new_station)
     db.session.commit()
     
-    app.logger.info(f"Neue Haltestelle erstellt: {new_station.name} (ID: {new_station.id})")
+    current_app.logger.info(f"Neue Haltestelle erstellt: {new_station.name} (ID: {new_station.id})")
     return jsonify({
         "id": new_station.id,
         "name": new_station.name,
@@ -404,29 +405,29 @@ def update_station(station_id):
         old_name = station.name
         
         # Add debug logging
-        app.logger.debug(f"Received update data: {data}")
+        current_app.logger.debug(f"Received update data: {data}")
         
         if 'name' in data:
             station.name = data['name']
             
         if 'arrival_time' in data:
-            app.logger.debug(f"Processing arrival time: {data['arrival_time']}")
+            current_app.logger.debug(f"Processing arrival time: {data['arrival_time']}")
             if data['arrival_time']:
                 hours, minutes = map(int, data['arrival_time'].split(':'))
                 station.arrival_time = datetime_time(hours, minutes)
-                app.logger.debug(f"Set arrival time to: {station.arrival_time}")
+                current_app.logger.debug(f"Set arrival time to: {station.arrival_time}")
             else:
                 station.arrival_time = None
                 
         db.session.commit()
         
         # Log the final state
-        app.logger.info(f"Station updated - Name: {station.name}, Time: {station.arrival_time}")
+        current_app.logger.info(f"Station updated - Name: {station.name}, Time: {station.arrival_time}")
         return jsonify({'status': 'success'})
         
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Error updating station: {str(e)}")
+        current_app.logger.error(f"Error updating station: {str(e)}")
         return jsonify({'error': str(e)}), 400
 
 
@@ -522,7 +523,7 @@ def update_stations_order():
         return jsonify({"success": True}), 200
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Error updating station order: {str(e)}")
+        current_app.logger.error(f"Error updating station order: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -550,7 +551,7 @@ def create_participant():
     )
     db.session.add(new_participant)
     db.session.flush()
-    app.logger.info(f"Neuer Teilnehmer erstellt: {new_participant.name} (ID: {new_participant.id})")
+    current_app.logger.info(f"Neuer Teilnehmer erstellt: {new_participant.name} (ID: {new_participant.id})")
     
     calendar_entry = CalendarStatus(
         participant_id=new_participant.id,
@@ -650,7 +651,7 @@ def delete_participant(participant_id):
         ).first_or_404()
         
         name = participant.name  # Store name before deletion
-        app.logger.info(f"Lösche Teilnehmer {name} (ID: {participant_id})")
+        current_app.logger.info(f"Lösche Teilnehmer {name} (ID: {participant_id})")
         
         db.session.delete(participant)
         db.session.commit()
@@ -732,16 +733,16 @@ def get_daily_status():
     exp_date = datetime.fromtimestamp(exp_timestamp)
     remaining_days = (exp_date - datetime.utcnow()).days
 
-    app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
-    app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
-    app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
+    current_app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
+    current_app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
+    current_app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
 
     new_token = None
     if remaining_days < 30:
         verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         new_token = renew_auth_token(token, verified_payload)
-        app.logger.info("Created new token with extended expiration")
-        app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
+        current_app.logger.info("Created new token with extended expiration")
+        current_app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
 
     walking_bus_id = get_current_walking_bus_id()
 
@@ -826,13 +827,13 @@ def get_daily_status():
 def get_weather():
     # Get date parameter and validate
     date = request.args.get('date')
-    app.logger.info(f"[WEATHER] Requesting weather data for date: {date}")
+    current_app.logger.info(f"[WEATHER] Requesting weather data for date: {date}")
     if not date:
         return jsonify({'error': 'Date required'}), 400
         
     # Get walking bus ID from session
     walking_bus_id = session.get('walking_bus_id')
-    app.logger.info(f"[WEATHER] Walking bus ID: {walking_bus_id}")
+    current_app.logger.info(f"[WEATHER] Walking bus ID: {walking_bus_id}")
     if not walking_bus_id:
         return jsonify({'error': 'No walking bus selected'}), 401
 
@@ -860,10 +861,10 @@ def get_weather():
 @bp.route("/api/weather/update", methods=["POST"])
 @require_auth
 def update_weather():
-    app.logger.info("[WEATHER_UPDATE] Starting manual weather update")
+    current_app.logger.info("[WEATHER_UPDATE] Starting manual weather update")
     weather_service = WeatherService()
     success = weather_service.update_weather()
-    app.logger.info(f"[WEATHER_UPDATE] Update completed with status: {success}")
+    current_app.logger.info(f"[WEATHER_UPDATE] Update completed with status: {success}")
     return jsonify({
         "success": success,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -989,6 +990,77 @@ def weather_debug():
     return jsonify(response)
 
 
+def get_earliest_minutely_update_time():
+    """Get time when minutely updates should start (1h before earliest end time)"""
+    current_time = get_current_time()
+    weekday = WEEKDAY_MAPPING[current_time.weekday()]
+    
+    # Get all active schedules for today
+    schedules = WalkingBusSchedule.query.filter(
+        getattr(WalkingBusSchedule, weekday) == True
+    ).all()
+    
+    if not schedules:
+        return None
+    
+    # Get all end times for today
+    end_times = [getattr(schedule, f"{weekday}_end") for schedule in schedules]
+    earliest_end = min(end_times)
+    
+    # Calculate when minutely updates should start
+    return datetime.combine(current_time.date(), earliest_end) - timedelta(hours=1)
+
+def should_update_minutely():
+    """Check if we're in any bus's critical time window"""
+    current_time = get_current_time()
+    weekday = WEEKDAY_MAPPING[current_time.weekday()]
+    
+    # Get all active schedules for today
+    schedules = WalkingBusSchedule.query.filter(
+        getattr(WalkingBusSchedule, weekday) == True
+    ).all()
+    
+    if not schedules:
+        return False
+    
+    # Get latest end time
+    end_times = [getattr(schedule, f"{weekday}_end") for schedule in schedules]
+    latest_end = max(end_times)
+    latest_end_datetime = datetime.combine(current_time.date(), latest_end)
+    
+    # Get earliest end time for start of minutely updates
+    earliest_end = min(end_times)
+    minutely_start = datetime.combine(current_time.date(), earliest_end) - timedelta(hours=1)
+    
+    # Check if current time is within any critical window
+    return minutely_start <= current_time <= latest_end_datetime
+
+
+def weather_update_worker():
+    """Background worker for weather updates"""
+    while True:
+        weather_service = WeatherService()
+        current_time = get_current_time()
+        
+        # Perform weather update
+        update_success = weather_service.update_weather()
+        
+        if update_success:
+            # Create weather update message
+            update_message = {
+                "type": "weather_update",
+                "timestamp": current_time.isoformat(),
+                "status": "success"
+            }
+            
+            # Publish to Redis channel that SSE is listening on
+            redis_client.publish('status_updates', json.dumps(update_message))
+            
+            # Sleep based on schedule requirements
+            if should_update_minutely():
+                time.sleep(60)  # 1 minute
+            else:
+                time.sleep(3600)  # 1 hour
 
 
 
@@ -1019,22 +1091,22 @@ def initialize_daily_status():
         remaining_days = (exp_date - datetime.utcnow()).days
 
         # Add these logging statements
-        app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
-        app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
-        app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
+        current_app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
+        current_app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
+        current_app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
 
         new_token = None
         if remaining_days < 30:
             verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             new_token = renew_auth_token(token, verified_payload)
-            app.logger.info("Created new token with extended expiration")
-            app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
+            current_app.logger.info("Created new token with extended expiration")
+            current_app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
 
         walking_bus_id = get_current_walking_bus_id()
         target_date = requested_date if requested_date else get_current_date()
         current_time = get_current_time().time()
         
-        app.logger.info(f"Initializing daily status for {target_date} at {current_time}")
+        current_app.logger.info(f"Initializing daily status for {target_date} at {current_time}")
 
         # Update holiday cache
         holiday_service = HolidayService()
@@ -1046,7 +1118,7 @@ def initialize_daily_status():
                 CalendarStatus.date < target_date,
                 CalendarStatus.walking_bus_id == walking_bus_id
             ).delete()
-            app.logger.info(f"Deleted {deleted_count} past calendar entries")
+            current_app.logger.info(f"Deleted {deleted_count} past calendar entries")
             db.session.commit()
 
         # Get schedule information
@@ -1072,7 +1144,7 @@ def initialize_daily_status():
 
         # Check walking bus status
         walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
-        app.logger.info(f"Walking bus day status: {walking_bus_day}")
+        current_app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
         # Initialize time_passed before any checks
         time_passed = False
@@ -1082,13 +1154,13 @@ def initialize_daily_status():
 
         # Check walking bus status
         walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
-        app.logger.info(f"Walking bus day status: {walking_bus_day}")
+        current_app.logger.info(f"Walking bus day status: {walking_bus_day}")
 
         # Then modify the time check to only apply for current day
         if walking_bus_day and schedule_data and schedule_data["end"]:
             end_time = datetime.strptime(schedule_data["end"], "%H:%M").time()
-            app.logger.info(f"Target date: {target_date}, Today: {today}")
-            app.logger.info(f"Parsed end_time: {end_time}")
+            current_app.logger.info(f"Target date: {target_date}, Today: {today}")
+            current_app.logger.info(f"Parsed end_time: {end_time}")
             
             # Ensure target_date is a date object for comparison
             if isinstance(target_date, str):
@@ -1096,9 +1168,9 @@ def initialize_daily_status():
             
             # Only check time if we're looking at today
             if target_date == today:
-                app.logger.info(f"Checking time for today: {current_time} > {end_time}")
+                current_app.logger.info(f"Checking time for today: {current_time} > {end_time}")
                 if current_time > end_time:
-                    app.logger.info("Time check conditions met - updating status")
+                    current_app.logger.info("Time check conditions met - updating status")
                     walking_bus_day = False
                     reason = "Der Walking Bus hat heute bereits stattgefunden."
                     reason_type = "TIME_PASSED"
@@ -1112,9 +1184,9 @@ def initialize_daily_status():
         else:
             display_reason = str(reason)
 
-        app.logger.info(f"Schedule data: {schedule_data}")
-        app.logger.info(f"Walking bus check results: day={walking_bus_day}, reason={reason}, type={reason_type}")
-        app.logger.info(f"Time check values: current={current_time}, end={end_time if 'end_time' in locals() else 'not set'}")
+        current_app.logger.info(f"Schedule data: {schedule_data}")
+        current_app.logger.info(f"Walking bus check results: day={walking_bus_day}, reason={reason}, type={reason_type}")
+        current_app.logger.info(f"Time check values: current={current_time}, end={end_time if 'end_time' in locals() else 'not set'}")
 
         response = {
             "success": True,
@@ -1129,11 +1201,11 @@ def initialize_daily_status():
         if new_token:
             response['new_auth_token'] = new_token
 
-        app.logger.info(f"Final response: {response}")
+        current_app.logger.info(f"Final response: {response}")
         return jsonify(response)
 
     except Exception as e:
-        app.logger.error(f"Error in initialize_daily_status: {str(e)}")
+        current_app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
@@ -1224,13 +1296,13 @@ def get_week_overview():
 @bp.route("/api/walking-bus-schedule", methods=["GET"])
 @require_auth
 def get_schedule():
-    app.logger.info("Starting get_schedule request")
+    current_app.logger.info("Starting get_schedule request")
     
     walking_bus_id = get_current_walking_bus_id()
-    app.logger.debug(f"Current walking_bus_id: {walking_bus_id}")
+    current_app.logger.debug(f"Current walking_bus_id: {walking_bus_id}")
     
     if not walking_bus_id:
-        app.logger.error("No walking bus ID found in session")
+        current_app.logger.error("No walking bus ID found in session")
         return jsonify({
             "error": "No walking bus selected",
             "redirect": True
@@ -1238,10 +1310,10 @@ def get_schedule():
 
     try:
         schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
-        app.logger.debug(f"Found schedule: {schedule is not None}")
+        current_app.logger.debug(f"Found schedule: {schedule is not None}")
         
         if not schedule:
-            app.logger.info(f"Creating new schedule for walking_bus_id: {walking_bus_id}")
+            current_app.logger.info(f"Creating new schedule for walking_bus_id: {walking_bus_id}")
             schedule = WalkingBusSchedule(
                 walking_bus_id=walking_bus_id,
                 monday_start=WalkingBusSchedule.DEFAULT_START,
@@ -1261,7 +1333,7 @@ def get_schedule():
             )
             db.session.add(schedule)
             db.session.commit()
-            app.logger.info("New schedule created successfully")
+            current_app.logger.info("New schedule created successfully")
 
         response_data = {
             "monday": {
@@ -1300,11 +1372,11 @@ def get_schedule():
                 "end": schedule.sunday_end.strftime("%H:%M") if schedule.sunday_end else None
             }
         }
-        app.logger.debug(f"Returning response data: {response_data}")
+        current_app.logger.debug(f"Returning response data: {response_data}")
         return jsonify(response_data)
         
     except Exception as e:
-        app.logger.error(f"Error in get_schedule: {str(e)}", exc_info=True)
+        current_app.logger.error(f"Error in get_schedule: {str(e)}", exc_info=True)
         return jsonify({
             "error": "Internal server error",
             "details": str(e)
@@ -1314,8 +1386,17 @@ def get_schedule():
 @bp.route("/api/walking-bus-schedule", methods=["PUT"])
 @require_auth
 def update_schedule():
+    import os
+    process_type = "Main" if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' else "Reloader"
+    print(f"[DEBUG] Running in {process_type} process")  # This will show in both processes
+
     walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
+
+    print(f"[DEBUG] Updating schedule for bus {walking_bus_id}")
+    print("[DEBUG] About to reconfigure scheduler")
+
+    current_app.logger.info("[SCHEDULE] Starting schedule update")
     
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     if not schedule:
@@ -1343,6 +1424,16 @@ def update_schedule():
             setattr(schedule, f"{day}_end", end)
     
     db.session.commit()
+    
+    # Add explicit logging configuration
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    
+    # Try both logging approaches
+    print("[DEBUG] Starting scheduler reconfiguration")
+    reconfigure_weather_scheduler(current_app)
+    print("[DEBUG] Scheduler reconfiguration complete")
+    
     return jsonify({"success": True})
 
 
@@ -1389,7 +1480,7 @@ def update_calendar_status():
         participant.status_today = status
     
     db.session.commit()
-    app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
+    current_app.logger.info(f"Kalenderstatus für {participant.name} (ID: {participant_id}) am {date} auf {status} gesetzt")
     return jsonify({"success": True})
 
 
@@ -1418,7 +1509,7 @@ def get_calendar_data(participant_id):
         walking_bus_id = get_current_walking_bus_id()
         if not walking_bus_id:
             return jsonify({"error": "No walking bus selected", "redirect": True}), 401
-        app.logger.info(f"Fetching calendar data for participant {participant_id}")
+        current_app.logger.info(f"Fetching calendar data for participant {participant_id}")
         
         # Verify participant belongs to current walking bus
         participant = Participant.query.filter_by(
@@ -1432,7 +1523,7 @@ def get_calendar_data(participant_id):
         week_start = today - timedelta(days=today.weekday())
         dates_to_check = [week_start + timedelta(days=x) for x in range(28)]
         
-        app.logger.info(f"Checking dates from {dates_to_check[0]} to {dates_to_check[-1]}")
+        current_app.logger.info(f"Checking dates from {dates_to_check[0]} to {dates_to_check[-1]}")
 
         # Get existing calendar entries for the participant within walking bus
         calendar_entries = CalendarStatus.query.filter(
@@ -1441,7 +1532,7 @@ def get_calendar_data(participant_id):
             CalendarStatus.date.in_(dates_to_check)
         ).all()
         
-        app.logger.info(f"Found {len(calendar_entries)} existing calendar entries")
+        current_app.logger.info(f"Found {len(calendar_entries)} existing calendar entries")
         
         calendar_data = []
         for date in dates_to_check:
@@ -1467,13 +1558,13 @@ def get_calendar_data(participant_id):
                 'is_today': date == today
             }
             calendar_data.append(entry_data)
-            app.logger.debug(f"Processed date {date}: {entry_data}")
+            current_app.logger.debug(f"Processed date {date}: {entry_data}")
         
-        app.logger.info(f"Successfully compiled calendar data with {len(calendar_data)} entries")
+        current_app.logger.info(f"Successfully compiled calendar data with {len(calendar_data)} entries")
         return jsonify(calendar_data)
         
     except Exception as e:
-        app.logger.error(f"Error in get_calendar_data: {str(e)}")
+        current_app.logger.error(f"Error in get_calendar_data: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1570,11 +1661,11 @@ def trigger_update():
         "reason_type": reason_type
     }
     
-    app.logger.info(f"[TRIGGER] Publishing status update for date: {update_date}")
-    app.logger.debug(f"[TRIGGER] Status data: {status_data}")
+    current_app.logger.info(f"[TRIGGER] Publishing status update for date: {update_date}")
+    current_app.logger.debug(f"[TRIGGER] Status data: {status_data}")
     
     redis_client.publish('status_updates', json.dumps(status_data))
-    app.logger.info("[TRIGGER] Status update published to Redis")
+    current_app.logger.info("[TRIGGER] Status update published to Redis")
     
     return jsonify({"success": True})
 
@@ -1636,7 +1727,7 @@ def stream():
                     yield f"data: {message['data'].decode()}\n\n"
 
             except Exception as e:
-                app.logger.error(f"[STREAM] Error: {e}")
+                current_app.logger.error(f"[STREAM] Error: {e}")
                 yield "event: error\ndata: Connection error\n\n"
                 break
 
@@ -2017,21 +2108,21 @@ def update_daily_note():
 
 
 def get_current_walking_bus_id():
-    app.logger.debug("Getting current walking bus ID")
+    current_app.logger.debug("Getting current walking bus ID")
     
     # For single bus mode
     if not environ.get('WALKING_BUSES'):
-        app.logger.debug("Single bus mode detected")
+        current_app.logger.debug("Single bus mode detected")
         default_bus = WalkingBus.query.filter_by(name='Default Bus').first()
         if default_bus:
-            app.logger.debug(f"Using default bus with ID: {default_bus.id}")
+            current_app.logger.debug(f"Using default bus with ID: {default_bus.id}")
             return default_bus.id
-        app.logger.error("No default bus found")
+        current_app.logger.error("No default bus found")
         return None
     
     # For multi bus mode
     bus_id = session.get("walking_bus_id")
-    app.logger.debug(f"Multi bus mode - Found bus ID in session: {bus_id}")
+    current_app.logger.debug(f"Multi bus mode - Found bus ID in session: {bus_id}")
     return bus_id
 
 
@@ -2039,7 +2130,7 @@ def get_current_walking_bus_id():
 def login():
     ip = request.remote_addr
     is_multi_bus = init_walking_buses()
-    configured_bus_ids = app.config.get('CONFIGURED_BUS_IDS', [])
+    configured_bus_ids = current_app.config.get('CONFIGURED_BUS_IDS', [])
     buses = WalkingBus.query.filter(
         WalkingBus.id.in_(configured_bus_ids)
     ).order_by(WalkingBus.id).all() if is_multi_bus else None

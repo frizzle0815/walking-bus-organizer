@@ -750,7 +750,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </button>
             </div>
         `;
-        updateConnectionStatus('disconnected');
+        SSE_updateConnectionStatus('disconnected');
     }
 });
 
@@ -1384,9 +1384,9 @@ function render_summaryCard(dailyStatus) {
             <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
             <div class="d-flex align-items-center gap-2">
                 <span class="badge bg-light text-dark" id="weather-info">
-                    <img src="" alt="weather" class="weather-icon" id="weather-icon">
-                    <span id="weather-pop"></span>
-                    <span id="weather-precip"></span>
+                    <img src="/static/icons/weather/${dailyStatus.weather?.icon || 'unknown'}.svg" alt="weather" class="weather-icon">
+                    <span>${(dailyStatus.weather?.pop * 100 || 0).toFixed(1)}%</span>
+                    <span>${dailyStatus.weather?.precipitation || 0}mm</span>
                 </span>
                 <span class="badge bg-light text-dark" id="stats-total"></span>
             </div>
@@ -2406,7 +2406,9 @@ function initializeSSE() {
                 break;
             case 'time_update':
                 SSE_updateTimeDisplay(data.time);
-                updateWeatherDisplay(data.currentDate);
+                break;
+            case 'weather_update':
+                updateWeatherDisplay(window.appState.currentDate);
                 break;
         }
     };
@@ -2541,38 +2543,32 @@ window.addEventListener('pageshow', (event) => {
 
 
 async function updateWeatherDisplay(date) {
-    console.log('[WEATHER] Updating display for date:', date);
     try {
-        const response = await axios.get('/api/weather', {
-            params: { date: date }
-        });
-
-        console.log('[WEATHER] API response:', response.data);
-        const weather = response.data;
+        // Ensure consistent date format
+        const formattedDate = date.includes('T') ? 
+            date.split('T')[0] : 
+            date;
+            
+        console.log('[WEATHER] Updating display for date:', formattedDate);
         
-        if (weather) {
-            const iconUrl = `/static/icons/weather/${weather.icon}.svg`;
-            console.log('[WEATHER] Setting icon URL:', iconUrl);
-            document.getElementById('weather-icon').src = iconUrl;
-            
-            const popPercentage = Math.round(weather.pop * 100);
-            console.log('[WEATHER] Setting precipitation probability:', popPercentage + '%');
-            document.getElementById('weather-pop').textContent = popPercentage;
-            
-            console.log('[WEATHER] Setting precipitation amount:', weather.precipitation + 'mm');
-            document.getElementById('weather-precip').textContent = weather.precipitation;
-            
-            document.getElementById('weather-info').classList.remove('d-none');
-        } else {
-            console.log('[WEATHER] No weather data available, hiding display');
-            document.getElementById('weather-info').classList.add('d-none');
+        const response = await fetch(`/api/weather/calculations`);
+        const data = await response.json();
+        
+        // Find matching day data
+        const dayData = Object.values(data).find(d => d.date === formattedDate);
+        if (dayData?.result) {
+            const weatherInfo = document.getElementById('weather-info');
+            weatherInfo.innerHTML = `
+                <img src="/static/icons/weather/${dayData.result.icon}.svg" alt="weather" class="weather-icon">
+                <span>${(dayData.result.pop * 100).toFixed(1)}%</span>
+                <span>${dayData.result.precipitation}mm</span>
+            `;
+            weatherInfo.classList.remove('d-none');
         }
     } catch (error) {
-        console.error('[WEATHER] Error updating weather display:', error);
-        document.getElementById('weather-info').classList.add('d-none');
+        console.error('[WEATHER] Error:', error);
     }
 }
-
 
 
 

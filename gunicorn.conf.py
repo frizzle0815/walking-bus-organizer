@@ -16,3 +16,6 @@ loglevel = "warning" # info oder warning
 accesslog = "-"  # "-" means stdout
 errorlog = "-"   # "-" means stderr
 access_log_format = '%({X-Forwarded-For}i)s %(l)s %(t)s "%(r)s" %(s)s %(b)s'
+
+# Preload app to ensure scheduler runs only once
+preload_app = True
