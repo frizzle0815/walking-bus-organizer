@@ -186,7 +186,7 @@ class WeatherService:
                 forecast_type='hourly',
                 total_precipitation=total_precipitation,
                 pop=hour['pop'],
-                weather_icon=hour['weather'][0]['icon']
+                weather_icon=hour['weather'][0]['id']
             )
             records.append(weather)
         return records
@@ -216,7 +216,7 @@ class WeatherService:
                 forecast_type='daily',
                 total_precipitation=total_precipitation,
                 pop=day['pop'],
-                weather_icon=day['weather'][0]['icon']
+                weather_icon=day['weather'][0]['id']
             )
             records.append(weather)
             app.logger.debug(f"[WEATHER] Created new daily record for {local_timestamp}")
@@ -226,7 +226,7 @@ class WeatherService:
 
     def cleanup_old_records(self):
         """Remove weather records older than 1 hour"""
-        cutoff_time = get_current_time().replace(tzinfo=None)  # Remove timezone info
+        cutoff_time = get_current_time() - timedelta(hours=12)
         Weather.query.filter(Weather.timestamp < cutoff_time).delete()
         db.session.commit()
 

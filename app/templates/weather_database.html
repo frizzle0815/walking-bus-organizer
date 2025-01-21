@@ -87,7 +87,6 @@
                     <table class="weather-table">
                         <thead>
                             <tr>
-                                <th>ID</th>
                                 <th>Type</th>
                                 <th>Timestamp</th>
                                 <th>Precipitation</th>
@@ -101,7 +100,6 @@
                 data.sample_records.forEach(record => {
                     tableHtml += `
                         <tr>
-                            <td>${record.id}</td>
                             <td>${record.type}</td>
                             <td>${record.timestamp.replace('T', ' ').split('.')[0]}</td>
                             <td>${record.precipitation !== null ? record.precipitation + ' mm' : 'N/A'}</td>

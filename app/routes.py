@@ -978,7 +978,6 @@ def weather_debug():
             'daily': len([r for r in records if r.forecast_type == 'daily'])
         },
         'sample_records': [{
-            'id': r.id,
             'type': r.forecast_type,
             'timestamp': r.timestamp.astimezone(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S %Z'),
             'precipitation': r.precipitation if r.forecast_type == 'minutely' else r.total_precipitation,
