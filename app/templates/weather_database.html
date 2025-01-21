@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Weather Database Inspector</title>
+    <style>
+        .data-container {
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ccc;
+        }
+        .stats-box {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .weather-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .weather-table th, .weather-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .weather-table th {
+            background-color: #f2f2f2;
+        }
+        .refresh-button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .refresh-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Weather Database Inspector</h1>
+    
+    <div class="data-container">
+        <button onclick="loadDatabaseInfo()" class="refresh-button">Refresh Data</button>
+        
+        <div class="stats-box">
+            <h2>Query Information</h2>
+            <div id="queryInfo"></div>
+        </div>
+        
+        <div class="stats-box">
+            <h2>Record Statistics</h2>
+            <div id="recordStats"></div>
+        </div>
+        
+        <div class="stats-box">
+            <h2>Sample Records</h2>
+            <div id="sampleRecords"></div>
+        </div>
+    </div>
+
+    <script>
+        async function loadDatabaseInfo() {
+            try {
+                const response = await fetch('/api/weather/debug');
+                const data = await response.json();
+                
+                // Update Query Info
+                document.getElementById('queryInfo').innerHTML = `
+                    <p>Query Start: ${data.query_timeframe.start}</p>
+                    <p>Query End: ${data.query_timeframe.end}</p>
+                `;
+                
+                // Update Statistics
+                document.getElementById('recordStats').innerHTML = `
+                    <p>Total Records: ${data.total_records}</p>
+                    <p>Minutely Records: ${data.types.minutely}</p>
+                    <p>Hourly Records: ${data.types.hourly}</p>
+                    <p>Daily Records: ${data.types.daily}</p>
+                `;
+                
+                // Update Sample Records Table
+                let tableHtml = `
+                    <table class="weather-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Timestamp</th>
+                                <th>Precipitation</th>
+                                <th>PoP</th>
+                                <th>Icon</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                data.sample_records.forEach(record => {
+                    tableHtml += `
+                        <tr>
+                            <td>${record.id}</td>
+                            <td>${record.type}</td>
+                            <td>${record.timestamp.replace('T', ' ').split('.')[0]}</td>
+                            <td>${record.precipitation !== null ? record.precipitation + ' mm' : 'N/A'}</td>
+                            <td>${record.pop !== null ? (record.pop * 100).toFixed(1) + '%' : 'N/A'}</td>
+                            <td>${record.weather_icon || 'N/A'}</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHtml += '</tbody></table>';
+                document.getElementById('sampleRecords').innerHTML = tableHtml;
+                
+            } catch (error) {
+                console.error('Error loading database info:', error);
+            }
+        }
+
+        // Load data when page opens
+        document.addEventListener('DOMContentLoaded', loadDatabaseInfo);
+    </script>
+</body>
+</html>

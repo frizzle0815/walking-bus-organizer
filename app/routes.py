@@ -10,9 +10,11 @@ from .models import (
     db, WalkingBus, Station, Participant, 
     CalendarStatus, WalkingBusSchedule, 
     SchoolHoliday, WalkingBusOverride, 
-    DailyNote, TempToken, AuthToken
+    DailyNote, TempToken, AuthToken,
+    Weather
 )
 from .services.holiday_service import HolidayService
+from .services.weather_service import WeatherService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from app import get_git_revision
 from .auth import (
@@ -51,6 +53,16 @@ def admin():
 @bp.route("/calendar")
 def calendar_view():
     return render_template("calendar.html")
+
+
+@bp.route("/weather")
+def weather():
+    return render_template("weather.html")
+
+
+@bp.route('/weather/database')
+def weather_database():
+    return render_template('weather_database.html')
 
 
 @bp.route("/share")
@@ -713,6 +725,24 @@ def get_participant_weekday_status(participant_id, weekday):
 @bp.route("/api/daily-status", methods=["GET", "POST"])
 @require_auth
 def get_daily_status():
+    # Token renewal logic
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    payload = jwt.decode(token, options={"verify_signature": False})
+    exp_timestamp = payload['exp']
+    exp_date = datetime.fromtimestamp(exp_timestamp)
+    remaining_days = (exp_date - datetime.utcnow()).days
+
+    app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
+    app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
+    app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
+
+    new_token = None
+    if remaining_days < 30:
+        verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        new_token = renew_auth_token(token, verified_payload)
+        app.logger.info("Created new token with extended expiration")
+        app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
+
     walking_bus_id = get_current_walking_bus_id()
 
     # Handle both GET and POST parameters
@@ -789,6 +819,171 @@ def get_daily_status():
         "schedule": schedule_data,
         "participantStates": participant_states
     })
+
+
+@bp.route('/api/weather')
+@require_auth
+def get_weather():
+    # Get date parameter and validate
+    date = request.args.get('date')
+    app.logger.info(f"[WEATHER] Requesting weather data for date: {date}")
+    if not date:
+        return jsonify({'error': 'Date required'}), 400
+        
+    # Get walking bus ID from session
+    walking_bus_id = session.get('walking_bus_id')
+    app.logger.info(f"[WEATHER] Walking bus ID: {walking_bus_id}")
+    if not walking_bus_id:
+        return jsonify({'error': 'No walking bus selected'}), 401
+
+    # Parse date string to date object
+    date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+    
+    # Get schedule for this walking bus
+    schedule = WalkingBusSchedule.query.filter_by(
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if not schedule:
+        return jsonify(None)
+    
+    # Initialize weather service and get data
+    weather_service = WeatherService()
+    weather_data = weather_service.get_weather_for_timeframe(
+        date_obj,
+        schedule
+    )
+    
+    return jsonify(weather_data)
+
+
+@bp.route("/api/weather/update", methods=["POST"])
+@require_auth
+def update_weather():
+    app.logger.info("[WEATHER_UPDATE] Starting manual weather update")
+    weather_service = WeatherService()
+    success = weather_service.update_weather()
+    app.logger.info(f"[WEATHER_UPDATE] Update completed with status: {success}")
+    return jsonify({
+        "success": success,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+
+@bp.route('/api/weather/all')
+def get_all_weather():
+    minutely_data = Weather.query.filter_by(forecast_type='minutely').order_by(Weather.timestamp).all()
+    hourly_data = Weather.query.filter_by(forecast_type='hourly').order_by(Weather.timestamp).all()
+    
+    return jsonify({
+        'minutely': [{
+            'timestamp': record.timestamp.isoformat(),
+            'precipitation': record.precipitation
+        } for record in minutely_data],
+        'hourly': [{
+            'timestamp': record.timestamp.isoformat(),
+            'total_precipitation': record.total_precipitation,
+            'pop': record.pop,
+            'weather_icon': record.weather_icon
+        } for record in hourly_data]
+    })
+
+
+@bp.route('/api/weather/calculations')
+def get_weather_calculations():
+    walking_bus_id = get_current_walking_bus_id()
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    weather_service = WeatherService()
+    
+    def serialize_calculation(calc):
+        """Helper function to ensure all time objects are converted to strings"""
+        if not calc:
+            return None
+            
+        # Deep copy the calculation to avoid modifying the original
+        serialized = dict(calc)
+        
+        # Convert all potential time objects in the main dict
+        if 'start_time' in serialized:
+            serialized['startTime'] = serialized['start_time'].strftime('%H:%M')
+            del serialized['start_time']
+        if 'end_time' in serialized:
+            serialized['endTime'] = serialized['end_time'].strftime('%H:%M')
+            del serialized['end_time']
+            
+        # Handle nested calculation details
+        if 'calculation_details' in serialized:
+            details = serialized['calculation_details']
+            if 'start_time' in details:
+                details['startTime'] = details['start_time'].strftime('%H:%M')
+                del details['start_time']
+            if 'end_time' in details:
+                details['endTime'] = details['end_time'].strftime('%H:%M')
+                del details['end_time']
+                
+        return serialized
+
+    if not schedule:
+        return jsonify({
+            'today': {'available': False, 'message': 'No schedule configured'},
+            'tomorrow': {'available': False, 'message': 'No schedule configured'},
+            'dayAfterTomorrow': {'available': False, 'message': 'No schedule configured'}
+        })
+    
+    current_time = get_current_time()
+    dates = [
+        current_time.date(),
+        (current_time + timedelta(days=1)).date(),
+        (current_time + timedelta(days=2)).date()
+    ]
+    
+    result = {}
+    for i, date in enumerate(['today', 'tomorrow', 'dayAfterTomorrow']):
+        calculation = weather_service.get_weather_for_timeframe(dates[i], schedule, include_details=True)
+        if calculation:
+            serialized_calc = serialize_calculation(calculation)
+            serialized_calc['date'] = dates[i].strftime('%Y-%m-%d')
+            result[date] = serialized_calc
+        else:
+            result[date] = {
+                'available': False,
+                'message': 'No weather data available',
+                'date': dates[i].strftime('%Y-%m-%d')
+            }
+    
+    return jsonify(result)
+
+
+
+@bp.route('/api/weather/debug')
+def weather_debug():
+    records = Weather.query.order_by(Weather.timestamp).all()
+    
+    response = {
+        'query_timeframe': {
+            'oldest': records[0].timestamp.astimezone(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S %Z') if records else 'No records',
+            'newest': records[-1].timestamp.astimezone(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S %Z') if records else 'No records'
+        },
+        'total_records': len(records),
+        'types': {
+            'minutely': len([r for r in records if r.forecast_type == 'minutely']),
+            'hourly': len([r for r in records if r.forecast_type == 'hourly']),
+            'daily': len([r for r in records if r.forecast_type == 'daily'])
+        },
+        'sample_records': [{
+            'id': r.id,
+            'type': r.forecast_type,
+            'timestamp': r.timestamp.astimezone(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S %Z'),
+            'precipitation': r.precipitation if r.forecast_type == 'minutely' else r.total_precipitation,
+            'pop': r.pop,
+            'weather_icon': r.weather_icon
+        } for r in records[:500]]
+    }
+    
+    return jsonify(response)
+
+
+
 
 
 #####################################################

@@ -592,6 +592,26 @@
         height: 3rem;
     }
 
+    .weather-icon {
+        width: 30px;
+        height: 30px;
+        vertical-align: middle;
+    }
+
+    #weather-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    #weather-pop::after {
+        content: '%';
+    }
+
+    #weather-precip::after {
+        content: 'mm';
+    }
+
 </style>
 
 <script>
@@ -817,6 +837,7 @@ async function renderFullView(stations, dailyStatus, weekData) {
 
     // 3. Post-render updates
     //updateAllParticipantStates(dailyStatus);
+    await updateWeatherDisplay(dailyStatus.currentDate);
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
     
@@ -1361,7 +1382,14 @@ function render_summaryCard(dailyStatus) {
     header.innerHTML = `
         <h5 class="d-flex justify-content-between align-items-center mb-0">
             <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
-            <span class="badge bg-light text-dark" id="stats-total"></span>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-light text-dark" id="weather-info">
+                    <img src="" alt="weather" class="weather-icon" id="weather-icon">
+                    <span id="weather-pop"></span>
+                    <span id="weather-precip"></span>
+                </span>
+                <span class="badge bg-light text-dark" id="stats-total"></span>
+            </div>
         </h5>
     `;
 
@@ -1900,10 +1928,9 @@ function createStatusButton(participant, isWalkingBusDay) {
 function updateTimeIcons(dailyStatus) {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
-    const today = new Date().toISOString().split('T')[0];
     
     // Force comparison with actual today's date, regardless of selection
-    const isToday = dailyStatus.currentDate === today;
+    const isToday = isCurrentDay(dailyStatus.currentDate);
 
     document.querySelectorAll('.time-badge').forEach(badge => {
         const timeText = badge.querySelector('span').textContent;
@@ -2379,6 +2406,7 @@ function initializeSSE() {
                 break;
             case 'time_update':
                 SSE_updateTimeDisplay(data.time);
+                updateWeatherDisplay(data.currentDate);
                 break;
         }
     };
@@ -2510,6 +2538,41 @@ window.addEventListener('pageshow', (event) => {
         });
     }
 });
+
+
+async function updateWeatherDisplay(date) {
+    console.log('[WEATHER] Updating display for date:', date);
+    try {
+        const response = await axios.get('/api/weather', {
+            params: { date: date }
+        });
+
+        console.log('[WEATHER] API response:', response.data);
+        const weather = response.data;
+        
+        if (weather) {
+            const iconUrl = `/static/icons/weather/${weather.icon}.svg`;
+            console.log('[WEATHER] Setting icon URL:', iconUrl);
+            document.getElementById('weather-icon').src = iconUrl;
+            
+            const popPercentage = Math.round(weather.pop * 100);
+            console.log('[WEATHER] Setting precipitation probability:', popPercentage + '%');
+            document.getElementById('weather-pop').textContent = popPercentage;
+            
+            console.log('[WEATHER] Setting precipitation amount:', weather.precipitation + 'mm');
+            document.getElementById('weather-precip').textContent = weather.precipitation;
+            
+            document.getElementById('weather-info').classList.remove('d-none');
+        } else {
+            console.log('[WEATHER] No weather data available, hiding display');
+            document.getElementById('weather-info').classList.add('d-none');
+        }
+    } catch (error) {
+        console.error('[WEATHER] Error updating weather display:', error);
+        document.getElementById('weather-info').classList.add('d-none');
+    }
+}
+
 
 
 
