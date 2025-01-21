@@ -233,9 +233,8 @@ class WeatherService:
 
 
     def get_weather_for_timeframe(self, date, schedule, include_details=False):
-        """Calculate weather data for a specific timeframe using hourly records with partial hour handling"""
+        """Calculate weather data for a specific timeframe using minutely (if complete) or hourly records"""
         weekday = WEEKDAY_MAPPING[date.weekday()]
-        
         start_time = getattr(schedule, f"{weekday}_start")
         end_time = getattr(schedule, f"{weekday}_end")
         
@@ -244,6 +243,58 @@ class WeatherService:
         
         app.logger.debug(f"[WEATHER] Checking weather from {start_datetime} to {end_datetime}")
         
+        # Calculate expected number of minutes
+        duration_minutes = int((end_datetime - start_datetime).total_seconds() / 60)
+        
+        # First try minutely data
+        minutely_records = Weather.query.filter(
+            Weather.timestamp.between(start_datetime, end_datetime),
+            Weather.forecast_type == 'minutely'
+        ).order_by(Weather.timestamp).all()
+
+        app.logger.debug(f"[WEATHER] Duration needed: {duration_minutes} minutes")
+        app.logger.debug(f"[WEATHER] Minutely records found: {len(minutely_records)}")
+        app.logger.debug(f"[WEATHER] Minutely timestamps: {[r.timestamp for r in minutely_records]}")
+        
+        # If we have complete minutely coverage, use it
+        if len(minutely_records) >= duration_minutes:
+            app.logger.debug("[WEATHER] Using minutely data for calculations")
+            
+            # Get the hourly record for the icon
+            hour_start = start_datetime.replace(minute=0)
+            hourly_record = Weather.query.filter(
+                Weather.timestamp == hour_start,
+                Weather.forecast_type == 'hourly'
+            ).first()
+            
+            # Calculate minutely values
+            total_precipitation = sum(record.precipitation / 60 for record in minutely_records)
+            max_pop = max(record.pop for record in minutely_records)
+            
+            result = {
+                'icon': hourly_record.weather_icon if hourly_record else None,
+                'pop': max_pop,
+                'precipitation': round(total_precipitation, 2)
+            }
+            
+            if include_details:
+                return {
+                    'available': True,
+                    'date': date.strftime('%Y-%m-%d'),
+                    'startTime': start_time.strftime('%H:%M'),
+                    'endTime': end_time.strftime('%H:%M'),
+                    'calculation_details': {
+                        'data_type': 'minutely',
+                        'minutely_used': [{
+                            'timestamp': record.timestamp.strftime('%H:%M'),
+                            'precipitation': record.precipitation,
+                        } for record in minutely_records]
+                    },
+                    'result': result
+                }
+            return result
+        
+        # Fall back to hourly calculation
         weather_records = Weather.query.filter(
             Weather.timestamp >= start_datetime.replace(minute=0),
             Weather.timestamp <= end_datetime.replace(minute=0),
@@ -295,12 +346,14 @@ class WeatherService:
                 'startTime': start_time.strftime('%H:%M'),
                 'endTime': end_time.strftime('%H:%M'),
                 'calculation_details': {
+                    'data_type': 'hourly',
                     'hourly_used': hourly_details
                 },
                 'result': result
             }
         
         return result
+
 
 
 
