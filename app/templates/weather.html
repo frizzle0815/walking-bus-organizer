@@ -58,6 +58,8 @@
             <div class="day-calculations" id="today"></div>
             <div class="day-calculations" id="tomorrow"></div>
             <div class="day-calculations" id="dayAfterTomorrow"></div>
+            <div class="day-calculations" id="dayAfterAfterTomorrow"></div>
+            <div class="day-calculations" id="dayAfterAfterAfterTomorrow"></div>
         </div>
     </div>
 
@@ -86,32 +88,37 @@ async function loadCalculationDetails() {
         const response = await fetch('/api/weather/calculations');
         const data = await response.json();
         
-        ['today', 'tomorrow', 'dayAfterTomorrow'].forEach(day => {
+        ['today', 'tomorrow', 'dayAfterTomorrow', 'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow'].forEach(day => {
             const dayData = data[day];
             const container = document.getElementById(day);
             
-            console.log(`Processing ${day}:`, dayData); // Debug logging
-            
             let html = `<h3>${dayData.date}</h3>`;
-            html += `<p>Time window: ${dayData.startTime} - ${dayData.endTime}</p>`;
+            
+            // Only show time window for minutely/hourly data
+            if (dayData.startTime && dayData.endTime) {
+                html += `<p>Time window: ${dayData.startTime} - ${dayData.endTime}</p>`;
+            }
             
             html += '<div class="calculation-step">Used Records:';
             
-            // Check calculation_details explicitly
+            // Handle different data types
             if (dayData.calculation_details) {
-                if (dayData.calculation_details.minutely_used?.length > 0) {
+                if (dayData.calculation_details.data_type === 'minutely') {
                     html += '<div class="used-records">Minutely Records:<br>';
                     dayData.calculation_details.minutely_used.forEach(record => {
                         html += `${record.timestamp}: ${record.precipitation}mm<br>`;
                     });
                     html += '</div>';
-                }
-                
-                if (dayData.calculation_details.hourly_used?.length > 0) {
+                } else if (dayData.calculation_details.data_type === 'hourly') {
                     html += '<div class="used-records">Hourly Records:<br>';
                     dayData.calculation_details.hourly_used.forEach(record => {
                         html += `${record.timestamp}: ${record.total_precipitation}mm (${record.overlap_minutes} min overlap = ${record.contribution}mm)<br>`;
                     });
+                    html += '</div>';
+                } else if (dayData.calculation_details.data_type === 'daily') {
+                    html += '<div class="used-records">Daily Record:<br>';
+                    const daily = dayData.calculation_details.daily_used;
+                    html += `${daily.timestamp}: ${daily.total_precipitation}mm (PoP: ${(daily.pop * 100).toFixed(1)}%)<br>`;
                     html += '</div>';
                 }
             }
@@ -131,6 +138,7 @@ async function loadCalculationDetails() {
         console.error('Error loading calculation details:', error);
     }
 }
+
 
 
 document.addEventListener('DOMContentLoaded', () => {

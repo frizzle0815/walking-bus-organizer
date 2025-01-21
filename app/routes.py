@@ -900,7 +900,6 @@ def get_weather_calculations():
         if not calc:
             return None
             
-        # Deep copy the calculation to avoid modifying the original
         serialized = dict(calc)
         
         # Convert all potential time objects in the main dict
@@ -927,31 +926,39 @@ def get_weather_calculations():
         return jsonify({
             'today': {'available': False, 'message': 'No schedule configured'},
             'tomorrow': {'available': False, 'message': 'No schedule configured'},
-            'dayAfterTomorrow': {'available': False, 'message': 'No schedule configured'}
+            'dayAfterTomorrow': {'available': False, 'message': 'No schedule configured'},
+            'dayAfterAfterTomorrow': {'available': False, 'message': 'No schedule configured'},
+            'dayAfterAfterAfterTomorrow': {'available': False, 'message': 'No schedule configured'}
         })
     
     current_time = get_current_time()
     dates = [
         current_time.date(),
         (current_time + timedelta(days=1)).date(),
-        (current_time + timedelta(days=2)).date()
+        (current_time + timedelta(days=2)).date(),
+        (current_time + timedelta(days=3)).date(),
+        (current_time + timedelta(days=4)).date()
     ]
     
+    day_keys = ['today', 'tomorrow', 'dayAfterTomorrow', 
+                'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow']
+    
     result = {}
-    for i, date in enumerate(['today', 'tomorrow', 'dayAfterTomorrow']):
+    for i, date_key in enumerate(day_keys):
         calculation = weather_service.get_weather_for_timeframe(dates[i], schedule, include_details=True)
         if calculation:
             serialized_calc = serialize_calculation(calculation)
             serialized_calc['date'] = dates[i].strftime('%Y-%m-%d')
-            result[date] = serialized_calc
+            result[date_key] = serialized_calc
         else:
-            result[date] = {
+            result[date_key] = {
                 'available': False,
                 'message': 'No weather data available',
                 'date': dates[i].strftime('%Y-%m-%d')
             }
     
     return jsonify(result)
+
 
 
 

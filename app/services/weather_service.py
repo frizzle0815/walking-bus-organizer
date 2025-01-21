@@ -233,8 +233,42 @@ class WeatherService:
 
 
     def get_weather_for_timeframe(self, date, schedule, include_details=False):
-        """Calculate weather data for a specific timeframe using minutely (if complete) or hourly records"""
+        """Calculate weather data for a specific timeframe using minutely, hourly, or daily records"""
         weekday = WEEKDAY_MAPPING[date.weekday()]
+
+        # Check if schedule is active for this day
+        is_active = getattr(schedule, weekday)
+        if not is_active or date > (get_current_time() + timedelta(days=2)).date():
+            # Try to get daily record
+            daily_record = Weather.query.filter(
+                Weather.timestamp == datetime.combine(date, time(12, 0)),  # 12:00 for daily records
+                Weather.forecast_type == 'daily'
+            ).first()
+            
+            if daily_record:
+                app.logger.debug(f"[WEATHER] Using daily data for {date}")
+                result = {
+                    'icon': daily_record.weather_icon,
+                    'pop': daily_record.pop,
+                    'precipitation': daily_record.total_precipitation
+                }
+                
+                if include_details:
+                    return {
+                        'available': True,
+                        'date': date.strftime('%Y-%m-%d'),
+                        'calculation_details': {
+                            'data_type': 'daily',
+                            'daily_used': {
+                                'timestamp': daily_record.timestamp.strftime('%Y-%m-%d'),
+                                'total_precipitation': daily_record.total_precipitation,
+                                'pop': daily_record.pop
+                            }
+                        },
+                        'result': result
+                    }
+                return result
+
         start_time = getattr(schedule, f"{weekday}_start")
         end_time = getattr(schedule, f"{weekday}_end")
         
@@ -294,65 +328,97 @@ class WeatherService:
                 }
             return result
         
-        # Fall back to hourly calculation
+        # Try hourly calculation
         weather_records = Weather.query.filter(
             Weather.timestamp >= start_datetime.replace(minute=0),
             Weather.timestamp <= end_datetime.replace(minute=0),
             Weather.forecast_type == 'hourly'
         ).order_by(Weather.timestamp).all()
         
-        if not weather_records:
-            return None
+        if weather_records:
+            # Initialize aggregated values
+            max_pop = 0
+            total_precipitation = 0
+            hourly_details = []
             
-        # Initialize aggregated values
-        max_pop = 0
-        total_precipitation = 0
-        hourly_details = []
-        
-        for record in weather_records:
-            hour_start = record.timestamp
-            hour_end = hour_start + timedelta(hours=1)
+            for record in weather_records:
+                hour_start = record.timestamp
+                hour_end = hour_start + timedelta(hours=1)
+                
+                # Calculate overlap duration in minutes
+                overlap_start = max(start_datetime, hour_start)
+                overlap_end = min(end_datetime, hour_end)
+                overlap_minutes = (overlap_end - overlap_start).total_seconds() / 60
+                
+                # Calculate precipitation contribution based on overlap
+                precipitation_contribution = (record.total_precipitation or 0) * (overlap_minutes / 60)
+                total_precipitation += precipitation_contribution
+                
+                # Track maximum probability
+                max_pop = max(max_pop, record.pop)
+                
+                hourly_details.append({
+                    'timestamp': record.timestamp.strftime('%H:%M'),
+                    'total_precipitation': record.total_precipitation,
+                    'overlap_minutes': overlap_minutes,
+                    'contribution': precipitation_contribution,
+                    'pop': record.pop
+                })
             
-            # Calculate overlap duration in minutes
-            overlap_start = max(start_datetime, hour_start)
-            overlap_end = min(end_datetime, hour_end)
-            overlap_minutes = (overlap_end - overlap_start).total_seconds() / 60
-            
-            # Calculate precipitation contribution based on overlap
-            precipitation_contribution = (record.total_precipitation or 0) * (overlap_minutes / 60)
-            total_precipitation += precipitation_contribution
-            
-            # Track maximum probability
-            max_pop = max(max_pop, record.pop)
-            
-            hourly_details.append({
-                'timestamp': record.timestamp.strftime('%H:%M'),
-                'total_precipitation': record.total_precipitation,
-                'overlap_minutes': overlap_minutes,
-                'contribution': precipitation_contribution,
-                'pop': record.pop
-            })
-        
-        result = {
-            'icon': weather_records[0].weather_icon,
-            'pop': max_pop,
-            'precipitation': round(total_precipitation, 2)
-        }
-        
-        if include_details:
-            return {
-                'available': True,
-                'date': date.strftime('%Y-%m-%d'),
-                'startTime': start_time.strftime('%H:%M'),
-                'endTime': end_time.strftime('%H:%M'),
-                'calculation_details': {
-                    'data_type': 'hourly',
-                    'hourly_used': hourly_details
-                },
-                'result': result
+            result = {
+                'icon': weather_records[0].weather_icon,
+                'pop': max_pop,
+                'precipitation': round(total_precipitation, 2)
             }
+            
+            if include_details:
+                return {
+                    'available': True,
+                    'date': date.strftime('%Y-%m-%d'),
+                    'startTime': start_time.strftime('%H:%M'),
+                    'endTime': end_time.strftime('%H:%M'),
+                    'calculation_details': {
+                        'data_type': 'hourly',
+                        'hourly_used': hourly_details
+                    },
+                    'result': result
+                }
+            return result
         
-        return result
+        # Try daily data as final fallback
+        daily_record = Weather.query.filter(
+            Weather.timestamp == datetime.combine(date, time.min),
+            Weather.forecast_type == 'daily'
+        ).first()
+        
+        if daily_record:
+            app.logger.debug("[WEATHER] Using daily data as fallback")
+            result = {
+                'icon': daily_record.weather_icon,
+                'pop': daily_record.pop,
+                'precipitation': round(daily_record.total_precipitation, 2)
+            }
+            
+            if include_details:
+                return {
+                    'available': True,
+                    'date': date.strftime('%Y-%m-%d'),
+                    'startTime': start_time.strftime('%H:%M'),
+                    'endTime': end_time.strftime('%H:%M'),
+                    'calculation_details': {
+                        'data_type': 'daily',
+                        'daily_used': {
+                            'timestamp': daily_record.timestamp.strftime('%Y-%m-%d'),
+                            'total_precipitation': daily_record.total_precipitation,
+                            'pop': daily_record.pop
+                        }
+                    },
+                    'result': result
+                }
+            return result
+        
+        return None
+
 
 
 
