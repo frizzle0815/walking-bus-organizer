@@ -595,7 +595,9 @@
     .weather-icon {
         width: 30px;
         height: 30px;
-        vertical-align: middle;
+        -webkit-transform: translateZ(0); /* Mobile performance optimization */
+        transform: translateZ(0);
+        will-change: transform; /* Hints browser to optimize rendering */
     }
 
     #weather-info {
@@ -1384,7 +1386,11 @@ function render_summaryCard(dailyStatus) {
             <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
             <div class="d-flex align-items-center gap-2">
                 <span class="badge bg-light text-dark" id="weather-info">
-                    <img src="/static/icons/weather/${dailyStatus.weather?.icon || 'unknown'}.svg" alt="weather" class="weather-icon">
+                    <img 
+                        src="/static/icons/weather/${dailyStatus.weather?.icon || 'clear-day'}.svg"
+                        alt="Weather icon" 
+                        style="width: 30px; height: 30px;"
+                    >
                     <span>${(dailyStatus.weather?.pop * 100 || 0).toFixed(1)}%</span>
                     <span>${dailyStatus.weather?.precipitation || 0}mm</span>
                 </span>

@@ -60,6 +60,7 @@
             <div class="day-calculations" id="dayAfterTomorrow"></div>
             <div class="day-calculations" id="dayAfterAfterTomorrow"></div>
             <div class="day-calculations" id="dayAfterAfterAfterTomorrow"></div>
+            <div class="day-calculations" id="dayAfterAfterAfterAfterTomorrow"></div>
         </div>
     </div>
 
@@ -88,7 +89,7 @@ async function loadCalculationDetails() {
         const response = await fetch('/api/weather/calculations');
         const data = await response.json();
         
-        ['today', 'tomorrow', 'dayAfterTomorrow', 'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow'].forEach(day => {
+        ['today', 'tomorrow', 'dayAfterTomorrow', 'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow', 'dayAfterAfterAfterAfterTomorrow'].forEach(day => {
             const dayData = data[day];
             const container = document.getElementById(day);
             

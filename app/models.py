@@ -160,7 +160,7 @@ class Weather(db.Model):
     precipitation = db.Column(db.Float, default=0.0)
     total_precipitation = db.Column(db.Float, nullable=True)
     pop = db.Column(db.Float, nullable=True)
-    weather_icon = db.Column(db.String(10), nullable=True)
+    weather_icon = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=get_current_time)
 
     def __repr__(self):

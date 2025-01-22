@@ -224,7 +224,9 @@ def create_app():
     # 6. Initialize scheduler
     with app.app_context():
         def init_scheduler():
-            reconfigure_weather_scheduler(app)
+            # Only initialize scheduler in main process, not in reloader
+            if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+                reconfigure_weather_scheduler(app)
         init_scheduler()
 
     # 7. Register blueprints

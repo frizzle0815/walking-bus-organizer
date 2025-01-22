@@ -938,11 +938,18 @@ def get_weather_calculations():
         (current_time + timedelta(days=1)).date(),
         (current_time + timedelta(days=2)).date(),
         (current_time + timedelta(days=3)).date(),
-        (current_time + timedelta(days=4)).date()
+        (current_time + timedelta(days=4)).date(),
+        (current_time + timedelta(days=5)).date(),
     ]
     
-    day_keys = ['today', 'tomorrow', 'dayAfterTomorrow', 
-                'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow']
+    day_keys = [
+        'today', 
+        'tomorrow', 
+        'dayAfterTomorrow',
+        'dayAfterAfterTomorrow', 
+        'dayAfterAfterAfterTomorrow',
+        'dayAfterAfterAfterAfterTomorrow'
+    ]
     
     result = {}
     for i, date_key in enumerate(day_keys):
@@ -988,79 +995,6 @@ def weather_debug():
     }
     
     return jsonify(response)
-
-
-def get_earliest_minutely_update_time():
-    """Get time when minutely updates should start (1h before earliest end time)"""
-    current_time = get_current_time()
-    weekday = WEEKDAY_MAPPING[current_time.weekday()]
-    
-    # Get all active schedules for today
-    schedules = WalkingBusSchedule.query.filter(
-        getattr(WalkingBusSchedule, weekday) == True
-    ).all()
-    
-    if not schedules:
-        return None
-    
-    # Get all end times for today
-    end_times = [getattr(schedule, f"{weekday}_end") for schedule in schedules]
-    earliest_end = min(end_times)
-    
-    # Calculate when minutely updates should start
-    return datetime.combine(current_time.date(), earliest_end) - timedelta(hours=1)
-
-def should_update_minutely():
-    """Check if we're in any bus's critical time window"""
-    current_time = get_current_time()
-    weekday = WEEKDAY_MAPPING[current_time.weekday()]
-    
-    # Get all active schedules for today
-    schedules = WalkingBusSchedule.query.filter(
-        getattr(WalkingBusSchedule, weekday) == True
-    ).all()
-    
-    if not schedules:
-        return False
-    
-    # Get latest end time
-    end_times = [getattr(schedule, f"{weekday}_end") for schedule in schedules]
-    latest_end = max(end_times)
-    latest_end_datetime = datetime.combine(current_time.date(), latest_end)
-    
-    # Get earliest end time for start of minutely updates
-    earliest_end = min(end_times)
-    minutely_start = datetime.combine(current_time.date(), earliest_end) - timedelta(hours=1)
-    
-    # Check if current time is within any critical window
-    return minutely_start <= current_time <= latest_end_datetime
-
-
-def weather_update_worker():
-    """Background worker for weather updates"""
-    while True:
-        weather_service = WeatherService()
-        current_time = get_current_time()
-        
-        # Perform weather update
-        update_success = weather_service.update_weather()
-        
-        if update_success:
-            # Create weather update message
-            update_message = {
-                "type": "weather_update",
-                "timestamp": current_time.isoformat(),
-                "status": "success"
-            }
-            
-            # Publish to Redis channel that SSE is listening on
-            redis_client.publish('status_updates', json.dumps(update_message))
-            
-            # Sleep based on schedule requirements
-            if should_update_minutely():
-                time.sleep(60)  # 1 minute
-            else:
-                time.sleep(3600)  # 1 hour
 
 
 
