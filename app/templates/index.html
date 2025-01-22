@@ -801,10 +801,12 @@ async function loadInitialData() {
         });
 
         // Use pre-calculated weather data directly
-        const weatherData = weatherResponse.data ? {
-            icon: weatherResponse.data.icon,
-            pop: weatherResponse.data.pop,
-            precipitation: weatherResponse.data.precipitation
+        const weatherData = weatherResponse.data?.status === 'success' && weatherResponse.data?.data ? {
+            data: {
+                icon: weatherResponse.data.data.icon,
+                pop: weatherResponse.data.data.pop,
+                precipitation: weatherResponse.data.data.precipitation
+            }
         } : null;
 
         const enhancedDailyStatus = {
@@ -1042,10 +1044,12 @@ async function selectDay(dateStr) {
         const dailyStatus = {
             ...dailyStatusResponse.data,
             currentDate: dateStr,
-            weather: weatherResponse ? {
-                icon: weatherResponse.icon,
-                pop: Number(weatherResponse.pop),
-                precipitation: Number(weatherResponse.precipitation)
+            weather: weatherResponse?.status === 'success' && weatherResponse?.data ? {
+                data: {
+                    icon: weatherResponse.data.icon,
+                    pop: Number(weatherResponse.data.pop),
+                    precipitation: Number(weatherResponse.data.precipitation)
+                }
             } : null,
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
@@ -1443,8 +1447,6 @@ async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus) {
 
 
 function render_summaryCard(dailyStatus, statsTotal) {
-    console.log('[RENDER] Weather data in summary:', dailyStatus.weather);
-    
     const card = document.createElement('div');
     card.classList.add('station-card');
     card.id = 'summary-card';
@@ -1452,30 +1454,28 @@ function render_summaryCard(dailyStatus, statsTotal) {
     const header = document.createElement('div');
     header.classList.add('station-header', 'summary-header');
     
-    // Check for valid weather data
-    const hasValidWeather = dailyStatus.weather?.icon &&
-                           (dailyStatus.weather.pop !== undefined ||
-                            dailyStatus.weather.precipitation !== undefined);
+    // Update validation to match the WeatherCalculation model structure
+    const hasValidWeather = dailyStatus.weather?.data?.icon && 
+                           dailyStatus.weather.data.pop !== undefined && 
+                           dailyStatus.weather.data.precipitation !== undefined;
 
-    // Create header content with consistent DOM structure
     header.innerHTML = `
         <h5 class="d-flex justify-content-between align-items-center mb-0">
             <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
             <div class="d-flex align-items-center gap-2">
-                <img src="/static/icons/weather/${hasValidWeather ? dailyStatus.weather.icon : 'clear-day'}.svg"
-                    alt="Weather icon"
-                    class="weather-icon"
-                    style="display: ${hasValidWeather ? 'block' : 'none'}">
-                <span class="badge ${hasValidWeather ? 'bg-light text-dark' : 'bg-secondary text-light'}"
-                      id="weather-info">
-                    ${hasValidWeather ? `
-                        <span>${Math.round(dailyStatus.weather.pop * 100)}%</span>
-                        <span>${Number(dailyStatus.weather.precipitation).toFixed(2)}mm</span>
-                    ` : `
-                        <i class="fas fa-cloud-slash me-1"></i>
-                        keine Wetter-Daten
-                    `}
-                </span>
+                ${hasValidWeather ? `
+                    <img src="/static/icons/weather/${dailyStatus.weather.data.icon}.svg"
+                         alt="Weather icon"
+                         class="weather-icon">
+                    <span class="badge bg-light text-dark" id="weather-info">
+                        <span>${Math.round(dailyStatus.weather.data.pop * 100)}%</span>
+                        <span>${Number(dailyStatus.weather.data.precipitation).toFixed(2)}mm</span>
+                    </span>
+                ` : `
+                    <span class="badge bg-secondary text-light" id="weather-info">
+                        Keine Wetter-Daten
+                    </span>
+                `}
                 <span class="badge bg-light text-dark" id="stats-total">${statsTotal}</span>
             </div>
         </h5>
@@ -1489,6 +1489,7 @@ function render_summaryCard(dailyStatus, statsTotal) {
     
     return card;
 }
+
 
 
 function render_alertsContainer(dailyStatus) {
@@ -2650,37 +2651,34 @@ async function updateWeatherDisplay(date) {
         const response = await fetch(`/api/weather?date=${formattedDate}`);
         const data = await response.json();
         
-        console.log('[WEATHER] Found weather data:', data);
-
         const weatherInfo = document.getElementById('weather-info');
         const weatherIcon = document.querySelector('.weather-icon');
 
-        if (data && data.icon) {
-            // Valid weather data exists - show full weather info
-            if (weatherIcon) {
-                weatherIcon.style.display = 'block';
-                weatherIcon.src = `/static/icons/weather/${data.icon}.svg`;
-            }
+        // Check if we have valid weather data in the response
+        const hasValidWeather = data?.status === 'success' && 
+                              data?.data?.icon && 
+                              data?.data?.pop !== undefined && 
+                              data?.data?.precipitation !== undefined;
+
+        if (hasValidWeather) {
+            // Show weather icon and data
+            weatherIcon.style.display = 'block';
+            weatherIcon.src = `/static/icons/weather/${data.data.icon}.svg`;
             
             weatherInfo.className = 'badge bg-light text-dark';
             weatherInfo.innerHTML = `
-                <span>${Math.round(data.pop * 100)}%</span>
-                <span>${Number(data.precipitation).toFixed(2)}mm</span>
+                <span>${Math.round(data.data.pop * 100)}%</span>
+                <span>${Number(data.data.precipitation).toFixed(2)}mm</span>
             `;
         } else {
-            // No weather data - show error state
-            if (weatherIcon) {
-                weatherIcon.style.display = 'none';
-            }
-            
+            // Show "keine Wetter-Daten" when no valid data
+            weatherIcon.style.display = 'none';
             weatherInfo.className = 'badge bg-secondary text-light';
             weatherInfo.innerHTML = `
                 <i class="fas fa-cloud-slash me-1"></i>
-                keine Wetter-Daten
+                Keine Wetter-Daten
             `;
         }
-        
-        weatherInfo.classList.remove('d-none');
     } catch (error) {
         console.error('[WEATHER] Error:', error);
     }

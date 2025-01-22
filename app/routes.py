@@ -828,36 +828,44 @@ def get_bus_weather():
     bus_id = get_current_walking_bus_id()
     date = request.args.get('date')
     
-    print(f"[WEATHER FETCH] Fetching weather for bus_id: {bus_id}, date: {date}")
+    print(f"[WEATHER] Fetching for bus_id: {bus_id}, date: {date}")
     
     try:
         date_obj = datetime.strptime(date, '%Y-%m-%d').date()
-        print(f"[WEATHER FETCH] Parsed date: {date_obj}")
         
-        # Get the most recent calculation for this date/bus combination
         calculation = WeatherCalculation.query.filter_by(
             walking_bus_id=bus_id,
             date=date_obj
         ).order_by(WeatherCalculation.last_updated.desc()).first()
         
         if calculation:
-            print(f"[WEATHER FETCH] Found calculation: type={calculation.calculation_type}, "
-                  f"precipitation={calculation.precipitation}, pop={calculation.pop}, "
-                  f"last_updated={calculation.last_updated}")
+            print(f"[WEATHER] Found: type={calculation.calculation_type}, "
+                  f"precip={calculation.precipitation}, pop={calculation.pop}")
+            
             return jsonify({
-                'icon': calculation.icon,
-                'precipitation': calculation.precipitation,
-                'pop': calculation.pop,
-                'calculation_type': calculation.calculation_type,
-                'last_updated': calculation.last_updated.isoformat()
+                'status': 'success',
+                'data': {
+                    'icon': calculation.icon,
+                    'precipitation': calculation.precipitation,
+                    'pop': calculation.pop,
+                    'calculation_type': calculation.calculation_type,
+                    'last_updated': calculation.last_updated.isoformat()
+                }
             })
         
-        print(f"[WEATHER FETCH] No calculation found for bus {bus_id} on {date_obj}")
-        return jsonify(None)
+        print(f"[WEATHER] No data for bus {bus_id} on {date_obj}")
+        return jsonify({
+            'status': 'success',
+            'data': None,
+            'message': 'No weather data available yet'
+        })
         
     except ValueError:
-        print(f"[WEATHER FETCH] Invalid date format: {date}")
-        return jsonify({'error': 'Invalid date format'}), 400
+        print(f"[WEATHER] Invalid date format: {date}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid date format'
+        }), 400
 
 
 @bp.route("/api/weather/update", methods=["POST"])
