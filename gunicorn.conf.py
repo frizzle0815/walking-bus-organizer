@@ -1,21 +1,43 @@
 from gevent import monkey
 monkey.patch_all()
 
+
+# Worker lifecycle handlers
+def on_starting(server):
+    """Set up environment before any workers start"""
+    import os
+    os.environ['GUNICORN_WORKER_ID'] = '0'
+
+
+def worker_int(worker):
+    """Clean shutdown of worker"""
+    from app import scheduler
+    if scheduler.running:
+        scheduler.shutdown()
+
+
+def worker_abort(worker):
+    """Emergency shutdown of worker"""
+    from app import scheduler
+    if scheduler.running:
+        scheduler.shutdown()
+
+
 # Gunicorn configuration
 worker_class = 'gevent'
 workers = 4
 bind = "0.0.0.0:8000"
 keepalive = 5
 
-# Increase timeout for streaming connections
+# Streaming settings
 worker_connections = 1000
 timeout = 300
 
-# Add logging configuration
-loglevel = "warning" # info oder warning
-accesslog = "-"  # "-" means stdout
-errorlog = "-"   # "-" means stderr
+# Logging configuration
+loglevel = "warning"
+accesslog = "-"
+errorlog = "-"
 access_log_format = '%({X-Forwarded-For}i)s %(l)s %(t)s "%(r)s" %(s)s %(b)s'
 
-# Preload app to ensure scheduler runs only once
+# Application loading
 preload_app = True

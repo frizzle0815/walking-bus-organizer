@@ -80,86 +80,95 @@ class RequestFormatter(logging.Formatter):
 
 
 def reconfigure_weather_scheduler(app):
-    with app.app_context():
-        if scheduler.running:
-            scheduler.remove_job('weather_update')
-            
-        from .services.weather_service import WeatherService
-        from .models import WalkingBusSchedule
-        weather_service = WeatherService()
-        
-        def perform_weather_update():
-            with app.app_context():  # Add this if not present
-                success = weather_service.update_weather()
-                if success:
-                    redis_client.publish('status_updates', json.dumps({
-                        "type": "weather_update",
-                        "timestamp": get_current_time().isoformat(),
-                        "status": "success"
-                    }))
-                    app.logger.info("[SCHEDULER] Weather update successful")
-                else:
-                    app.logger.warning("[SCHEDULER] Weather update failed")
+    # Add lock mechanism for scheduler configuration
+    lock_key = "scheduler_config_lock"
+    if redis_client.set(lock_key, 'locked', ex=30, nx=True):
+        try:
+            with app.app_context():
+                if scheduler.running:
+                    scheduler.remove_job('weather_update')
+                    app.logger.info("[SCHEDULER] Removed existing weather update job")
+                
+                from .services.weather_service import WeatherService
+                from .models import WalkingBusSchedule
+                
+                # Initialize service with retry mechanism
+                weather_service = WeatherService()
+                
+                def perform_weather_update():
+                    try:
+                        with app.app_context():
+                            success = weather_service.update_weather()
+                            if success:
+                                redis_client.publish('status_updates', json.dumps({
+                                    "type": "weather_update",
+                                    "timestamp": get_current_time().isoformat(),
+                                    "status": "success"
+                                }))
+                                app.logger.info("[SCHEDULER] Weather update successful")
+                            else:
+                                app.logger.warning("[SCHEDULER] Weather update failed")
+                    except Exception as e:
+                        app.logger.error(f"[SCHEDULER] Error in weather update: {str(e)}")
 
-        # Get all schedules and log initial scan
-        schedules = WalkingBusSchedule.query.all()
-        app.logger.info(f"[SCHEDULER] Reconfiguring scheduler with {len(schedules)} walking bus schedules")
-        
-        earliest_time = time(23, 59)
-        latest_time = time(0, 0)
-        active_days = set()
-        
-        # Log schedule analysis
-        for schedule in schedules:
-            app.logger.info(f"[SCHEDULER] Analyzing schedule for walking bus {schedule.walking_bus_id}")
-            for day in WEEKDAY_MAPPING.values():
-                if getattr(schedule, day):
-                    active_days.add(day[:3].lower())
-                    day_start = getattr(schedule, f"{day}_start")
-                    day_end = getattr(schedule, f"{day}_end")
-                    app.logger.info(f"[SCHEDULER] {day}: {day_start} - {day_end}")
+                # Configure schedule with error handling
+                try:
+                    schedules = WalkingBusSchedule.query.all()
+                    app.logger.info(f"[SCHEDULER] Found {len(schedules)} walking bus schedules")
                     
-                    earliest_time = min(earliest_time, day_start)
-                    latest_time = max(latest_time, day_end)
-        
-        minutely_window_start = (earliest_time.hour - 1)
-        minutely_window_end = latest_time.hour
-        active_days_str = ','.join(sorted(active_days))
-        
-        # Log final scheduler configuration
-        app.logger.info(f"""[SCHEDULER] New configuration:
-            Active Days: {active_days_str}
-            Minutely Updates: {minutely_window_start}:00 - {minutely_window_end}:00
-            Earliest Schedule: {earliest_time}
-            Latest Schedule: {latest_time}
-        """)
-        
-        scheduler.add_job(
-            func=perform_weather_update,
-            trigger=OrTrigger([
-                CronTrigger(
-                    day_of_week=active_days_str,
-                    hour=f'{minutely_window_start}-{minutely_window_end}',
-                    minute='*'
-                ),
-                CronTrigger(
-                    day_of_week='mon-sun',
-                    hour='*',
-                    minute='0'
-                )
-            ]),
-            id='weather_update'
-        )
-
-        print(f"[SCHEDULER-DEBUG] Found {len(schedules)} schedules")
-        print(f"[SCHEDULER-DEBUG] Active days: {active_days_str}")
-        print(f"[SCHEDULER-DEBUG] Time window: {minutely_window_start}:00 - {minutely_window_end}:00")
-        
-        if not scheduler.running:
-            scheduler.start()
-            app.logger.info("[SCHEDULER] Weather update scheduler started")
-        else:
-            app.logger.info("[SCHEDULER] Weather update scheduler reconfigured")
+                    # Schedule analysis
+                    earliest_time = time(23, 59)
+                    latest_time = time(0, 0)
+                    active_days = set()
+                    
+                    for schedule in schedules:
+                        for day in WEEKDAY_MAPPING.values():
+                            if getattr(schedule, day):
+                                active_days.add(day[:3].lower())
+                                day_start = getattr(schedule, f"{day}_start")
+                                day_end = getattr(schedule, f"{day}_end")
+                                earliest_time = min(earliest_time, day_start)
+                                latest_time = max(latest_time, day_end)
+                    
+                    minutely_window_start = max(0, earliest_time.hour - 1)
+                    minutely_window_end = min(23, latest_time.hour + 1)
+                    active_days_str = ','.join(sorted(active_days)) or 'mon-sun'
+                    
+                    # Add job with both triggers
+                    scheduler.add_job(
+                        func=perform_weather_update,
+                        trigger=OrTrigger([
+                            CronTrigger(
+                                day_of_week=active_days_str,
+                                hour=f'{minutely_window_start}-{minutely_window_end}',
+                                minute='*'
+                            ),
+                            CronTrigger(
+                                day_of_week='mon-sun',
+                                hour='*',
+                                minute='0'
+                            )
+                        ]),
+                        id='weather_update',
+                        max_instances=1,
+                        coalesce=True,
+                        misfire_grace_time=300
+                    )
+                    
+                    if not scheduler.running:
+                        scheduler.start()
+                        app.logger.info("[SCHEDULER] Weather update scheduler started")
+                    else:
+                        app.logger.info("[SCHEDULER] Weather update scheduler reconfigured")
+                        
+                except Exception as e:
+                    app.logger.error(f"[SCHEDULER] Configuration error: {str(e)}")
+                    raise
+                    
+        finally:
+            redis_client.delete(lock_key)
+    else:
+        app.logger.info("[SCHEDULER] Another process is configuring the scheduler")
 
 
 def create_app():
@@ -225,8 +234,13 @@ def create_app():
     # 6. Initialize scheduler
     with app.app_context():
         def init_scheduler():
-            # Only initialize scheduler in main process, not in reloader
-            if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+            is_gunicorn = "gunicorn" in os.environ.get("SERVER_SOFTWARE", "")
+            if is_gunicorn:
+                if os.environ.get('GUNICORN_WORKER_ID') == '0':
+                    app.logger.info("[SCHEDULER] Initializing in main Gunicorn worker")
+                    reconfigure_weather_scheduler(app)
+            elif not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+                app.logger.info("[SCHEDULER] Initializing in development environment")
                 reconfigure_weather_scheduler(app)
         init_scheduler()
 
