@@ -778,31 +778,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadInitialData() {
     console.log('[INITIAL_LOAD] Starting initial data load');
+    const stationsContainer = document.getElementById('stations');
+    const tempContainer = document.createElement('div');
+    tempContainer.style.display = 'none';
+    document.body.appendChild(tempContainer);
+
     try {
-        // Load all required data in parallel for better performance
-        const [initialResponse, weekResponse, weatherResponse] = await Promise.all([
+        // Load all data in parallel
+        const [initialResponse, weekResponse, weatherData] = await Promise.all([
             axios.get('/api/initial-load'),
             axios.get('/api/week-overview'),
-            axios.get('/api/weather/calculations')
+            fetch('/api/weather/calculations').then(r => r.json())
         ]);
         
-        // Get daily status for current day
+        const currentDate = new Date().toISOString().split('T')[0];
         const dailyStatusResponse = await axios.get('/api/daily-status', {
-            params: { date: new Date().toISOString().split('T')[0] }
+            params: { date: currentDate }
         });
 
         // Find weather data for current date
-        const currentDate = new Date().toISOString().split('T')[0];
-        const weatherEntry = Object.values(weatherResponse.data)
+        const weatherEntry = Object.values(weatherData)
             .find(entry => entry.date === currentDate);
-        const weatherData = weatherEntry?.result;
 
         const enhancedDailyStatus = {
             ...dailyStatusResponse.data,
             weather: {
-                icon: weatherData?.icon || 'clear-day',
-                pop: weatherData?.pop || 0,
-                precipitation: weatherData?.precipitation || 0
+                icon: weatherEntry?.result?.icon || 'clear-day',
+                pop: Number(weatherEntry?.result?.pop || 0),
+                precipitation: Number(weatherEntry?.result?.precipitation || 0).toFixed(1)
             },
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
@@ -821,57 +824,75 @@ async function loadInitialData() {
             weekOverview: weekResponse.data
         };
 
+        // Render everything into hidden container
         await renderFullView(
             window.appState.stations,
             enhancedDailyStatus,
-            weekResponse.data
+            weekResponse.data,
+            tempContainer
         );
 
-        const firstDayWrapper = document.querySelector('.week .calendar-day-wrapper:first-child');
+        // Single DOM update with complete content
+        stationsContainer.replaceChildren(...tempContainer.children);
+
+        // Set selected day
+        const firstDayWrapper = stationsContainer.querySelector('.week .calendar-day-wrapper:first-child');
         if (firstDayWrapper) {
             firstDayWrapper.classList.add('selected-day');
         }
-        
+
         return initialResponse.data;
+
     } catch (error) {
         console.error('[INITIAL_LOAD] Error:', error);
         throw error;
+    } finally {
+        tempContainer.remove();
     }
 }
 
 
-async function renderFullView(stations, dailyStatus, weekData) {
-    const stationsContainer = document.getElementById('stations');
-    
-    // Pre-calculate all needed data
+async function renderFullView(stations, dailyStatus, weekData, targetContainer = document.getElementById('stations')) {
+    // Pre-calculate stats
     const totalParticipants = stations.reduce((sum, station) =>
         sum + station.participants.length, 0);
     const activeParticipants = stations.reduce((sum, station) =>
         sum + station.participants.filter(p =>
             dailyStatus.participantStates[p.id]).length, 0);
-    
-    // Create basic structure with pre-calculated stats
+
+    // Create all elements
     const summaryCard = render_summaryCard(
-        dailyStatus, 
-        `${activeParticipants} / ${totalParticipants}`,
-        true  // skipWeather flag
+        dailyStatus,
+        `${activeParticipants} / ${totalParticipants}`
     );
     
     const weekOverview = render_WeekOverview(weekData, dailyStatus.currentDate);
+    const weekContainer = summaryCard.querySelector('.week-container');
+    
+    // Add event delegation to week container
+    weekContainer.addEventListener('click', (e) => {
+        const wrapper = e.target.closest('.calendar-day-wrapper');
+        if (wrapper && !isSelectionInProgress) {
+            const dateStr = wrapper.querySelector('.calendar-day').dataset.date;
+            selectDay(dateStr);
+        }
+    });
+
     const alertsContainer = render_alertsContainer(dailyStatus);
     const stationCards = stations.map(station =>
         render_stationCard(station, dailyStatus)
     );
 
-    // DOM updates
-    stationsContainer.innerHTML = '';
-    summaryCard.querySelector('.week-container').appendChild(weekOverview);
-    stationsContainer.appendChild(summaryCard);
-    stationsContainer.appendChild(alertsContainer);
-    stationCards.forEach(card => stationsContainer.appendChild(card));
+    // Build complete view
+    weekContainer.appendChild(weekOverview);
+    
+    // Clear and update target container
+    targetContainer.innerHTML = '';
+    targetContainer.appendChild(summaryCard);
+    targetContainer.appendChild(alertsContainer);
+    stationCards.forEach(card => targetContainer.appendChild(card));
 
-    // Update all dynamic elements
-    await updateWeatherDisplay(dailyStatus.currentDate);
+    // Update UI elements
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
     stations.forEach(station => updateStationStats(station.id));
@@ -1002,31 +1023,28 @@ async function selectDay(dateStr) {
     isSelectionInProgress = true;
 
     const { allWrappers, loadingOverlay } = setupLoadingState(dateStr);
+    const stationsContainer = document.getElementById('stations');
+    const tempContainer = document.createElement('div');
+    tempContainer.style.display = 'none';
+    document.body.appendChild(tempContainer);
     
     try {
-        // Load data simultaneously
-        const [dailyStatusResponse, weatherResponse] = await Promise.all([
+        // Load all data first
+        const [dailyStatusResponse, weatherData] = await Promise.all([
             axios.get('/api/daily-status', { params: { date: dateStr } }),
-            axios.get('/api/weather/calculations')
+            fetch('/api/weather/calculations').then(r => r.json())
         ]);
         
-        // Log the weather data structure
-        console.log('[WEATHER] Full response:', weatherResponse.data);
-        
-        const weatherEntry = Object.values(weatherResponse.data)
-        .find(entry => entry.date === dateStr);
-
-        // Get weather for specific date
-        const weatherData = weatherEntry?.result;
-        console.log('[WEATHER] Found weather data2:', weatherData);
-
+        const weatherEntry = Object.values(weatherData)
+            .find(entry => entry.date === dateStr);
+            
         const dailyStatus = {
             ...dailyStatusResponse.data,
             currentDate: dateStr,
             weather: {
-                icon: weatherData?.icon || 'clear-day',
-                pop: weatherData?.pop || 0,
-                precipitation: weatherData?.precipitation || 0
+                icon: weatherEntry?.result?.icon || 'clear-day',
+                pop: Number(weatherEntry?.result?.pop || 0),
+                precipitation: Number(weatherEntry?.result?.precipitation || 0).toFixed(1)
             },
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
@@ -1038,18 +1056,22 @@ async function selectDay(dateStr) {
             reason_type: dailyStatusResponse.data.stateReason
         };
 
-        console.log('[WEATHER] Prepared dailyStatus:', dailyStatus.weather);
-
+        // Render everything into hidden container
         await renderFullView(
             window.appState.stations,
             dailyStatus,
-            window.appState.weekOverview
+            window.appState.weekOverview,
+            tempContainer
         );
+
+        // Single DOM update with complete content
+        stationsContainer.replaceChildren(...tempContainer.children);
 
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);
         showErrorMessage('Fehler beim Laden der Daten');
     } finally {
+        tempContainer.remove();
         loadingOverlay.remove();
         allWrappers.forEach(wrapper => {
             wrapper.style.pointerEvents = 'auto';
@@ -1057,6 +1079,7 @@ async function selectDay(dateStr) {
         isSelectionInProgress = false;
     }
 }
+
 
 
 function setupLoadingState(dateStr) {
@@ -2628,7 +2651,7 @@ async function updateWeatherDisplay(date) {
             // Update weather info badge
             weatherInfo.innerHTML = `
                 <span>${(weatherEntry.result.pop * 100).toFixed(1)}%</span>
-                <span>${weatherEntry.result.precipitation}mm</span>
+                <span>${Number(weatherEntry.result.precipitation).toFixed(1)}mm</span>
             `;
             
             weatherInfo.classList.remove('d-none');
