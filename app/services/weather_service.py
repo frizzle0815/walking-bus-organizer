@@ -128,7 +128,7 @@ WEATHER_ICON_MAP = {
 
 class WeatherService:
     RATE_LIMIT_KEY = "weather_api_last_call"
-    RATE_LIMIT_SECONDS = 5  # 5 minutes, 300 seconds
+    RATE_LIMIT_SECONDS = 30
 
     def __init__(self):
         self.api_key = os.environ.get('OPENWEATHER_API_KEY')
@@ -142,8 +142,16 @@ class WeatherService:
         last_call = redis_client.get(self.RATE_LIMIT_KEY)
         print(f"[WEATHER] Last call timestamp: {last_call}")
         
+        # Always update timestamp when checking
+        current_timestamp = get_current_time().timestamp()
+        
         if not last_call:
-            print("[WEATHER] No previous call found, allowing fetch")
+            print("[WEATHER] No previous call found, setting initial timestamp")
+            redis_client.set(
+                self.RATE_LIMIT_KEY,
+                current_timestamp,
+                ex=self.RATE_LIMIT_SECONDS * 2
+            )
             return True
         
         last_call_time = datetime.fromtimestamp(float(last_call), tz=TIMEZONE)
@@ -152,23 +160,37 @@ class WeatherService:
         
         can_fetch = time_passed.total_seconds() >= self.RATE_LIMIT_SECONDS
         print(f"[WEATHER] Can fetch weather: {can_fetch}")
+        
+        # Update timestamp if we're allowing the fetch
+        if can_fetch:
+            redis_client.set(
+                self.RATE_LIMIT_KEY,
+                current_timestamp,
+                ex=self.RATE_LIMIT_SECONDS * 2
+            )
+        
         return can_fetch
 
     def update_last_fetch_time(self):
         """Update the timestamp of last API call"""
+        current_timestamp = get_current_time().timestamp()
         redis_client.set(
-            self.RATE_LIMIT_KEY, 
-            get_current_time().timestamp(), 
-            ex=self.RATE_LIMIT_SECONDS
+            self.RATE_LIMIT_KEY,
+            current_timestamp,
+            ex=self.RATE_LIMIT_SECONDS * 2
         )
+        # Notify frontend only here, after successful data processing
+        redis_client.publish('status_updates', json.dumps({
+            "type": "weather_update",
+            "timestamp": get_current_time().isoformat(),
+            "status": "success"
+        }))
 
     def fetch_weather_data(self):
         """Fetches weather data from OpenWeatherMap API with rate limiting"""
         app.logger.info("[WEATHER] Starting weather data fetch")
-        if not self.can_fetch_weather():
-            app.logger.info("[WEATHER] Rate limit in effect, skipping fetch")
-            return None
-
+        
+        # Rate limiting check moved to update_weather()
         params = {
             'lat': self.lat,
             'lon': self.lon,
@@ -183,7 +205,6 @@ class WeatherService:
             app.logger.info("[WEATHER] Making API request")
             response = requests.get(self.base_url, params=params)
             response.raise_for_status()
-            self.update_last_fetch_time()
             app.logger.info("[WEATHER] API request successful")
             return response.json()
         except requests.RequestException as e:
@@ -191,108 +212,130 @@ class WeatherService:
             return None
 
     def update_weather(self):
+        LOCK_KEY = "weather_update_lock"
+        LOCK_TIMEOUT = 10  # seconds
+        
         print("[WEATHER] Starting weather update process")
-        print("[WEATHER] About to check database count")
         
+        # Try to acquire lock
+        lock_acquired = redis_client.set(
+            LOCK_KEY, 
+            'locked', 
+            ex=LOCK_TIMEOUT, 
+            nx=True
+        )
+        
+        if not lock_acquired:
+            print("[WEATHER] Another process is updating weather data")
+            return False
+            
         try:
-            # Initial state check with error handling
+            # Initial database state check
             initial_count = Weather.query.count()
-            print("[WEATHER] Successfully got count")
             print(f"[WEATHER] Initial database record count: {initial_count}")
-        except Exception as e:
-            print(f"[WEATHER] Error getting count: {str(e)}")
-            return False
 
-        print("[WEATHER] About to check rate limit")
-        
-        try:
-            # Rate limit check with error handling
-            can_fetch = self.can_fetch_weather()
-            print(f"[WEATHER] Can fetch weather: {can_fetch}")
-        except Exception as e:
-            print(f"[WEATHER] Error checking rate limit: {str(e)}")
-            return False
+            # Rate limit check
+            if not self.can_fetch_weather():
+                print("[WEATHER] Rate limit in effect, skipping update")
+                return False
 
-        if not can_fetch:
-            print("[WEATHER] Rate limit in effect, skipping update")
-            return False
-        
-        # Fetch new data
-        print("[WEATHER] Fetching weather data")
-        data = self.fetch_weather_data()
-        if not data:
-            print("[WEATHER] No data received from API")
-            return False
+            # Fetch new data
+            print("[WEATHER] Fetching weather data")
+            data = self.fetch_weather_data()
+            if not data:
+                print("[WEATHER] No data received from API")
+                return False
 
-        try:
-            # Clean up old records with verification
+            # Clean up old records first
             print("[WEATHER] Starting cleanup of old records")
             self.cleanup_old_records()
-            after_cleanup = Weather.query.count()
-            print(f"[WEATHER] Records after cleanup: {after_cleanup}")
-
-            # Process and collect records
-            records_to_save = []
             
-            if 'minutely' in data:
-                minutely_records = self.process_minutely(data['minutely'])
-                print(f"[WEATHER] Processed {len(minutely_records)} minutely records")
-                records_to_save.extend(minutely_records)
+            # Process records
+            records_to_save = []
+            for data_type in ['minutely', 'hourly', 'daily']:
+                if data_type in data:
+                    processor = getattr(self, f'process_{data_type}')
+                    records = processor(data[data_type])
+                    print(f"[WEATHER] Processed {len(records)} {data_type} records")
+                    records_to_save.extend(records)
 
-            if 'hourly' in data:
-                hourly_records = self.process_hourly(data['hourly'])
-                print(f"[WEATHER] Processed {len(hourly_records)} hourly records")
-                records_to_save.extend(hourly_records)
-
-            if 'daily' in data:
-                daily_records = self.process_daily(data['daily'])
-                print(f"[WEATHER] Processed {len(daily_records)} daily records")
-                records_to_save.extend(daily_records)
-
-            # Bulk save with verification
+            # Save records
             if records_to_save:
                 print(f"[WEATHER] Saving {len(records_to_save)} total records")
                 db.session.bulk_save_objects(records_to_save)
                 db.session.commit()
-                print("[WEATHER] Successfully saved all records")
 
-            # Verify database state
-            current_records = Weather.query.all()
-            verification = {
-                'minutely': [r for r in current_records if r.forecast_type == 'minutely'],
-                'hourly': [r for r in current_records if r.forecast_type == 'hourly'],
-                'daily': [r for r in current_records if r.forecast_type == 'daily']
-            }
-
-            # Detailed verification logging
-            print("[WEATHER] Database verification results:")
-            for forecast_type, records in verification.items():
-                print(f"[WEATHER] {forecast_type.capitalize()} records: {len(records)}")
-                if records:
-                    latest = records[-1]
-                    print(f"[WEATHER] Latest {forecast_type} record: {latest.timestamp}")
-                    print(f"[WEATHER] Sample icon: {latest.weather_icon}")
-
-            total_saved = sum(len(records) for records in verification.values())
-            print(f"[WEATHER] Final database record count: {total_saved}")
+            # Verify after commit
+            self._verify_database_state()
             
-            # Update last fetch time and notify frontend
-            self.update_last_fetch_time()
+            # Update Redis and notify under lock
             print("[WEATHER] Publishing update notification")
+            redis_client.set(
+                self.RATE_LIMIT_KEY,
+                get_current_time().timestamp(),
+                ex=self.RATE_LIMIT_SECONDS * 2
+            )
+            
+            # Single notification under lock
             redis_client.publish('status_updates', json.dumps({
                 "type": "weather_update",
                 "timestamp": get_current_time().isoformat(),
                 "status": "success"
             }))
-            
+
             return True
 
         except Exception as e:
             print(f"[WEATHER] Error during update: {str(e)}")
-            print(f"[WEATHER] Error type: {type(e).__name__}")
-            print(f"[WEATHER] Traceback: {traceback.format_exc()}")
             db.session.rollback()
             return False
+            
+        finally:
+            # Always release lock
+            redis_client.delete(LOCK_KEY)
+
+    def _verify_database_state(self):
+        """Helper method for database state verification"""
+        current_records = Weather.query.all()
+        verification = {
+            'minutely': [r for r in current_records if r.forecast_type == 'minutely'],
+            'hourly': [r for r in current_records if r.forecast_type == 'hourly'],
+            'daily': [r for r in current_records if r.forecast_type == 'daily']
+        }
+
+        print("[WEATHER] Database verification results:")
+        for forecast_type, records in verification.items():
+            print(f"[WEATHER] {forecast_type.capitalize()} records: {len(records)}")
+            if records:
+                latest = records[-1]
+                print(f"[WEATHER] Latest {forecast_type} record: {latest.timestamp}")
+                print(f"[WEATHER] Sample icon: {latest.weather_icon}")
+
+        total_saved = sum(len(records) for records in verification.values())
+        print(f"[WEATHER] Final database record count: {total_saved}")
+
+
+
+    def _verify_database_state(self):
+        """Helper method for database state verification"""
+        current_records = Weather.query.all()
+        verification = {
+            'minutely': [r for r in current_records if r.forecast_type == 'minutely'],
+            'hourly': [r for r in current_records if r.forecast_type == 'hourly'],
+            'daily': [r for r in current_records if r.forecast_type == 'daily']
+        }
+
+        print("[WEATHER] Database verification results:")
+        for forecast_type, records in verification.items():
+            print(f"[WEATHER] {forecast_type.capitalize()} records: {len(records)}")
+            if records:
+                latest = records[-1]
+                print(f"[WEATHER] Latest {forecast_type} record: {latest.timestamp}")
+                print(f"[WEATHER] Sample icon: {latest.weather_icon}")
+
+        total_saved = sum(len(records) for records in verification.values())
+        print(f"[WEATHER] Final database record count: {total_saved}")
+
 
 
     def convert_timestamp(self, unix_timestamp):

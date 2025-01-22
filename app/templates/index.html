@@ -2477,6 +2477,7 @@ function initializeViewToggle() {
     });
 }
 
+let lastWeatherTimestamp = null;
 
 function initializeSSE() {
     console.log('[SSE] Initializing server connection');
@@ -2499,9 +2500,16 @@ function initializeSSE() {
                 SSE_updateTimeDisplay(data.time);
                 break;
             case 'weather_update':
-                const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
-                if (selectedDate) {
-                    updateWeatherDisplay(selectedDate);
+                // Compare server timestamps instead of client time
+                if (data.timestamp !== lastWeatherTimestamp) {
+                    lastWeatherTimestamp = data.timestamp;
+                    console.log('[SSE] Processing weather update:', data.timestamp);
+                    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+                    if (selectedDate) {
+                        updateWeatherDisplay(selectedDate);
+                    }
+                } else {
+                    console.log('[SSE] Skipping duplicate weather update:', data.timestamp);
                 }
                 break;
         }
