@@ -59,6 +59,15 @@
         color: white;
     }
 
+    /* Special für Datumsanzeige */
+    .station-header h5 span:first-child {
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+        min-width: 0;
+        margin-right: 8px; /* Space between date and weather info */
+    }
+
     /* Base styles */
     .participants-list {
         perspective: 400px;
@@ -1009,7 +1018,7 @@ async function selectDay(dateStr) {
 
         // Get weather for specific date
         const weatherData = weatherEntry?.result;
-        console.log('[WEATHER] Found weather data:', weatherData);
+        console.log('[WEATHER] Found weather data2:', weatherData);
 
         const dailyStatus = {
             ...dailyStatusResponse.data,
@@ -2456,7 +2465,10 @@ function initializeSSE() {
                 SSE_updateTimeDisplay(data.time);
                 break;
             case 'weather_update':
-                updateWeatherDisplay(window.appState.currentDate);
+                const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+                if (selectedDate) {
+                    updateWeatherDisplay(selectedDate);
+                }
                 break;
         }
     };
@@ -2602,7 +2614,7 @@ async function updateWeatherDisplay(date) {
         const weatherEntry = Object.values(data)
             .find(entry => entry.date === formattedDate);
             
-        console.log('[WEATHER] Found weather data:', weatherEntry?.result);
+        console.log('[WEATHER] Found weather data1:', weatherEntry?.result);
 
         if (weatherEntry?.result) {
             const weatherInfo = document.getElementById('weather-info');

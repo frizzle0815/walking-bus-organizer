@@ -89,16 +89,17 @@ def reconfigure_weather_scheduler(app):
         weather_service = WeatherService()
         
         def perform_weather_update():
-            success = weather_service.update_weather()
-            if success:
-                redis_client.publish('status_updates', json.dumps({
-                    "type": "weather_update",
-                    "timestamp": get_current_time().isoformat(),
-                    "status": "success"
-                }))
-                app.logger.info("[SCHEDULER] Weather update successful")
-            else:
-                app.logger.warning("[SCHEDULER] Weather update failed")
+            with app.app_context():  # Add this if not present
+                success = weather_service.update_weather()
+                if success:
+                    redis_client.publish('status_updates', json.dumps({
+                        "type": "weather_update",
+                        "timestamp": get_current_time().isoformat(),
+                        "status": "success"
+                    }))
+                    app.logger.info("[SCHEDULER] Weather update successful")
+                else:
+                    app.logger.warning("[SCHEDULER] Weather update failed")
 
         # Get all schedules and log initial scan
         schedules = WalkingBusSchedule.query.all()
