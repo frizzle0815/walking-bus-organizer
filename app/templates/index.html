@@ -593,18 +593,28 @@
     }
 
     .weather-icon {
-        width: 30px;
-        height: 30px;
-        -webkit-transform: translateZ(0); /* Mobile performance optimization */
-        transform: translateZ(0);
-        will-change: transform; /* Hints browser to optimize rendering */
+        width: 56px;
+        height: 56px;
+        position: absolute;
+        transform: translateY(-50%);
+        top: 50%;
+        right: calc(100% + 2px); /* Positions icon to the left with 8px gap */
+        z-index: 1;
+    }
+
+    .station-header h5 .d-flex {
+        position: relative;
+        margin-left: 50px; /* Creates space for the icon */
     }
 
     #weather-info {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.25rem;
+        height: 24px;
+        padding: 0 0.5rem;
     }
+
 
     #weather-pop::after {
         content: '%';
@@ -760,28 +770,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadInitialData() {
     console.log('[INITIAL_LOAD] Starting initial data load');
     try {
-        // First get structural data
-        const [initialResponse, weekResponse] = await Promise.all([
-            axios.get('/api/initial-load'),  // Just stations and participants
-            axios.get('/api/week-overview')
+        // Load all required data in parallel for better performance
+        const [initialResponse, weekResponse, weatherResponse] = await Promise.all([
+            axios.get('/api/initial-load'),
+            axios.get('/api/week-overview'),
+            axios.get('/api/weather/calculations')
         ]);
         
-        // Then get current day status
+        // Get daily status for current day
         const dailyStatusResponse = await axios.get('/api/daily-status', {
             params: { date: new Date().toISOString().split('T')[0] }
         });
 
-        console.log('[DAILY_STATUS] Full response:', {
-            stateReason: dailyStatusResponse.data.stateReason,
-            reason: dailyStatusResponse.data.reason,
-            holidayData: dailyStatusResponse.data.holidayData,
-            isWalkingBusDay: dailyStatusResponse.data.isWalkingBusDay,
-            schedule: dailyStatusResponse.data.schedule,
-            fullData: dailyStatusResponse.data
-        });
+        // Find weather data for current date
+        const currentDate = new Date().toISOString().split('T')[0];
+        const weatherEntry = Object.values(weatherResponse.data)
+            .find(entry => entry.date === currentDate);
+        const weatherData = weatherEntry?.result;
 
         const enhancedDailyStatus = {
             ...dailyStatusResponse.data,
+            weather: {
+                icon: weatherData?.icon || 'clear-day',
+                pop: weatherData?.pop || 0,
+                precipitation: weatherData?.precipitation || 0
+            },
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
                 dailyStatusResponse.data.holidayData,
@@ -818,32 +831,40 @@ async function loadInitialData() {
 }
 
 
-
 async function renderFullView(stations, dailyStatus, weekData) {
     const stationsContainer = document.getElementById('stations');
-    stationsContainer.innerHTML = '';
-
-    // 1. Create all elements first
-    const summaryCard = render_summaryCard(dailyStatus);
+    
+    // Pre-calculate all needed data
+    const totalParticipants = stations.reduce((sum, station) =>
+        sum + station.participants.length, 0);
+    const activeParticipants = stations.reduce((sum, station) =>
+        sum + station.participants.filter(p =>
+            dailyStatus.participantStates[p.id]).length, 0);
+    
+    // Create basic structure with pre-calculated stats
+    const summaryCard = render_summaryCard(
+        dailyStatus, 
+        `${activeParticipants} / ${totalParticipants}`,
+        true  // skipWeather flag
+    );
+    
     const weekOverview = render_WeekOverview(weekData, dailyStatus.currentDate);
     const alertsContainer = render_alertsContainer(dailyStatus);
-    const stationCards = stations.map(station => 
+    const stationCards = stations.map(station =>
         render_stationCard(station, dailyStatus)
     );
 
-    // 2. Append everything at once
+    // DOM updates
+    stationsContainer.innerHTML = '';
     summaryCard.querySelector('.week-container').appendChild(weekOverview);
     stationsContainer.appendChild(summaryCard);
     stationsContainer.appendChild(alertsContainer);
     stationCards.forEach(card => stationsContainer.appendChild(card));
 
-    // 3. Post-render updates
-    //updateAllParticipantStates(dailyStatus);
+    // Update all dynamic elements
     await updateWeatherDisplay(dailyStatus.currentDate);
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
-    
-    // 4. Update Statistics
     stations.forEach(station => updateStationStats(station.id));
     updateTotalStats();
 }
@@ -971,17 +992,33 @@ async function selectDay(dateStr) {
     console.log('[SELECT_DAY] Starting selection for date:', dateStr);
     isSelectionInProgress = true;
 
-    // Setup loading state first
     const { allWrappers, loadingOverlay } = setupLoadingState(dateStr);
     
     try {
-        const dailyStatusResponse = await axios.get('/api/daily-status', {
-            params: { date: dateStr }
-        });
+        // Load data simultaneously
+        const [dailyStatusResponse, weatherResponse] = await Promise.all([
+            axios.get('/api/daily-status', { params: { date: dateStr } }),
+            axios.get('/api/weather/calculations')
+        ]);
         
+        // Log the weather data structure
+        console.log('[WEATHER] Full response:', weatherResponse.data);
+        
+        const weatherEntry = Object.values(weatherResponse.data)
+        .find(entry => entry.date === dateStr);
+
+        // Get weather for specific date
+        const weatherData = weatherEntry?.result;
+        console.log('[WEATHER] Found weather data:', weatherData);
+
         const dailyStatus = {
             ...dailyStatusResponse.data,
             currentDate: dateStr,
+            weather: {
+                icon: weatherData?.icon || 'clear-day',
+                pop: weatherData?.pop || 0,
+                precipitation: weatherData?.precipitation || 0
+            },
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
                 dailyStatusResponse.data.holidayData,
@@ -991,6 +1028,8 @@ async function selectDay(dateStr) {
             ),
             reason_type: dailyStatusResponse.data.stateReason
         };
+
+        console.log('[WEATHER] Prepared dailyStatus:', dailyStatus.weather);
 
         await renderFullView(
             window.appState.stations,
@@ -1002,7 +1041,6 @@ async function selectDay(dateStr) {
         console.error('[SELECT_DAY] Error:', error);
         showErrorMessage('Fehler beim Laden der Daten');
     } finally {
-        // Cleanup loading state
         loadingOverlay.remove();
         allWrappers.forEach(wrapper => {
             wrapper.style.pointerEvents = 'auto';
@@ -1010,8 +1048,6 @@ async function selectDay(dateStr) {
         isSelectionInProgress = false;
     }
 }
-
-
 
 
 function setupLoadingState(dateStr) {
@@ -1374,27 +1410,33 @@ async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus) {
 }
 
 
-function render_summaryCard(dailyStatus) {
+function render_summaryCard(dailyStatus, statsTotal) {
+    console.log('[RENDER] Weather data in summary:', dailyStatus.weather);
+    
     const card = document.createElement('div');
     card.classList.add('station-card');
     card.id = 'summary-card';
 
     const header = document.createElement('div');
     header.classList.add('station-header', 'summary-header');
+    
+    // Ensure weather values are properly formatted
+    const weatherIcon = dailyStatus.weather?.icon || 'clear-day';
+    const precipitation = Number(dailyStatus.weather?.precipitation || 0).toFixed(1);
+    const pop = Number(dailyStatus.weather?.pop || 0) * 100;
+
     header.innerHTML = `
         <h5 class="d-flex justify-content-between align-items-center mb-0">
             <span>${formatServerDate(new Date(dailyStatus.currentDate))}</span>
             <div class="d-flex align-items-center gap-2">
+                <img src="/static/icons/weather/${weatherIcon}.svg"
+                    alt="Weather icon"
+                    class="weather-icon">
                 <span class="badge bg-light text-dark" id="weather-info">
-                    <img 
-                        src="/static/icons/weather/${dailyStatus.weather?.icon || 'clear-day'}.svg"
-                        alt="Weather icon" 
-                        style="width: 30px; height: 30px;"
-                    >
-                    <span>${(dailyStatus.weather?.pop * 100 || 0).toFixed(1)}%</span>
-                    <span>${dailyStatus.weather?.precipitation || 0}mm</span>
+                    <span>${pop.toFixed(1)}%</span>
+                    <span>${precipitation}mm</span>
                 </span>
-                <span class="badge bg-light text-dark" id="stats-total"></span>
+                <span class="badge bg-light text-dark" id="stats-total">${statsTotal}</span>
             </div>
         </h5>
     `;
@@ -1810,7 +1852,7 @@ function formatServerDate(date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
     
-    return `${dayName}, ${day}.${month}.${year}`;
+    return `${day}.${month}.${year}`;
 }
 
 
@@ -2550,25 +2592,33 @@ window.addEventListener('pageshow', (event) => {
 
 async function updateWeatherDisplay(date) {
     try {
-        // Ensure consistent date format
-        const formattedDate = date.includes('T') ? 
-            date.split('T')[0] : 
-            date;
-            
+        const formattedDate = date.includes('T') ? date.split('T')[0] : date;
         console.log('[WEATHER] Updating display for date:', formattedDate);
         
         const response = await fetch(`/api/weather/calculations`);
         const data = await response.json();
         
-        // Find matching day data
-        const dayData = Object.values(data).find(d => d.date === formattedDate);
-        if (dayData?.result) {
+        // Find weather entry for current date
+        const weatherEntry = Object.values(data)
+            .find(entry => entry.date === formattedDate);
+            
+        console.log('[WEATHER] Found weather data:', weatherEntry?.result);
+
+        if (weatherEntry?.result) {
             const weatherInfo = document.getElementById('weather-info');
+            const weatherIcon = document.querySelector('.weather-icon');
+            
+            // Update icon
+            if (weatherIcon) {
+                weatherIcon.src = `/static/icons/weather/${weatherEntry.result.icon}.svg`;
+            }
+            
+            // Update weather info badge
             weatherInfo.innerHTML = `
-                <img src="/static/icons/weather/${dayData.result.icon}.svg" alt="weather" class="weather-icon">
-                <span>${(dayData.result.pop * 100).toFixed(1)}%</span>
-                <span>${dayData.result.precipitation}mm</span>
+                <span>${(weatherEntry.result.pop * 100).toFixed(1)}%</span>
+                <span>${weatherEntry.result.precipitation}mm</span>
             `;
+            
             weatherInfo.classList.remove('d-none');
         }
     } catch (error) {

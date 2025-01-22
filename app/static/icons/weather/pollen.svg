@@ -1,8 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512">
     <defs>
-        <symbol id="a" viewBox="0 0 304 96" overflow="visible">
+        <linearGradient id="a" x1="145" y1="3.14" x2="161" y2="30.86" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#fbbf24"/>
+            <stop offset="0.45" stop-color="#fbbf24"/>
+            <stop offset="1" stop-color="#f59e0b"/>
+        </linearGradient>
+        <linearGradient id="b" x1="190.33" y1="54.52" x2="211.67" y2="91.48" xlink:href="#a"/>
+        <linearGradient id="c" x1="94.33" y1="54.52" x2="115.67" y2="91.48" xlink:href="#a"/>
+        <linearGradient id="d" x1="9" y1="67.14" x2="25" y2="94.86" xlink:href="#a"/>
+        <linearGradient id="e" x1="281" y1="67.14" x2="297" y2="94.86" xlink:href="#a"/>
+        <linearGradient id="f" x1="227.67" y1="15.76" x2="238.33" y2="34.24" xlink:href="#a"/>
+        <linearGradient id="g" x1="67.67" y1="15.76" x2="78.33" y2="34.24" xlink:href="#a"/>
+        <symbol id="h" viewBox="0 0 306 98" overflow="visible">
             <!-- pollen-1 -->
-            <circle cx="152" cy="16" r="16" fill="#f8af18">
+            <circle cx="153" cy="17" r="16" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#a)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -15,7 +26,7 @@
             </circle>
 
             <!-- pollen-2 -->
-            <circle cx="200" cy="72" r="21.33" fill="#f8af18">
+            <circle cx="201" cy="73" r="21.33" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#b)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -28,7 +39,7 @@
             </circle>
 
             <!-- pollen-3 -->
-            <circle cx="104" cy="72" r="21.33" fill="#f8af18">
+            <circle cx="105" cy="73" r="21.33" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#c)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -41,7 +52,7 @@
             </circle>
 
             <!-- pollen-4 -->
-            <circle cx="16" cy="80" r="16" fill="#f8af18">
+            <circle cx="17" cy="81" r="16" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#d)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -54,7 +65,7 @@
             </circle>
 
             <!-- pollen-5 -->
-            <circle cx="288" cy="80" r="16" fill="#f8af18">
+            <circle cx="289" cy="81" r="16" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#e)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -67,7 +78,7 @@
             </circle>
 
             <!-- pollen-6 -->
-            <circle cx="232" cy="24" r="10.67" fill="#f8af18">
+            <circle cx="233" cy="25" r="10.67" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#f)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -80,7 +91,7 @@
             </circle>
 
             <!-- pollen-7 -->
-            <circle cx="72" cy="24" r="10.67" fill="#f8af18">
+            <circle cx="73" cy="25" r="10.67" stroke="#f8af18" stroke-miterlimit="10" stroke-width="2" fill="url(#g)">
                 <animateTransform
                     attributeName="transform"
                     type="translate"
@@ -93,5 +104,5 @@
             </circle>
         </symbol>
     </defs>
-    <use width="304" height="96" transform="translate(104 208)" xlink:href="#a"/>
+    <use width="306" height="98" transform="translate(103 207)" xlink:href="#h"/>
 </svg>
