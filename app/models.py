@@ -164,4 +164,21 @@ class Weather(db.Model):
     created_at = db.Column(db.DateTime, default=get_current_time)
 
     def __repr__(self):
-        return f'<Weather {self.forecast_type} {self.timestamp}: {self.precipitation if self.forecast_type == "minutely" else self.total_precipitation} mm/h>'
+        precipitation = (self.precipitation 
+                        if self.forecast_type == "minutely" 
+                        else self.total_precipitation)
+        return (f'<Weather {self.forecast_type} {self.timestamp}: '
+                f'{precipitation} mm/h>')
+
+
+class WeatherCalculation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False) 
+    icon = db.Column(db.String(50))
+    precipitation = db.Column(db.Float)
+    pop = db.Column(db.Float)
+    calculation_type = db.Column(db.String(20))  # 'minutely' or 'hourly'
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (db.UniqueConstraint('walking_bus_id', 'date'),)

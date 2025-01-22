@@ -785,10 +785,14 @@ async function loadInitialData() {
 
     try {
         // Load all data in parallel
-        const [initialResponse, weekResponse, weatherData] = await Promise.all([
+        const [initialResponse, weekResponse, weatherResponse] = await Promise.all([
             axios.get('/api/initial-load'),
             axios.get('/api/week-overview'),
-            fetch('/api/weather/calculations').then(r => r.json())
+            axios.get('/api/weather', {
+                params: { 
+                    date: new Date().toISOString().split('T')[0] 
+                }
+            })
         ]);
         
         const currentDate = new Date().toISOString().split('T')[0];
@@ -796,17 +800,16 @@ async function loadInitialData() {
             params: { date: currentDate }
         });
 
-        // Find weather data for current date
-        const weatherEntry = Object.values(weatherData)
-            .find(entry => entry.date === currentDate);
+        // Use pre-calculated weather data directly
+        const weatherData = weatherResponse.data ? {
+            icon: weatherResponse.data.icon,
+            pop: weatherResponse.data.pop,
+            precipitation: weatherResponse.data.precipitation
+        } : null;
 
         const enhancedDailyStatus = {
             ...dailyStatusResponse.data,
-            weather: weatherEntry?.result ? {
-                icon: weatherEntry.result.icon,
-                pop: Number(weatherEntry.result.pop),
-                precipitation: Number(weatherEntry.result.precipitation).toFixed(1)
-            } : null,
+            weather: weatherData,
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
                 dailyStatusResponse.data.holidayData,
@@ -850,6 +853,7 @@ async function loadInitialData() {
         tempContainer.remove();
     }
 }
+
 
 
 async function renderFullView(stations, dailyStatus, weekData, targetContainer = document.getElementById('stations')) {
@@ -1029,22 +1033,19 @@ async function selectDay(dateStr) {
     document.body.appendChild(tempContainer);
     
     try {
-        // Load all data first
-        const [dailyStatusResponse, weatherData] = await Promise.all([
+        // Load all data in parallel
+        const [dailyStatusResponse, weatherResponse] = await Promise.all([
             axios.get('/api/daily-status', { params: { date: dateStr } }),
-            fetch('/api/weather/calculations').then(r => r.json())
+            fetch(`/api/weather?date=${dateStr}`).then(r => r.json())
         ]);
         
-        const weatherEntry = Object.values(weatherData)
-            .find(entry => entry.date === dateStr);
-            
         const dailyStatus = {
             ...dailyStatusResponse.data,
             currentDate: dateStr,
-            weather: weatherEntry?.result ? {
-                icon: weatherEntry.result.icon,
-                pop: Number(weatherEntry.result.pop),
-                precipitation: Number(weatherEntry.result.precipitation).toFixed(1)
+            weather: weatherResponse ? {
+                icon: weatherResponse.icon,
+                pop: Number(weatherResponse.pop),
+                precipitation: Number(weatherResponse.precipitation)
             } : null,
             reason: createReasonMap(
                 dailyStatusResponse.data.stateReason,
@@ -1079,7 +1080,6 @@ async function selectDay(dateStr) {
         isSelectionInProgress = false;
     }
 }
-
 
 
 function setupLoadingState(dateStr) {
@@ -1453,7 +1453,7 @@ function render_summaryCard(dailyStatus, statsTotal) {
     header.classList.add('station-header', 'summary-header');
     
     // Check for valid weather data
-    const hasValidWeather = dailyStatus.weather?.icon && 
+    const hasValidWeather = dailyStatus.weather?.icon &&
                            (dailyStatus.weather.pop !== undefined ||
                             dailyStatus.weather.precipitation !== undefined);
 
@@ -1466,11 +1466,11 @@ function render_summaryCard(dailyStatus, statsTotal) {
                     alt="Weather icon"
                     class="weather-icon"
                     style="display: ${hasValidWeather ? 'block' : 'none'}">
-                <span class="badge ${hasValidWeather ? 'bg-light text-dark' : 'bg-secondary text-light'}" 
+                <span class="badge ${hasValidWeather ? 'bg-light text-dark' : 'bg-secondary text-light'}"
                       id="weather-info">
                     ${hasValidWeather ? `
-                        <span>${(dailyStatus.weather.pop * 100).toFixed(1)}%</span>
-                        <span>${Number(dailyStatus.weather.precipitation).toFixed(1)}mm</span>
+                        <span>${Math.round(dailyStatus.weather.pop * 100)}%</span>
+                        <span>${Number(dailyStatus.weather.precipitation).toFixed(2)}mm</span>
                     ` : `
                         <i class="fas fa-cloud-slash me-1"></i>
                         keine Wetter-Daten
@@ -1481,11 +1481,9 @@ function render_summaryCard(dailyStatus, statsTotal) {
         </h5>
     `;
 
-    // Create week container
     const weekContainer = document.createElement('div');
     weekContainer.classList.add('week-container', 'list-group', 'list-group-flush', 'participants-list');
 
-    // Assemble card
     card.appendChild(header);
     card.appendChild(weekContainer);
     
@@ -2649,28 +2647,25 @@ async function updateWeatherDisplay(date) {
         const formattedDate = date.includes('T') ? date.split('T')[0] : date;
         console.log('[WEATHER] Updating display for date:', formattedDate);
         
-        const response = await fetch(`/api/weather/calculations`);
+        const response = await fetch(`/api/weather?date=${formattedDate}`);
         const data = await response.json();
         
-        const weatherEntry = Object.values(data)
-            .find(entry => entry.date === formattedDate);
-            
-        console.log('[WEATHER] Found weather data:', weatherEntry?.result);
+        console.log('[WEATHER] Found weather data:', data);
 
         const weatherInfo = document.getElementById('weather-info');
         const weatherIcon = document.querySelector('.weather-icon');
 
-        if (weatherEntry?.result) {
+        if (data && data.icon) {
             // Valid weather data exists - show full weather info
             if (weatherIcon) {
                 weatherIcon.style.display = 'block';
-                weatherIcon.src = `/static/icons/weather/${weatherEntry.result.icon}.svg`;
+                weatherIcon.src = `/static/icons/weather/${data.icon}.svg`;
             }
             
             weatherInfo.className = 'badge bg-light text-dark';
             weatherInfo.innerHTML = `
-                <span>${(weatherEntry.result.pop * 100).toFixed(1)}%</span>
-                <span>${Number(weatherEntry.result.precipitation).toFixed(1)}mm</span>
+                <span>${Math.round(data.pop * 100)}%</span>
+                <span>${Number(data.precipitation).toFixed(2)}mm</span>
             `;
         } else {
             // No weather data - show error state

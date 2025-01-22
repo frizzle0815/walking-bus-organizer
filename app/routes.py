@@ -11,7 +11,7 @@ from .models import (
     CalendarStatus, WalkingBusSchedule, 
     SchoolHoliday, WalkingBusOverride, 
     DailyNote, TempToken, AuthToken,
-    Weather
+    Weather, WeatherCalculation
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -824,38 +824,40 @@ def get_daily_status():
 
 @bp.route('/api/weather')
 @require_auth
-def get_weather():
-    # Get date parameter and validate
+def get_bus_weather():
+    bus_id = get_current_walking_bus_id()
     date = request.args.get('date')
-    current_app.logger.info(f"[WEATHER] Requesting weather data for date: {date}")
-    if not date:
-        return jsonify({'error': 'Date required'}), 400
+    
+    print(f"[WEATHER FETCH] Fetching weather for bus_id: {bus_id}, date: {date}")
+    
+    try:
+        date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+        print(f"[WEATHER FETCH] Parsed date: {date_obj}")
         
-    # Get walking bus ID from session
-    walking_bus_id = session.get('walking_bus_id')
-    current_app.logger.info(f"[WEATHER] Walking bus ID: {walking_bus_id}")
-    if not walking_bus_id:
-        return jsonify({'error': 'No walking bus selected'}), 401
-
-    # Parse date string to date object
-    date_obj = datetime.strptime(date, '%Y-%m-%d').date()
-    
-    # Get schedule for this walking bus
-    schedule = WalkingBusSchedule.query.filter_by(
-        walking_bus_id=walking_bus_id
-    ).first()
-    
-    if not schedule:
+        # Get the most recent calculation for this date/bus combination
+        calculation = WeatherCalculation.query.filter_by(
+            walking_bus_id=bus_id,
+            date=date_obj
+        ).order_by(WeatherCalculation.last_updated.desc()).first()
+        
+        if calculation:
+            print(f"[WEATHER FETCH] Found calculation: type={calculation.calculation_type}, "
+                  f"precipitation={calculation.precipitation}, pop={calculation.pop}, "
+                  f"last_updated={calculation.last_updated}")
+            return jsonify({
+                'icon': calculation.icon,
+                'precipitation': calculation.precipitation,
+                'pop': calculation.pop,
+                'calculation_type': calculation.calculation_type,
+                'last_updated': calculation.last_updated.isoformat()
+            })
+        
+        print(f"[WEATHER FETCH] No calculation found for bus {bus_id} on {date_obj}")
         return jsonify(None)
-    
-    # Initialize weather service and get data
-    weather_service = WeatherService()
-    weather_data = weather_service.get_weather_for_timeframe(
-        date_obj,
-        schedule
-    )
-    
-    return jsonify(weather_data)
+        
+    except ValueError:
+        print(f"[WEATHER FETCH] Invalid date format: {date}")
+        return jsonify({'error': 'Invalid date format'}), 400
 
 
 @bp.route("/api/weather/update", methods=["POST"])

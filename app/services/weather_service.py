@@ -1,5 +1,5 @@
-from .. import WEEKDAY_MAPPING, get_current_time, TIMEZONE, redis_client
-from ..models import Weather, db
+from .. import WEEKDAY_MAPPING, get_current_time, get_current_date, TIMEZONE, redis_client
+from ..models import db, Weather, WeatherCalculation, WalkingBus, WalkingBusSchedule
 from datetime import datetime, timedelta, time
 from flask import current_app as app
 import requests
@@ -217,11 +217,11 @@ class WeatherService:
         
         print("[WEATHER] Starting weather update process")
         
-        # Try to acquire lock
+        # Keep the lock mechanism for API rate limiting
         lock_acquired = redis_client.set(
-            LOCK_KEY, 
-            'locked', 
-            ex=LOCK_TIMEOUT, 
+            LOCK_KEY,
+            'locked',
+            ex=LOCK_TIMEOUT,
             nx=True
         )
         
@@ -230,27 +230,19 @@ class WeatherService:
             return False
             
         try:
-            # Initial database state check
-            initial_count = Weather.query.count()
-            print(f"[WEATHER] Initial database record count: {initial_count}")
-
-            # Rate limit check
+            # Process raw weather data as before
             if not self.can_fetch_weather():
                 print("[WEATHER] Rate limit in effect, skipping update")
                 return False
 
-            # Fetch new data
-            print("[WEATHER] Fetching weather data")
             data = self.fetch_weather_data()
             if not data:
                 print("[WEATHER] No data received from API")
                 return False
 
-            # Clean up old records first
-            print("[WEATHER] Starting cleanup of old records")
+            # Clean and save raw weather records
             self.cleanup_old_records()
-            
-            # Process records
+            self.cleanup_old_calculations()
             records_to_save = []
             for data_type in ['minutely', 'hourly', 'daily']:
                 if data_type in data:
@@ -259,24 +251,85 @@ class WeatherService:
                     print(f"[WEATHER] Processed {len(records)} {data_type} records")
                     records_to_save.extend(records)
 
-            # Save records
             if records_to_save:
                 print(f"[WEATHER] Saving {len(records_to_save)} total records")
                 db.session.bulk_save_objects(records_to_save)
                 db.session.commit()
 
-            # Verify after commit
-            self._verify_database_state()
+            # New: Calculate and store weather for each walking bus
+            print("[WEATHER] Starting weather calculations for walking buses")
+            buses = WalkingBus.query.all()
+            calculations_to_save = []
             
-            # Update Redis and notify under lock
-            print("[WEATHER] Publishing update notification")
+            print("[WEATHER] Cleaning up existing calculations")
+            for bus in buses:
+                current_date = get_current_date()
+                end_date = current_date + timedelta(days=6)
+                WeatherCalculation.query.filter(
+                    WeatherCalculation.walking_bus_id == bus.id,
+                    WeatherCalculation.date >= current_date,
+                    WeatherCalculation.date <= end_date
+                ).delete()
+            db.session.commit()
+
+            for bus in buses:
+                print(f"[WEATHER] Processing calculations for bus {bus.id}")
+                schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
+                
+                # Calculate for next 6 days
+                current_date = get_current_date()
+                for i in range(6):
+                    target_date = current_date + timedelta(days=i)
+                    
+                    # Get weather calculation
+                    weather_data = self.get_weather_for_timeframe(target_date, schedule, include_details=True)
+                    if not weather_data:
+                        continue
+
+                    print(f"[WEATHER CALC] Saving calculation for date {target_date}: "
+                        f"type={weather_data['calculation_details']['coverage_type']}, "
+                        f"precip={weather_data['result']['precipitation']}")
+                    
+                    # Create or update calculation record
+                    calc = WeatherCalculation.query.filter_by(
+                        walking_bus_id=bus.id,
+                        date=target_date
+                    ).first()
+                    
+                    if not calc:
+                        calc = WeatherCalculation(
+                            walking_bus_id=bus.id,
+                            date=target_date
+                        )
+                    
+                    # Store calculation results
+                    calc.icon = weather_data['result']['icon']
+                    calc.precipitation = weather_data['result']['precipitation']
+                    calc.pop = weather_data['result']['pop']
+                    calc.calculation_type = weather_data['calculation_details']['coverage_type']
+                    calc.last_updated = get_current_time()
+                    
+                    if not calc.id:  # New record
+                        calculations_to_save.append(calc)
+            
+            # Bulk save all calculations
+            if calculations_to_save:
+                print(f"[WEATHER] Saving {len(calculations_to_save)} weather calculations")
+                for calc in calculations_to_save:
+                    print(f"Bus {calc.walking_bus_id}, Date {calc.date}: {calc.calculation_type}")
+                db.session.bulk_save_objects(calculations_to_save)
+                db.session.commit()
+
+            # Verify and notify
+            self._verify_database_state()
+            self._verify_calculations_state()  # New verification method
+            
             redis_client.set(
                 self.RATE_LIMIT_KEY,
                 get_current_time().timestamp(),
                 ex=self.RATE_LIMIT_SECONDS * 2
             )
             
-            # Single notification under lock
             redis_client.publish('status_updates', json.dumps({
                 "type": "weather_update",
                 "timestamp": get_current_time().isoformat(),
@@ -291,30 +344,15 @@ class WeatherService:
             return False
             
         finally:
-            # Always release lock
             redis_client.delete(LOCK_KEY)
 
-    def _verify_database_state(self):
-        """Helper method for database state verification"""
-        current_records = Weather.query.all()
-        verification = {
-            'minutely': [r for r in current_records if r.forecast_type == 'minutely'],
-            'hourly': [r for r in current_records if r.forecast_type == 'hourly'],
-            'daily': [r for r in current_records if r.forecast_type == 'daily']
-        }
-
-        print("[WEATHER] Database verification results:")
-        for forecast_type, records in verification.items():
-            print(f"[WEATHER] {forecast_type.capitalize()} records: {len(records)}")
-            if records:
-                latest = records[-1]
-                print(f"[WEATHER] Latest {forecast_type} record: {latest.timestamp}")
-                print(f"[WEATHER] Sample icon: {latest.weather_icon}")
-
-        total_saved = sum(len(records) for records in verification.values())
-        print(f"[WEATHER] Final database record count: {total_saved}")
-
-
+    def cleanup_old_calculations(self):
+        """Remove outdated weather calculations"""
+        cutoff_date = get_current_date() - timedelta(days=1)
+        WeatherCalculation.query.filter(
+            WeatherCalculation.date < cutoff_date
+        ).delete()
+        db.session.commit()
 
     def _verify_database_state(self):
         """Helper method for database state verification"""
@@ -336,7 +374,26 @@ class WeatherService:
         total_saved = sum(len(records) for records in verification.values())
         print(f"[WEATHER] Final database record count: {total_saved}")
 
-
+    def _verify_calculations_state(self):
+        """Verify the state of weather calculations"""
+        current_date = get_current_date()
+        calculations = WeatherCalculation.query.all()
+        buses = WalkingBus.query.count()
+        
+        # Count calculations for current date
+        current_date_calcs = [c for c in calculations if c.date == current_date]
+        
+        print("[WEATHER CALC] Weather calculations verification:")
+        print(f"[WEATHER CALC] Total calculations: {len(calculations)}")
+        print(f"[WEATHER CALC] Active walking buses: {buses}")
+        print(f"[WEATHER CALC] Calculations per bus: {len(calculations)/buses if buses > 0 else 0}")
+        print(f"[WEATHER CALC] Calculations for current date ({current_date}): {len(current_date_calcs)}")
+        
+        # Verify latest calculations
+        latest = WeatherCalculation.query.order_by(WeatherCalculation.last_updated.desc()).first()
+        if latest:
+            print(f"[WEATHER CALC] Latest calculation: {latest.date} for bus {latest.walking_bus_id}")
+            print(f"[WEATHER CALC] Calculation type: {latest.calculation_type}")
 
     def convert_timestamp(self, unix_timestamp):
         """Convert UTC unix timestamp to local datetime once and for all"""
@@ -344,7 +401,6 @@ class WeatherService:
         local_time = utc_time.astimezone(TIMEZONE)
         # Return naive datetime after conversion
         return local_time.replace(tzinfo=None)
-
 
     def process_minutely(self, minutely_data):
         """Process minutely precipitation data with local timezone"""
@@ -376,7 +432,6 @@ class WeatherService:
             app.logger.debug(f"[WEATHER] Created new minutely record: timestamp={local_timestamp}, "
                             f"precipitation={minute['precipitation']}, pop={pop}")
         return records
-
 
     def process_hourly(self, hourly_data):
         records = []
@@ -425,7 +480,6 @@ class WeatherService:
         
         return records
 
-
     def process_daily(self, daily_data):
         records = []
         print(f"[WEATHER] Processing {len(daily_data)} daily records")
@@ -465,19 +519,52 @@ class WeatherService:
         
         return records
 
-
-
     def cleanup_old_records(self):
         """Remove weather records older than 1 hour"""
         cutoff_time = get_current_time() - timedelta(hours=12)
         Weather.query.filter(Weather.timestamp < cutoff_time).delete()
         db.session.commit()
 
-
-
     def get_weather_for_timeframe(self, date, schedule, include_details=False):
         """Calculate weather data for a specific timeframe with daily fallback"""
         weekday = WEEKDAY_MAPPING[date.weekday()]
+        
+        # Check if schedule is active for this day
+        is_active = getattr(schedule, weekday, False)
+        if not is_active:
+            print(f"[WEATHER] Schedule inactive for {weekday}, using daily data")
+            # Use daily data directly when schedule is inactive
+            daily_record = Weather.query.filter(
+                Weather.timestamp == datetime.combine(date, time(12, 0)),
+                Weather.forecast_type == 'daily'
+            ).first()
+            
+            if daily_record:
+                print(f"[WEATHER] Found daily record for inactive day: precipitation={daily_record.total_precipitation}, pop={daily_record.pop}")
+                result = {
+                    'icon': daily_record.weather_icon,
+                    'pop': daily_record.pop,
+                    'precipitation': round(daily_record.total_precipitation, 2)
+                }
+                
+                if include_details:
+                    return {
+                        'available': True,
+                        'date': date.strftime('%Y-%m-%d'),
+                        'calculation_details': {
+                            'coverage_type': 'daily',
+                            'data_type': 'daily',
+                            'daily_used': {
+                                'timestamp': daily_record.timestamp.strftime('%Y-%m-%d'),
+                                'total_precipitation': daily_record.total_precipitation,
+                                'pop': daily_record.pop
+                            }
+                        },
+                        'result': result
+                    }
+                return result
+                
+            return None
         
         # Get schedule times
         start_time = getattr(schedule, f"{weekday}_start")
