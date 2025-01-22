@@ -367,11 +367,14 @@ class WeatherService:
             snow = hour.get('snow', {}).get('1h', 0)
             total_precipitation = rain + snow
 
+            # Set pop to 0 if no precipitation
+            pop = 0.0 if total_precipitation == 0 else hour['pop']
+
             weather = Weather(
                 timestamp=local_timestamp,
                 forecast_type='hourly',
                 total_precipitation=total_precipitation,
-                pop=hour['pop'],
+                pop=pop,
                 weather_icon=icon_name  # Using mapped SVG icon name
             )
             records.append(weather)
@@ -405,11 +408,13 @@ class WeatherService:
             snow = day.get('snow', 0)
             total_precipitation = rain + snow
 
+            pop = 0.0 if total_precipitation == 0 else day['pop']
+
             weather = Weather(
                 timestamp=local_timestamp,
                 forecast_type='daily',
                 total_precipitation=total_precipitation,
-                pop=day['pop'],
+                pop=pop,
                 weather_icon=icon_name
             )
             records.append(weather)
