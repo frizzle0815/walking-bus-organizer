@@ -901,7 +901,11 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
     // Update UI elements
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
-    stations.forEach(station => updateStationStats(station.id));
+    console.log('[RENDER] Updating station stats after render');
+    window.appState.stations.forEach(station => {
+        console.log('[RENDER] Updating stats for station:', station.id);
+        updateStationStats(station.id);
+    });
     updateTotalStats();
 }
 
@@ -1187,19 +1191,30 @@ async function openCalendar(participantId) {
 
 
 function updateStationStats(stationId) {
+    console.log('[STATS] Updating stats for station:', stationId);
     const stationElement = document.querySelector(`[data-station-id="${stationId}"]`);
-    if (!stationElement) return;
+    
+    if (!stationElement) {
+        console.log('[STATS] Station element not found for ID:', stationId);
+        return;
+    }
 
     // Get all participants in this station
     const participants = stationElement.querySelectorAll('.participant-item');
+    console.log('[STATS] Found participants:', participants.length);
+    
     const totalParticipants = participants.length;
     const activeParticipants = Array.from(participants)
         .filter(p => p.classList.contains('participant-status-active')).length;
+
+    console.log('[STATS] Active/Total:', activeParticipants, '/', totalParticipants);
 
     // Update station stats
     const statsElement = document.getElementById(`stats-station-${stationId}`);
     if (statsElement) {
         statsElement.textContent = `${activeParticipants} / ${totalParticipants}`;
+    } else {
+        console.log('[STATS] Stats element not found for station:', stationId);
     }
 
     // Update total stats
@@ -1535,7 +1550,7 @@ function render_stationCard(station, dailyStatus) {
     card.dataset.stationId = station.id;
 
     // Station Header
-    const header = render_stationHeader(station);
+    const header = render_stationHeader(station, dailyStatus);
     card.appendChild(header);
 
     // Participants List
@@ -1554,9 +1569,15 @@ function render_stationCard(station, dailyStatus) {
 
 
 
-function render_stationHeader(station) {
+function render_stationHeader(station, dailyStatus) {
     const header = document.createElement('div');
     header.classList.add('station-header');
+    
+    // Calculate stats before rendering
+    const participants = station.participants;
+    const totalParticipants = participants.length;
+    const activeParticipants = participants.filter(p => dailyStatus.participantStates[p.id]).length;
+    
     header.innerHTML = `
         <h5 class="d-flex justify-content-between align-items-center mb-0">
             <span class="station-title">
@@ -1570,7 +1591,9 @@ function render_stationHeader(station) {
                         <span class="ms-1">${station.arrival_time}</span>
                     </span>
                 ` : ''}
-                <span class="badge bg-light text-dark" id="stats-station-${station.id}">0 / 0</span>
+                <span class="badge bg-light text-dark" id="stats-station-${station.id}">
+                    ${activeParticipants} / ${totalParticipants}
+                </span>
             </div>
         </h5>
     `;
