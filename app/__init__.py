@@ -172,6 +172,20 @@ def reconfigure_weather_scheduler(app):
         app.logger.info("[SCHEDULER] Another process is configuring the scheduler")
 
 
+def start_weather_service(app):
+    """Centralized weather service initialization and first update"""
+    from .services.weather_service import WeatherService
+    weather_service = WeatherService()
+    
+    try:
+        success = weather_service.update_weather()
+        app.logger.info(f"[SCHEDULER][WEATHER] Initial update {'successful' if success else 'failed'}")
+        return success
+    except Exception as e:
+        app.logger.error(f"[SCHEDULER][WEATHER] Initial update error: {str(e)}")
+        return False
+
+
 def create_app():
     app = Flask(__name__)
 
