@@ -157,7 +157,7 @@ def get_initial_load():
         # Check and start scheduler if not running
         if not scheduler.running:
             current_app.logger.info("[INITIAL_LOAD] Starting scheduler")
-            start_weather_service()
+            start_weather_service(current_app)
             reconfigure_weather_scheduler(current_app)
         else:
             current_app.logger.info("[INITIAL_LOAD] Scheduler already running")
