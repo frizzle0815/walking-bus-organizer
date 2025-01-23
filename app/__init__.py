@@ -249,28 +249,33 @@ def create_app():
 
         def init_scheduler():
             """Initialize the scheduler based on environment"""
+            import time
+            
             is_gunicorn = any([
                 "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""),
                 "gunicorn" in sys.argv[0].lower(),
                 os.environ.get("GUNICORN_CMD_ARGS") is not None
             ])
-            worker_id = os.environ.get('GUNICORN_WORKER_ID')
-            app.logger.info(f"[SCHEDULER] Full environment check:")
-            app.logger.info(f"[SCHEDULER] SERVER_SOFTWARE: {os.environ.get('SERVER_SOFTWARE')}")
-            app.logger.info(f"[SCHEDULER] sys.argv[0]: {sys.argv[0]}")
-            app.logger.info(f"[SCHEDULER] GUNICORN_CMD_ARGS: {os.environ.get('GUNICORN_CMD_ARGS')}")
-            app.logger.info(f"[SCHEDULER] GUNICORN_WORKER_ID: {worker_id}")
-
-            # Production environment (Gunicorn)
+            
             if is_gunicorn:
-                if worker_id == '0':
-                    app.logger.info(f"[SCHEDULER][PROD] Initializing in main worker (ID: {worker_id})")
-                    start_weather_service()
-                    reconfigure_weather_scheduler(app)
-                else:
-                    app.logger.info(f"[SCHEDULER][PROD] Skipping scheduler in worker {worker_id}")
+                max_retries = 30
+                retry_interval = 1
+                
+                for attempt in range(max_retries):
+                    worker_id = os.environ.get('GUNICORN_WORKER_ID')
+                    app.logger.info(f"[SCHEDULER] Attempt {attempt + 1}: Worker ID = {worker_id}")
                     
-            # Development environment
+                    if worker_id and int(worker_id) == 0:  # First worker
+                        app.logger.info(f"[SCHEDULER][PROD] Initializing in {worker_id} after {attempt} retries")
+                        start_weather_service()
+                        reconfigure_weather_scheduler(app)
+                        break
+                    elif worker_id is not None:
+                        app.logger.info(f"[SCHEDULER][PROD] Skipping scheduler in worker {worker_id}")
+                        break
+                    
+                    time.sleep(retry_interval)
+                    
             elif not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
                 app.logger.info("[SCHEDULER][DEV] Initializing in development mode")
                 start_weather_service()
@@ -287,3 +292,4 @@ def create_app():
         app.register_blueprint(bp)
 
         return app
+

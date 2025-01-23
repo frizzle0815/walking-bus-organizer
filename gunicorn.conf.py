@@ -27,9 +27,10 @@ def post_fork(server, worker):
     """Set worker ID after fork"""
     import os
     import logging
-    worker.worker_id = worker.age
-    os.environ['GUNICORN_WORKER_ID'] = str(worker.age)
-    logging.info(f"[WORKER] Post-fork worker {worker.age} with ID {worker.worker_id}")
+    # First worker gets ID 0, others increment from there
+    worker_id = worker.age - 1 if worker.age > 0 else 0
+    os.environ['GUNICORN_WORKER_ID'] = str(worker_id)
+    logging.info(f"[WORKER] Post-fork worker {worker.age} assigned ID {worker_id}")
 
 
 def worker_int(worker):
