@@ -9,6 +9,13 @@ def on_starting(server):
     os.environ['GUNICORN_WORKER_ID'] = '0'
 
 
+def post_fork(server, worker):
+    """Set worker ID after fork"""
+    import os
+    worker.worker_id = worker.age
+    os.environ['GUNICORN_WORKER_ID'] = str(worker.age)
+
+
 def worker_int(worker):
     """Clean shutdown of worker"""
     from app import scheduler
@@ -34,7 +41,7 @@ worker_connections = 1000
 timeout = 300
 
 # Logging configuration
-loglevel = "warning"
+loglevel = "info"  # Changed to info for better visibility
 accesslog = "-"
 errorlog = "-"
 access_log_format = '%({X-Forwarded-For}i)s %(l)s %(t)s "%(r)s" %(s)s %(b)s'

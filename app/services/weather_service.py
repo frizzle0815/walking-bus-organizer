@@ -128,7 +128,7 @@ WEATHER_ICON_MAP = {
 
 class WeatherService:
     RATE_LIMIT_KEY = "weather_api_last_call"
-    RATE_LIMIT_SECONDS = 30
+    RATE_LIMIT_SECONDS = 120
 
     def __init__(self):
         self.api_key = os.environ.get('OPENWEATHER_API_KEY')

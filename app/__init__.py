@@ -141,7 +141,7 @@ def reconfigure_weather_scheduler(app):
                             CronTrigger(
                                 day_of_week=active_days_str,
                                 hour=f'{minutely_window_start}-{minutely_window_end}',
-                                minute='*'
+                                minute='*/5'
                             ),
                             CronTrigger(
                                 day_of_week='mon-sun',
@@ -233,41 +233,47 @@ def create_app():
 
     # 6. Initialize scheduler
     with app.app_context():
+        def start_weather_service():
+            """Centralized weather service initialization and first update"""
+            from .services.weather_service import WeatherService
+            weather_service = WeatherService()
+            
+            try:
+                success = weather_service.update_weather()
+                app.logger.info(f"[SCHEDULER][WEATHER] Initial update {'successful' if success else 'failed'}")
+                return success
+            except Exception as e:
+                app.logger.error(f"[SCHEDULER][WEATHER] Initial update error: {str(e)}")
+                return False
+
         def init_scheduler():
+            """Initialize the scheduler based on environment"""
             is_gunicorn = "gunicorn" in os.environ.get("SERVER_SOFTWARE", "")
+            worker_id = os.environ.get('GUNICORN_WORKER_ID')
+
+            # Production environment (Gunicorn)
             if is_gunicorn:
-                if os.environ.get('GUNICORN_WORKER_ID') == '0':
-                    app.logger.info("[SCHEDULER] Initializing in main Gunicorn worker")
-                    from .services.weather_service import WeatherService
-                    weather_service = WeatherService()
-                    try:
-                        success = weather_service.update_weather()
-                        if success:
-                            app.logger.info("[SCHEDULER] Initial weather update successful")
-                        else:
-                            app.logger.warning("[SCHEDULER] Initial weather update failed")
-                    except Exception as e:
-                        app.logger.error(f"[SCHEDULER] Error in initial weather update: {str(e)}")
-                    
+                if worker_id == '0':
+                    app.logger.info(f"[SCHEDULER][PROD] Initializing in main worker (ID: {worker_id})")
+                    start_weather_service()
                     reconfigure_weather_scheduler(app)
+                else:
+                    app.logger.info(f"[SCHEDULER][PROD] Skipping scheduler in worker {worker_id}")
+                    
+            # Development environment
             elif not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-                app.logger.info("[SCHEDULER] Initializing in development environment")
-                from .services.weather_service import WeatherService
-                weather_service = WeatherService()
-                try:
-                    success = weather_service.update_weather()
-                    if success:
-                        app.logger.info("[SCHEDULER] Initial weather update successful")
-                    else:
-                        app.logger.warning("[SCHEDULER] Initial weather update failed")
-                except Exception as e:
-                    app.logger.error(f"[SCHEDULER] Error in initial weather update: {str(e)}")
-                
+                app.logger.info("[SCHEDULER][DEV] Initializing in development mode")
+                start_weather_service()
                 reconfigure_weather_scheduler(app)
+            
+            else:
+                app.logger.info("[SCHEDULER] Skipping scheduler initialization")
+
+        # Initialize the scheduler
         init_scheduler()
 
-    # 7. Register blueprints
-    from .routes import bp
-    app.register_blueprint(bp)
+        # Register blueprints
+        from .routes import bp
+        app.register_blueprint(bp)
 
-    return app
+        return app
