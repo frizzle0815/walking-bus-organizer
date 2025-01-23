@@ -255,7 +255,11 @@ def create_app():
                 os.environ.get("GUNICORN_CMD_ARGS") is not None
             ])
             worker_id = os.environ.get('GUNICORN_WORKER_ID')
-            app.logger.info(f"[SCHEDULER] Environment detection: {is_gunicorn=}, {worker_id=}")
+            app.logger.info(f"[SCHEDULER] Full environment check:")
+            app.logger.info(f"[SCHEDULER] SERVER_SOFTWARE: {os.environ.get('SERVER_SOFTWARE')}")
+            app.logger.info(f"[SCHEDULER] sys.argv[0]: {sys.argv[0]}")
+            app.logger.info(f"[SCHEDULER] GUNICORN_CMD_ARGS: {os.environ.get('GUNICORN_CMD_ARGS')}")
+            app.logger.info(f"[SCHEDULER] GUNICORN_WORKER_ID: {worker_id}")
 
             # Production environment (Gunicorn)
             if is_gunicorn:

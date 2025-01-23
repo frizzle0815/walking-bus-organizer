@@ -1,19 +1,22 @@
 from gevent import monkey
+import logging
 monkey.patch_all()
 
 
 # Worker lifecycle handlers
 def on_starting(server):
-    """Set up environment before any workers start"""
     import os
     os.environ['GUNICORN_WORKER_ID'] = '0'
+    logging.info(f"[MASTER] Setting initial worker ID: {os.environ.get('GUNICORN_WORKER_ID')}")
 
 
 def post_fork(server, worker):
     """Set worker ID after fork"""
     import os
+    import logging
     worker.worker_id = worker.age
     os.environ['GUNICORN_WORKER_ID'] = str(worker.age)
+    logging.info(f"[WORKER] Post-fork worker {worker.age} with ID {worker.worker_id}")
 
 
 def worker_int(worker):
