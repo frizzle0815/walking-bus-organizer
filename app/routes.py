@@ -18,6 +18,7 @@ from .services.weather_service import WeatherService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from . import reconfigure_weather_scheduler
 from app import get_git_revision
+from app import scheduler
 from .auth import (
     require_auth, SECRET_KEY, is_ip_allowed, 
     record_attempt, get_remaining_lockout_time, 
@@ -1029,6 +1030,14 @@ def weather_debug():
     
     return jsonify(response)
 
+
+
+@bp.route('/api/scheduler/status')
+def scheduler_status():
+    return {
+        'running': scheduler.running,
+        'jobs': [{'id': job.id, 'next_run': str(job.next_run_time)} for job in scheduler.get_jobs()]
+    }
 
 
 #####################################################
