@@ -418,8 +418,15 @@ class WeatherService:
                 app.logger.debug(f"[WEATHER] Skipping duplicate minutely record for {local_timestamp}")
                 continue
             
-            # Calculate PoP based on precipitation
-            pop = 1.0 if minute['precipitation'] > 0 else 0.0
+            # Get the corresponding hourly record by rounding down to the hour
+            hourly_timestamp = local_timestamp.replace(minute=0)
+            hourly_record = Weather.query.filter(
+                Weather.timestamp == hourly_timestamp,
+                Weather.forecast_type == 'hourly'
+            ).first()
+            
+            # Use hourly PoP if available, otherwise fallback to binary calculation
+            pop = hourly_record.pop if hourly_record else (1.0 if minute['precipitation'] > 0 else 0.0)
             
             weather = Weather(
                 timestamp=local_timestamp,

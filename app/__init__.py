@@ -238,9 +238,31 @@ def create_app():
             if is_gunicorn:
                 if os.environ.get('GUNICORN_WORKER_ID') == '0':
                     app.logger.info("[SCHEDULER] Initializing in main Gunicorn worker")
+                    from .services.weather_service import WeatherService
+                    weather_service = WeatherService()
+                    try:
+                        success = weather_service.update_weather()
+                        if success:
+                            app.logger.info("[SCHEDULER] Initial weather update successful")
+                        else:
+                            app.logger.warning("[SCHEDULER] Initial weather update failed")
+                    except Exception as e:
+                        app.logger.error(f"[SCHEDULER] Error in initial weather update: {str(e)}")
+                    
                     reconfigure_weather_scheduler(app)
             elif not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
                 app.logger.info("[SCHEDULER] Initializing in development environment")
+                from .services.weather_service import WeatherService
+                weather_service = WeatherService()
+                try:
+                    success = weather_service.update_weather()
+                    if success:
+                        app.logger.info("[SCHEDULER] Initial weather update successful")
+                    else:
+                        app.logger.warning("[SCHEDULER] Initial weather update failed")
+                except Exception as e:
+                    app.logger.error(f"[SCHEDULER] Error in initial weather update: {str(e)}")
+                
                 reconfigure_weather_scheduler(app)
         init_scheduler()
 
