@@ -686,7 +686,8 @@ const checkTimePassed = (endTime) => {
     const [hours, minutes] = endTime.split(':').map(Number);
     const endDateTime = new Date();
     endDateTime.setHours(hours, minutes, 0);
-    return new Date() > endDateTime;
+    const currentTime = new Date();    
+    return currentTime > endDateTime;
 };
 
 
@@ -707,12 +708,25 @@ function createParticipantMap(stations) {
 }
 
 function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData, reason) {
+    const validatedWalkingBusDay = isWalkingBusDay ?? false;
+
     if (stateReason === REASON_TYPES.HOLIDAY && holidayData) {
         return `Heute findet kein Walking Bus statt.<br>${holidayData.name}`;
     }
 
     if (stateReason === REASON_TYPES.MANUAL_OVERRIDE) {
         return `Heute findet kein Walking Bus statt.<br>${reason}`;
+    }
+
+    console.log('[REASON] Creating reason map with:', {
+        stateReason,
+        isWalkingBusDay: validatedWalkingBusDay,
+        timePassed: scheduleData ? checkTimePassed(scheduleData.end) : false
+    });
+
+    if (stateReason === REASON_TYPES.TIME_PASSED || 
+        (validatedWalkingBusDay && scheduleData && checkTimePassed(scheduleData.end))) {
+        return 'Der Walking Bus hat heute bereits stattgefunden.';
     }
 
     const reasonMap = {
@@ -800,6 +814,9 @@ async function loadInitialData() {
             params: { date: currentDate }
         });
 
+        console.log('[LOAD] Daily status response:', dailyStatusResponse.data);
+        console.log('[LOAD] isWalkingBusDay before enhancement:', dailyStatusResponse.data.isWalkingBusDay);
+
         // Use pre-calculated weather data directly
         const weatherData = weatherResponse.data?.status === 'success' && weatherResponse.data?.data ? {
             data: {
@@ -821,6 +838,8 @@ async function loadInitialData() {
             ),
             reason_type: dailyStatusResponse.data.stateReason
         };
+
+        console.log('[LOAD] Enhanced daily status:', enhancedDailyStatus);
 
         window.appState = {
             stations: initialResponse.data.stations,
@@ -884,7 +903,12 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
         }
     });
 
-    const alertsContainer = render_alertsContainer(dailyStatus);
+    const currentDay = isCurrentDay(dailyStatus.currentDate);
+    const timePassed = checkTimePassed(dailyStatus.schedule?.end);
+    const effectiveWalkingBusDay = dailyStatus.isWalkingBusDay && !(timePassed && currentDay);
+
+    // Create alerts container with correct initial state
+    const alertsContainer = render_alertsContainer(dailyStatus, effectiveWalkingBusDay);
     const stationCards = stations.map(station =>
         render_stationCard(station, dailyStatus)
     );
@@ -901,9 +925,7 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
     // Update UI elements
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
-    console.log('[RENDER] Updating station stats after render');
     window.appState.stations.forEach(station => {
-        console.log('[RENDER] Updating stats for station:', station.id);
         updateStationStats(station.id);
     });
     updateTotalStats();
@@ -1191,23 +1213,14 @@ async function openCalendar(participantId) {
 
 
 function updateStationStats(stationId) {
-    console.log('[STATS] Updating stats for station:', stationId);
     const stationElement = document.querySelector(`[data-station-id="${stationId}"]`);
     
-    if (!stationElement) {
-        console.log('[STATS] Station element not found for ID:', stationId);
-        return;
-    }
-
     // Get all participants in this station
     const participants = stationElement.querySelectorAll('.participant-item');
-    console.log('[STATS] Found participants:', participants.length);
     
     const totalParticipants = participants.length;
     const activeParticipants = Array.from(participants)
         .filter(p => p.classList.contains('participant-status-active')).length;
-
-    console.log('[STATS] Active/Total:', activeParticipants, '/', totalParticipants);
 
     // Update station stats
     const statsElement = document.getElementById(`stats-station-${stationId}`);
@@ -1513,7 +1526,8 @@ function render_summaryCard(dailyStatus, statsTotal) {
 
 
 
-function render_alertsContainer(dailyStatus) {
+function render_alertsContainer(dailyStatus, shouldBeHidden = true) {
+    const hasNote = dailyStatus.note && dailyStatus.note.trim() !== '';
     const container = document.createElement('div');
     container.id = 'alerts-container';
     container.innerHTML = `
@@ -1521,16 +1535,16 @@ function render_alertsContainer(dailyStatus) {
             <i class="fas fa-exclamation-triangle me-2"></i>
             Die Verbindung zum Server wurde unterbrochen.
         </div>
-        <div id="walkingbus-alert" class="alert alert-info d-none" role="alert">
+        <div id="walkingbus-alert" class="alert alert-info ${shouldBeHidden ? 'd-none' : ''}" role="alert">
             <div class="d-flex align-items-center">
                 <i class="fas fa-info-circle me-2"></i>
-                <span id="walkingbus-reason"></span>
+                <span id="walkingbus-reason">${dailyStatus.reason}</span>
             </div>
         </div>
-        <div id="note-alert" class="alert alert-warning d-none" role="alert">
+        <div id="note-alert" class="alert alert-warning ${!hasNote ? 'd-none' : ''}" role="alert">
             <div class="d-flex align-items-center">
                 <i class="fas fa-sticky-note me-2"></i>
-                <span id="walkingbus-note"></span>
+                <span id="walkingbus-note">${hasNote ? dailyStatus.note : ''}</span>
             </div>
         </div>
     `;
@@ -2326,11 +2340,7 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
         walkingbusAlert.classList.toggle('d-none', effectiveWalkingBusDay);
         
         if (!effectiveWalkingBusDay) {
-            if (isWalkingBusDay && currentDay && timePassed) {
-                walkingbusReason.innerHTML = createReasonMap(REASON_TYPES.TIME_PASSED);
-            } else if (dailyStatus.reason) {
-                walkingbusReason.innerHTML = dailyStatus.reason;
-            }
+            walkingbusReason.innerHTML = dailyStatus.reason;
         }
     }
 
@@ -2342,6 +2352,7 @@ function updateAlerts(isWalkingBusDay, dailyStatus) {
         }
     }
 }
+
 
 
 function initializeSizeControls() {
@@ -2550,6 +2561,9 @@ document.addEventListener('visibilitychange', () => {
         // Clear any existing alert
         const connectionAlert = document.getElementById('connection-alert');
         connectionAlert.classList.add('d-none');
+
+        const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+        console.log('[VISIBILITY] Reloading data for date:', selectedDate);
         
         // Perform full initial load
         loadInitialData().then(() => {
