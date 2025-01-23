@@ -152,11 +152,12 @@ class WeatherService:
                 current_timestamp,
                 ex=self.RATE_LIMIT_SECONDS * 2
             )
-            return True
+            return True, 0
         
         last_call_time = datetime.fromtimestamp(float(last_call), tz=TIMEZONE)
         time_passed = get_current_time() - last_call_time
-        print(f"[WEATHER] Time passed since last call: {time_passed.total_seconds()} seconds")
+        seconds_remaining = max(0, self.RATE_LIMIT_SECONDS - time_passed.total_seconds())
+        print(f"[WEATHER] Time remaining: {seconds_remaining} seconds")
         
         can_fetch = time_passed.total_seconds() >= self.RATE_LIMIT_SECONDS
         print(f"[WEATHER] Can fetch weather: {can_fetch}")
@@ -169,7 +170,7 @@ class WeatherService:
                 ex=self.RATE_LIMIT_SECONDS * 2
             )
         
-        return can_fetch
+        return can_fetch, round(seconds_remaining)
 
     def update_last_fetch_time(self):
         """Update the timestamp of last API call"""
@@ -227,18 +228,22 @@ class WeatherService:
         
         if not lock_acquired:
             print("[WEATHER] Another process is updating weather data")
-            return False
+            return {"success": False, "message": "Another update is in progress"}
             
         try:
             # Process raw weather data as before
-            if not self.can_fetch_weather():
+            can_fetch, seconds_remaining = self.can_fetch_weather()
+            if not can_fetch:
                 print("[WEATHER] Rate limit in effect, skipping update")
-                return False
+                return {
+                    "success": False, 
+                    "message": f"Rate limit in effect. Please wait {seconds_remaining} seconds before updating"
+                }
 
             data = self.fetch_weather_data()
             if not data:
                 print("[WEATHER] No data received from API")
-                return False
+                return {"success": False, "message": "No data received from weather API"}
 
             # Clean and save raw weather records
             self.cleanup_old_records()
@@ -336,12 +341,12 @@ class WeatherService:
                 "status": "success"
             }))
 
-            return True
+            return {"success": True, "message": "Weather data updated successfully"}
 
         except Exception as e:
             print(f"[WEATHER] Error during update: {str(e)}")
             db.session.rollback()
-            return False
+            return {"success": False, "message": f"Error during update: {str(e)}"}
             
         finally:
             redis_client.delete(LOCK_KEY)

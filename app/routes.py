@@ -873,10 +873,11 @@ def get_bus_weather():
 def update_weather():
     current_app.logger.info("[WEATHER_UPDATE] Starting manual weather update")
     weather_service = WeatherService()
-    success = weather_service.update_weather()
-    current_app.logger.info(f"[WEATHER_UPDATE] Update completed with status: {success}")
+    result = weather_service.update_weather()
+    current_app.logger.info(f"[WEATHER_UPDATE] Update completed with status: {result}")
     return jsonify({
-        "success": success,
+        "success": result["success"],
+        "message": result["message"],
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
@@ -905,6 +906,29 @@ def get_weather_calculations():
     walking_bus_id = get_current_walking_bus_id()
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     weather_service = WeatherService()
+
+    # Get latest update timestamp
+    latest_calc = WeatherCalculation.query.order_by(
+        WeatherCalculation.last_updated.desc()
+    ).first()
+    latest_weather = Weather.query.order_by(
+        Weather.created_at.desc()
+    ).first()
+
+    # Get the most recent timestamp
+    last_update = None
+    if latest_calc and latest_weather:
+        last_update = max(latest_calc.last_updated, latest_weather.created_at)
+    elif latest_calc:
+        last_update = latest_calc.last_updated
+    elif latest_weather:
+        last_update = latest_weather.created_at
+
+    # Rest of your existing code...
+    
+    result = {
+        'last_update': last_update.isoformat() if last_update else None
+    }
     
     def serialize_calculation(calc):
         """Helper function to ensure all time objects are converted to strings"""
@@ -961,7 +985,6 @@ def get_weather_calculations():
         'dayAfterAfterAfterAfterTomorrow'
     ]
     
-    result = {}
     for i, date_key in enumerate(day_keys):
         calculation = weather_service.get_weather_for_timeframe(dates[i], schedule, include_details=True)
         if calculation:

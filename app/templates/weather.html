@@ -45,6 +45,12 @@
             margin-left: 20px;
             font-family: monospace;
         }
+
+        #lastUpdate {
+            font-size: 0.9em;
+            color: #666;
+            margin-left: 10px;
+        }
     </style>
 </head>
 <body>
@@ -53,6 +59,7 @@
     <div class="weather-data">
         <h2>Weather Calculation Details</h2>
         <button onclick="updateWeather()" class="update-button">Update Weather Data</button>
+        <span id="lastUpdate"></span>
         <div id="updateResult"></div>
         <div id="calculationDetails">
             <div class="day-calculations" id="today"></div>
@@ -68,15 +75,22 @@
 
 async function updateWeather() {
     const updateResult = document.getElementById('updateResult');
+    const lastUpdateSpan = document.getElementById('lastUpdate');
     try {
-        // First update the weather data
         const response = await fetch('/api/weather/update', {
             method: 'POST'
         });
         const data = await response.json();
-        updateResult.innerHTML = `<p class="success">Weather data updated successfully</p>`;
         
-        // Then reload the calculations
+        if (data.success) {
+            const now = new Date();
+            const formattedDate = now.toLocaleString();
+            lastUpdateSpan.innerHTML = `<span style="margin-left: 10px; color: #666;">Last update: ${formattedDate}</span>`;
+            updateResult.innerHTML = `<p class="success">${data.message}</p>`;
+        } else {
+            updateResult.innerHTML = `<p class="error">${data.message}</p>`;
+        }
+        
         loadCalculationDetails();
     } catch (error) {
         updateResult.innerHTML = `<p class="error">Error updating weather: ${error}</p>`;
@@ -88,6 +102,12 @@ async function loadCalculationDetails() {
     try {
         const response = await fetch('/api/weather/calculations');
         const data = await response.json();
+
+        const lastUpdateSpan = document.getElementById('lastUpdate');
+        if (data.last_update) {
+            const lastUpdate = new Date(data.last_update);
+            lastUpdateSpan.innerHTML = `<span>Last weather update: ${lastUpdate.toLocaleString()}</span>`;
+        }
         
         ['today', 'tomorrow', 'dayAfterTomorrow', 'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow', 'dayAfterAfterAfterAfterTomorrow'].forEach(day => {
             const dayData = data[day];
@@ -143,10 +163,8 @@ async function loadCalculationDetails() {
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    updateWeather();  // This will fetch fresh data and update calculations
+    loadCalculationDetails();  // Lädt nur die vorhandenen Berechnungen
 });
-
-setInterval(updateWeather, 300000);
 
 
 
