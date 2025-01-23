@@ -834,7 +834,7 @@ async function loadInitialData() {
             window.appState.stations,
             enhancedDailyStatus,
             weekResponse.data,
-            tempContainer
+            tempContainer,
         );
 
         // Single DOM update with complete content
@@ -1035,12 +1035,11 @@ async function selectDay(dateStr) {
     document.body.appendChild(tempContainer);
     
     try {
-        // Load all data in parallel
         const [dailyStatusResponse, weatherResponse] = await Promise.all([
             axios.get('/api/daily-status', { params: { date: dateStr } }),
             fetch(`/api/weather?date=${dateStr}`).then(r => r.json())
         ]);
-        
+
         const dailyStatus = {
             ...dailyStatusResponse.data,
             currentDate: dateStr,
@@ -1061,7 +1060,6 @@ async function selectDay(dateStr) {
             reason_type: dailyStatusResponse.data.stateReason
         };
 
-        // Render everything into hidden container
         await renderFullView(
             window.appState.stations,
             dailyStatus,
@@ -1069,8 +1067,15 @@ async function selectDay(dateStr) {
             tempContainer
         );
 
-        // Single DOM update with complete content
         stationsContainer.replaceChildren(...tempContainer.children);
+
+        // Update all station stats after view is rendered
+        window.appState.stations.forEach(station => {
+            updateStationStats(station.id);
+        });
+        
+        // Update total stats
+        updateTotalStats();
 
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);
@@ -1084,6 +1089,7 @@ async function selectDay(dateStr) {
         isSelectionInProgress = false;
     }
 }
+
 
 
 function setupLoadingState(dateStr) {
