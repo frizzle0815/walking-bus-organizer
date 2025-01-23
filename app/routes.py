@@ -1071,7 +1071,7 @@ def start_scheduler():
         })
     
     try:
-        start_weather_service()
+        start_weather_service(current_app)
         reconfigure_weather_scheduler(current_app)
         return jsonify({
             'status': 'success',
