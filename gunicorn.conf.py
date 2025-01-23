@@ -10,6 +10,19 @@ def on_starting(server):
     logging.info(f"[MASTER] Setting initial worker ID: {os.environ.get('GUNICORN_WORKER_ID')}")
 
 
+def worker_ready(worker):
+    """Called when worker is ready to accept requests"""
+    import os
+    import logging
+    from app import create_app, reconfigure_weather_scheduler
+    
+    if worker.age == 0:  # Only in first worker
+        app = create_app()
+        with app.app_context():
+            logging.info(f"[WORKER-0] Initializing scheduler in ready worker")
+            reconfigure_weather_scheduler(app)
+
+
 def post_fork(server, worker):
     """Set worker ID after fork"""
     import os
