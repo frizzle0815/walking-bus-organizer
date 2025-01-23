@@ -232,64 +232,8 @@ def create_app():
             response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
         return response
 
-    # 6. Initialize scheduler
-    with app.app_context():
-        def start_weather_service():
-            """Centralized weather service initialization and first update"""
-            from .services.weather_service import WeatherService
-            weather_service = WeatherService()
-            
-            try:
-                success = weather_service.update_weather()
-                app.logger.info(f"[SCHEDULER][WEATHER] Initial update {'successful' if success else 'failed'}")
-                return success
-            except Exception as e:
-                app.logger.error(f"[SCHEDULER][WEATHER] Initial update error: {str(e)}")
-                return False
+    # Register blueprints
+    from .routes import bp
+    app.register_blueprint(bp)
 
-        def init_scheduler():
-            """Initialize the scheduler based on environment"""
-            import time
-            
-            is_gunicorn = any([
-                "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""),
-                "gunicorn" in sys.argv[0].lower(),
-                os.environ.get("GUNICORN_CMD_ARGS") is not None
-            ])
-            
-            if is_gunicorn:
-                max_retries = 30
-                retry_interval = 1
-                
-                for attempt in range(max_retries):
-                    worker_id = os.environ.get('GUNICORN_WORKER_ID')
-                    app.logger.info(f"[SCHEDULER] Attempt {attempt + 1}: Worker ID = {worker_id}")
-                    
-                    if worker_id and int(worker_id) == 0:  # First worker
-                        app.logger.info(f"[SCHEDULER][PROD] Initializing in {worker_id} after {attempt} retries")
-                        start_weather_service()
-                        reconfigure_weather_scheduler(app)
-                        break
-                    elif worker_id is not None:
-                        app.logger.info(f"[SCHEDULER][PROD] Skipping scheduler in worker {worker_id}")
-                        break
-                    
-                    time.sleep(retry_interval)
-                    
-            elif not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-                app.logger.info("[SCHEDULER][DEV] Initializing in development mode")
-                start_weather_service()
-                reconfigure_weather_scheduler(app)
-            
-            else:
-                app.logger.info("[SCHEDULER] Skipping scheduler initialization")
-
-        # Initialize the scheduler
-        init_scheduler()
-
-        # Register blueprints
-        from .routes import bp
-        app.register_blueprint(bp)
-
-        return app
-
+    return app

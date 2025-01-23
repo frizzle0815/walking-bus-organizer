@@ -16,9 +16,8 @@ from .models import (
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
-from . import reconfigure_weather_scheduler
-from app import get_git_revision
-from app import scheduler
+from . import scheduler, start_weather_service, reconfigure_weather_scheduler
+from . import get_git_revision
 from .auth import (
     require_auth, SECRET_KEY, is_ip_allowed, 
     record_attempt, get_remaining_lockout_time, 
@@ -149,18 +148,27 @@ def revoke_auth_token(token_id):
 @require_auth
 def get_initial_load():
     """
-    Initial load provides only structural data: stations and their participants
+    Initial load provides structural data and initializes scheduler if needed
     """
     try:
         walking_bus_id = get_current_walking_bus_id()
         current_app.logger.info("[INITIAL_LOAD] Starting initial data load")
+        
+        # Check and start scheduler if not running
+        if not scheduler.running:
+            current_app.logger.info("[INITIAL_LOAD] Starting scheduler")
+            start_weather_service()
+            reconfigure_weather_scheduler(current_app)
+        else:
+            current_app.logger.info("[INITIAL_LOAD] Scheduler already running")
 
         # Get stations with participants
         stations_data = get_stations_data(walking_bus_id)
         current_app.logger.info("[INITIAL_LOAD] Stations data loaded")
 
         response_data = {
-            "stations": stations_data
+            "stations": stations_data,
+            "scheduler_status": "running" if scheduler.running else "stopped"
         }
 
         current_app.logger.info("[INITIAL_LOAD] Data compilation complete")
@@ -1051,6 +1059,31 @@ def scheduler_status():
         'scheduler_status.html',
         scheduler=scheduler_info
     )
+
+
+@bp.route('/api/scheduler/start', methods=['POST'])
+@require_auth
+def start_scheduler():
+    if scheduler.running:
+        return jsonify({
+            'status': 'already_running',
+            'message': 'Scheduler is already running'
+        })
+    
+    try:
+        start_weather_service()
+        reconfigure_weather_scheduler(current_app)
+        return jsonify({
+            'status': 'success',
+            'message': 'Scheduler started successfully'
+        })
+    except Exception as e:
+        current_app.logger.error(f"Failed to start scheduler: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 
 
 #####################################################
