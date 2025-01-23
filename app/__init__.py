@@ -8,6 +8,7 @@ import logging
 import secrets
 import subprocess
 import json
+import sys
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 from redis import Redis
@@ -248,8 +249,13 @@ def create_app():
 
         def init_scheduler():
             """Initialize the scheduler based on environment"""
-            is_gunicorn = "gunicorn" in os.environ.get("SERVER_SOFTWARE", "")
+            is_gunicorn = any([
+                "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""),
+                "gunicorn" in sys.argv[0].lower(),
+                os.environ.get("GUNICORN_CMD_ARGS") is not None
+            ])
             worker_id = os.environ.get('GUNICORN_WORKER_ID')
+            app.logger.info(f"[SCHEDULER] Environment detection: {is_gunicorn=}, {worker_id=}")
 
             # Production environment (Gunicorn)
             if is_gunicorn:

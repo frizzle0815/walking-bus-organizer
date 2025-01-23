@@ -1032,12 +1032,25 @@ def weather_debug():
 
 
 
-@bp.route('/api/scheduler/status')
+@bp.route('/scheduler-status')
 def scheduler_status():
-    return {
-        'running': scheduler.running,
-        'jobs': [{'id': job.id, 'next_run': str(job.next_run_time)} for job in scheduler.get_jobs()]
+    jobs = scheduler.get_jobs()
+    scheduler_info = {
+        'status': 'Running' if scheduler.running else 'Stopped',
+        'jobs': [{
+            'id': job.id,
+            'next_run': job.next_run_time,
+            'trigger': str(job.trigger),
+            'function': job.func.__name__,
+            'max_instances': job.max_instances,
+            'misfire_grace_time': job.misfire_grace_time
+        } for job in jobs]
     }
+    
+    return render_template(
+        'scheduler_status.html',
+        scheduler=scheduler_info
+    )
 
 
 #####################################################
