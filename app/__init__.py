@@ -11,16 +11,16 @@ from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 from redis import Redis
 
+
 db = SQLAlchemy()
 migrate = Migrate()
+
 
 # Define the application's timezone
 DEFAULT_TIMEZONE = 'Europe/Berlin'
 DEFAULT_REDIS_URL = 'redis://localhost:6379'
 timezone_name = os.getenv('APP_TIMEZONE', DEFAULT_TIMEZONE)
 redis_url = os.getenv('REDIS_URL', DEFAULT_REDIS_URL)
-
-# Initialize Redis client
 redis_client = Redis.from_url(redis_url)
 
 try:

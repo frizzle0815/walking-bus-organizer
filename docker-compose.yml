@@ -9,11 +9,16 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY={Choose_Random_Key}
+      - WALKING_BUSES=1:bus_name1:password1,2:bus_name2:password2
       - FLASK_ENV=production
       - HOLIDAY_COUNTRY=DE
       - HOLIDAY_SUBDIVISION=NW
-      - SECRET_KEY={Choose_Random_Key}
-      - WALKING_BUSES=1:bus_name1:password1,2:bus_name2:password2
+      - OPENWEATHER_API_KEY={your_api_key_here}
+      - WEATHER_LAT=50.6612
+      - WEATHER_LON=6.7871
+
 
   db:
     image: postgres:15

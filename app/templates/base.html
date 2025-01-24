@@ -522,13 +522,6 @@ if (installApp) {
  });
 
  
- function isCurrentDay(dateStr) {
-    if (!dateStr) return false;
-    const today = new Date();
-    const compareDate = new Date(dateStr);
-    return today.toISOString().split('T')[0] === dateStr;
-}
-
 function SSE_updateTimeDisplay(time) {
     const timeElement = document.getElementById('current-time');
     if (timeElement && time !== timeElement.textContent) {

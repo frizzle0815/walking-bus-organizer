@@ -159,50 +159,51 @@ def invalidate_all_tokens_for_bus(walking_bus_id, reason="Password changed"):
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        current_app.logger.info("[AUTH] Starting authentication check")
+        
+        # Token extraction with logging
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token and 'auth_token' in session:
             token = session['auth_token']
-            current_app.logger.info("[AUTH.PY][AUTH] Using token from session")
-
+            current_app.logger.info("[AUTH] Using token from session")
+        
         if not token:
-            current_app.logger.info("[AUTH.PY][AUTH] No token found in any storage")
+            current_app.logger.warning("[AUTH] No token found in headers or session")
             return jsonify({"error": "No token provided", "redirect": True}), 401
 
         try:
-            # First verify token signature and expiration
+            current_app.logger.debug(f"[AUTH] Verifying token: {token[:10]}...")
             payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            
-            # Get and verify token record from database
+            current_app.logger.info("[AUTH] Token signature verified successfully")
+
+            # Database verification
             token_record = AuthToken.query.get(token)
             if not token_record or not token_record.is_active:
-                current_app.logger.info("[AUTH.PY][AUTH] Token not found in database or inactive")
+                current_app.logger.warning(f"[AUTH] Token invalid or inactive. Record exists: {bool(token_record)}")
                 return jsonify({"error": "Token invalid or revoked", "redirect": True}), 401
 
-            # Update last used timestamp
-            token_record.last_used = datetime.now()
-            
-            # Get walking bus configuration
+            # Walking bus verification
             walking_bus_id = payload.get('walking_bus_id')
             token_identifier = payload.get('token_identifier')
             buses_env = os.environ.get('WALKING_BUSES', '').strip()
+            
+            current_app.logger.info(f"[AUTH] Processing walking bus ID: {walking_bus_id}")
 
             if buses_env:
-                # Parse bus configurations
+                current_app.logger.debug("[AUTH] Multi-bus mode detected")
                 bus_configs = dict(
                     (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
                     for b in buses_env.split(',')
                     if len(b.split(':')) == 3
                 )
 
-                # Verify bus ID exists
                 if walking_bus_id not in bus_configs:
-                    current_app.logger.info(f"[AUTH.PY][AUTH] Invalid bus ID: {walking_bus_id}")
+                    current_app.logger.error(f"[AUTH] Invalid bus ID: {walking_bus_id}")
                     invalidate_all_tokens_for_bus(walking_bus_id, "Invalid bus ID")
                     return jsonify({"error": "Invalid bus ID", "redirect": True}), 401
 
-                # Verify password hash matches current configuration
                 if payload.get('bus_password_hash') != bus_configs[walking_bus_id]:
-                    current_app.logger.info("[AUTH.PY][AUTH] Password hash mismatch")
+                    current_app.logger.warning("[AUTH] Password hash mismatch detected")
                     invalidate_all_tokens_for_bus(walking_bus_id, "Password changed")
                     return jsonify({
                         "error": "Password changed",
@@ -210,14 +211,15 @@ def require_auth(f):
                         "redirect": True
                     }), 401
 
-                # Verify token identifier matches database record
                 if token_identifier != token_record.token_identifier:
-                    current_app.logger.info("[AUTH.PY][AUTH] Token identifier mismatch")
+                    current_app.logger.warning("[AUTH] Token identifier mismatch")
                     token_record.invalidate("Token identifier mismatch")
                     db.session.commit()
                     return jsonify({"error": "Invalid token", "redirect": True}), 401
 
-            # Update session with verified information
+            # Update session and token usage
+            current_app.logger.info("[AUTH] Updating session and token information")
+            token_record.last_used = datetime.now()
             session.update({
                 'auth_token': token,
                 'walking_bus_id': walking_bus_id,
@@ -227,27 +229,30 @@ def require_auth(f):
             })
             
             db.session.commit()
+            current_app.logger.info("[AUTH] Authentication successful")
             return f(*args, **kwargs)
 
         except jwt.ExpiredSignatureError:
+            current_app.logger.warning("[AUTH] Token expired")
             if token_record:
                 token_record.invalidate("Token expired")
                 db.session.commit()
-            current_app.logger.info("[AUTH.PY][AUTH] Token expired")
             return jsonify({"error": "Token expired", "redirect": True}), 401
 
         except jwt.InvalidTokenError:
+            current_app.logger.warning("[AUTH] Invalid token structure or signature")
             if token_record:
                 token_record.invalidate("Invalid token")
                 db.session.commit()
-            current_app.logger.info("[AUTH.PY][AUTH] Invalid token")
             return jsonify({"error": "Invalid token", "redirect": True}), 401
 
         except Exception as e:
-            current_app.logger.error(f"[AUTH.PY][AUTH] Unexpected error: {str(e)}")
+            current_app.logger.error(f"[AUTH] Unexpected error during authentication: {str(e)}", exc_info=True)
+            db.session.rollback()
             return jsonify({"error": "Authentication error", "redirect": True}), 401
 
     return decorated_function
+
 
 
 

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Weather Dashboard</title>
+    <style>
+        .weather-data {
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ccc;
+        }
+        .error { color: red; }
+        .success { color: green; }
+        .weather-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .weather-table th, .weather-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .weather-table th {
+            background-color: #f2f2f2;
+        }
+        .forecast-type {
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        .day-calculations {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .calculation-step {
+            margin: 10px 0;
+            padding: 5px;
+            background: #f5f5f5;
+        }
+
+        .used-records {
+            margin-left: 20px;
+            font-family: monospace;
+        }
+
+        #lastUpdate {
+            font-size: 0.9em;
+            color: #666;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Weather Dashboard</h1>
+    
+    <div class="weather-data">
+        <h2>Weather Calculation Details</h2>
+        <button onclick="updateWeather()" class="update-button">Update Weather Data</button>
+        <button onclick="clearDatabase()" class="clear-button" style="background-color: #ff4444; color: white; margin-left: 10px;">Clear Database</button>
+        <span id="lastUpdate"></span>
+        <div id="updateResult"></div>
+        <div id="calculationDetails">
+            <div class="day-calculations" id="today"></div>
+            <div class="day-calculations" id="tomorrow"></div>
+            <div class="day-calculations" id="dayAfterTomorrow"></div>
+            <div class="day-calculations" id="dayAfterAfterTomorrow"></div>
+            <div class="day-calculations" id="dayAfterAfterAfterTomorrow"></div>
+            <div class="day-calculations" id="dayAfterAfterAfterAfterTomorrow"></div>
+        </div>
+    </div>
+
+<script>
+
+async function updateWeather() {
+    const updateResult = document.getElementById('updateResult');
+    const lastUpdateSpan = document.getElementById('lastUpdate');
+    try {
+        const response = await fetch('/api/weather/update', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            const now = new Date();
+            const formattedDate = now.toLocaleString();
+            lastUpdateSpan.innerHTML = `<span style="margin-left: 10px; color: #666;">Last update: ${formattedDate}</span>`;
+            updateResult.innerHTML = `<p class="success">${data.message}</p>`;
+        } else {
+            updateResult.innerHTML = `<p class="error">${data.message}</p>`;
+        }
+        
+        loadCalculationDetails();
+    } catch (error) {
+        updateResult.innerHTML = `<p class="error">Error updating weather: ${error}</p>`;
+    }
+}
+
+async function clearDatabase() {
+    if (!confirm('Are you sure you want to clear all weather data? This action cannot be undone.')) {
+        return;
+    }
+    
+    const updateResult = document.getElementById('updateResult');
+    try {
+        const response = await fetch('/api/weather/clear', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            updateResult.innerHTML = `<p class="success">${data.message}</p>`;
+            // Aktualisiere die Anzeige
+            loadCalculationDetails();
+            document.getElementById('lastUpdate').innerHTML = '';
+        } else {
+            updateResult.innerHTML = `<p class="error">${data.message}</p>`;
+        }
+    } catch (error) {
+        console.error('[DATABASE]Error clearing database:', error);
+        updateResult.innerHTML = `<p class="error">Error clearing database: ${error}</p>`;
+    }
+}
+
+async function loadCalculationDetails() {
+    try {
+        const response = await fetch('/api/weather/calculations');
+        const data = await response.json();
+
+        const lastUpdateSpan = document.getElementById('lastUpdate');
+        if (data.last_update) {
+            const lastUpdate = new Date(data.last_update);
+            lastUpdateSpan.innerHTML = `<span>Last weather update: ${lastUpdate.toLocaleString()}</span>`;
+        }
+        
+        ['today', 'tomorrow', 'dayAfterTomorrow', 'dayAfterAfterTomorrow', 'dayAfterAfterAfterTomorrow', 'dayAfterAfterAfterAfterTomorrow'].forEach(day => {
+            const dayData = data[day];
+            const container = document.getElementById(day);
+            
+            let html = `<h3>${dayData.date}</h3>`;
+            
+            // Only show time window for minutely/hourly data
+            if (dayData.startTime && dayData.endTime) {
+                html += `<p>Time window: ${dayData.startTime} - ${dayData.endTime}</p>`;
+            }
+            
+            html += '<div class="calculation-step">Used Records:';
+            
+            // Handle different data types
+            if (dayData.calculation_details) {
+                if (dayData.calculation_details.data_type === 'minutely') {
+                    html += '<div class="used-records">Minutely Records:<br>';
+                    dayData.calculation_details.minutely_used.forEach(record => {
+                        html += `${record.timestamp}: ${record.precipitation}mm<br>`;
+                    });
+                    html += '</div>';
+                } else if (dayData.calculation_details.data_type === 'hourly') {
+                    html += '<div class="used-records">Hourly Records:<br>';
+                    dayData.calculation_details.hourly_used.forEach(record => {
+                        html += `${record.timestamp}: ${record.total_precipitation}mm (PoP: ${(record.pop * 100).toFixed(1)}%) (${record.overlap_minutes} min overlap = ${record.contribution}mm)<br>`;
+                    });
+                    html += '</div>';
+                } else if (dayData.calculation_details.data_type === 'daily') {
+                    html += '<div class="used-records">Daily Record:<br>';
+                    const daily = dayData.calculation_details.daily_used;
+                    html += `${daily.timestamp}: ${daily.total_precipitation}mm (PoP: ${(daily.pop * 100).toFixed(1)}%) (1/24 for hourly estimation = ${(daily.total_precipitation / 24).toFixed(2)}mm) `;
+                    html += `(PoP: ${(daily.pop * 100).toFixed(1)}%)<br>`;
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
+            
+            // Show results section
+            html += `<div class="calculation-step">
+                Final Results:<br>
+                Weather Icon: <img src="/static/icons/weather/${dayData.result?.icon || 'unknown'}.svg" alt="weather icon" style="width: 50px; height: 50px;"> (${dayData.result?.icon || 'N/A'})<br>
+                Precipitation Probability: ${((dayData.result?.pop || 0) * 100).toFixed(1)}%<br>
+                Total Precipitation: ${dayData.result?.precipitation || 0}mm<br>
+                Created at: ${dayData.result?.created_at ? new Date(dayData.result.created_at.replace(' ', 'T')).toLocaleString() : 'N/A'}
+            </div>`;
+            
+            container.innerHTML = html;
+        });
+    } catch (error) {
+        console.error('Error loading calculation details:', error);
+    }
+}
+
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadCalculationDetails();  // Lädt nur die vorhandenen Berechnungen
+});
+
+
+
+async function loadAllWeatherData() {
+    try {
+        const response = await fetch('/api/weather/all');
+        const data = await response.json();
+        
+        // Update minutely data
+        const minutelyBody = document.querySelector('#minutelyTable tbody');
+        minutelyBody.innerHTML = '';
+        data.minutely.forEach(record => {
+            const row = `<tr>
+                <td>${new Date(record.timestamp).toLocaleString()}</td>
+                <td>${record.precipitation}</td>
+            </tr>`;
+            minutelyBody.innerHTML += row;
+        });
+
+        // Update hourly data
+        const hourlyBody = document.querySelector('#hourlyTable tbody');
+        hourlyBody.innerHTML = '';
+        data.hourly.forEach(record => {
+            const row = `<tr>
+                <td>${new Date(record.timestamp).toLocaleString()}</td>
+                <td>${record.total_precipitation}</td>
+                <td>${(record.pop * 100).toFixed(1)}%</td>
+                <td><img src="http://openweathermap.org/img/w/${record.weather_icon}.png" alt="weather icon"></td>
+            </tr>`;
+            hourlyBody.innerHTML += row;
+        });
+    } catch (error) {
+        console.error('Error loading weather data:', error);
+    }
+}
+
+    </script>
+</body>
+</html>

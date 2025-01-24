@@ -7,12 +7,12 @@ workers = 4
 bind = "0.0.0.0:8000"
 keepalive = 5
 
-# Increase timeout for streaming connections
+# Streaming settings
 worker_connections = 1000
 timeout = 300
 
-# Add logging configuration
+# Logging configuration
 loglevel = "warning" # info oder warning
-accesslog = "-"  # "-" means stdout
-errorlog = "-"   # "-" means stderr
+accesslog = "-"
+errorlog = "-"
 access_log_format = '%({X-Forwarded-For}i)s %(l)s %(t)s "%(r)s" %(s)s %(b)s'
