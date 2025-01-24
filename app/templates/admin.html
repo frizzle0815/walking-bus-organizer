@@ -1258,6 +1258,9 @@ input[type="time"]::-webkit-inner-spin-button {
                 sortableInstances.push(new Sortable(stationsContainer, {
                     animation: 150,
                     draggable: '.station-card',
+                    delayOnTouchOnly: true,  // Only add delay for touch devices
+                    delay: 250,              // 250ms delay before drag starts
+                    touchStartThreshold: 5,  // Allow small movement before drag
                     onEnd: updateStationOrder
                 }));
 
@@ -1267,6 +1270,9 @@ input[type="time"]::-webkit-inner-spin-button {
                         animation: 150,
                         group: 'participants',
                         draggable: '.participant-card',
+                        delayOnTouchOnly: true,
+                        delay: 250,
+                        touchStartThreshold: 5,
                         onEnd: updateParticipantOrder
                     }));
                 });
