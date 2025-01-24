@@ -242,84 +242,90 @@ class WeatherService:
                 print("[WEATHER] No data received from API")
                 return {"success": False, "message": "No data received from weather API"}
 
-            print("[WEATHER] Deleting future hourly and daily records")
             current_time = get_current_time()
 
-            # Minutely data isn't deleted but updated to prevent data loss
-                        
-            # Delete hourly records from current hour
-            current_hour = current_time.replace(minute=0, second=0, microsecond=0)
-            Weather.query.filter(
-                Weather.forecast_type == 'hourly',
-                Weather.timestamp >= current_hour
-            ).delete()
-            
-            # Delete daily records from current day
-            current_day = current_time.replace(hour=12, minute=0, second=0, microsecond=0)
-            Weather.query.filter(
-                Weather.forecast_type == 'daily',
-                Weather.timestamp >= current_day
-            ).delete()
-            
-            db.session.commit()
-
-            records_to_save = []
-            for data_type in ['minutely', 'hourly', 'daily']:
-                if data_type in data:
-                    processor = getattr(self, f'process_{data_type}')
-                    records = processor(data[data_type])
-                    print(f"[WEATHER] Processed {len(records)} {data_type} records")
-                    records_to_save.extend(records)
-
-            if records_to_save:
-                print(f"[WEATHER] Saving {len(records_to_save)} total records")
-                db.session.bulk_save_objects(records_to_save)
+            # 1. Handle minutely data - update without deletion
+            minutely_records = []
+            if 'minutely' in data:
+                minutely_records = self.process_minutely(data['minutely'])
+                db.session.bulk_save_objects(minutely_records)
                 db.session.commit()
+                print(f"[WEATHER] Updated {len(minutely_records)} minutely records")
 
-            # Process walking bus calculations
+            # 2. Handle hourly and daily data - delete future records and replace
+            with db.session.begin_nested():
+                # Delete future records
+                current_hour = current_time.replace(minute=0, second=0, microsecond=0)
+                deleted_hourly = Weather.query.filter(
+                    Weather.forecast_type == 'hourly',
+                    Weather.timestamp >= current_hour
+                ).delete()
+                
+                current_day = current_time.replace(hour=12, minute=0, second=0, microsecond=0)
+                deleted_daily = Weather.query.filter(
+                    Weather.forecast_type == 'daily',
+                    Weather.timestamp >= current_day
+                ).delete()
+                
+                print(f"[WEATHER] Deleted {deleted_hourly} hourly and {deleted_daily} daily future records")
+
+                # Process and save new hourly/daily data
+                future_records = []
+                for data_type in ['hourly', 'daily']:
+                    if data_type in data:
+                        processor = getattr(self, f'process_{data_type}')
+                        records = processor(data[data_type])
+                        future_records.extend(records)
+                        print(f"[WEATHER] Processed {len(records)} {data_type} records")
+
+                if future_records:
+                    db.session.bulk_save_objects(future_records)
+                    print(f"[WEATHER] Saved {len(future_records)} future records")
+
+            # 3. Process walking bus calculations
             print("[WEATHER] Starting weather calculations for walking buses")
             buses = WalkingBus.query.all()
             calculations_to_save = []
             
-            # Clean up future calculations
-            for bus in buses:
+            with db.session.begin_nested():
+                # Clean up future calculations
                 current_date = get_current_date()
                 end_date = current_date + timedelta(days=6)
-                WeatherCalculation.query.filter(
-                    WeatherCalculation.walking_bus_id == bus.id,
-                    WeatherCalculation.date >= current_date,
-                    WeatherCalculation.date <= end_date
-                ).delete()
-            db.session.commit()
-
-            # Calculate new weather data for each bus
-            for bus in buses:
-                schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
-                current_date = get_current_date()
                 
-                for i in range(6):
-                    target_date = current_date + timedelta(days=i)
-                    weather_data = self.get_weather_for_timeframe(target_date, schedule, include_details=True)
+                for bus in buses:
+                    deleted_calcs = WeatherCalculation.query.filter(
+                        WeatherCalculation.walking_bus_id == bus.id,
+                        WeatherCalculation.date >= current_date,
+                        WeatherCalculation.date <= end_date
+                    ).delete()
+                    print(f"[WEATHER] Deleted {deleted_calcs} calculations for bus {bus.id}")
+
+                # Calculate new weather data
+                for bus in buses:
+                    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
                     
-                    if weather_data:
-                        calc = WeatherCalculation(
-                            walking_bus_id=bus.id,
-                            date=target_date,
-                            icon=weather_data['result']['icon'],
-                            precipitation=weather_data['result']['precipitation'],
-                            pop=weather_data['result']['pop'],
-                            calculation_type=weather_data['calculation_details']['coverage_type'],
-                            last_updated=get_current_time()
-                        )
-                        calculations_to_save.append(calc)
+                    for i in range(6):
+                        target_date = current_date + timedelta(days=i)
+                        weather_data = self.get_weather_for_timeframe(target_date, schedule, include_details=True)
+                        
+                        if weather_data:
+                            calc = WeatherCalculation(
+                                walking_bus_id=bus.id,
+                                date=target_date,
+                                icon=weather_data['result']['icon'],
+                                precipitation=weather_data['result']['precipitation'],
+                                pop=weather_data['result']['pop'],
+                                calculation_type=weather_data['calculation_details']['coverage_type'],
+                                last_updated=get_current_time()
+                            )
+                            calculations_to_save.append(calc)
 
-            # Save all new calculations
-            if calculations_to_save:
-                print(f"[WEATHER] Saving {len(calculations_to_save)} weather calculations")
-                db.session.bulk_save_objects(calculations_to_save)
-                db.session.commit()
+                if calculations_to_save:
+                    db.session.bulk_save_objects(calculations_to_save)
+                    print(f"[WEATHER] Saved {len(calculations_to_save)} new calculations")
 
-            # Verify and notify
+            # Final commit and verification
+            db.session.commit()
             self._verify_database_state()
             self._verify_calculations_state()
             
@@ -344,6 +350,7 @@ class WeatherService:
             
         finally:
             redis_client.delete(LOCK_KEY)
+
 
     def cleanup_old_calculations(self):
         """Remove outdated weather calculations"""
