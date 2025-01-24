@@ -906,20 +906,15 @@ def update_weather():
 @require_auth
 def clear_weather_database():
     try:
-        # Get current walking bus ID for WeatherCalculation
-        walking_bus_id = get_current_walking_bus_id()
-        
         # Log the start of operation
-        current_app.logger.info("[DATABASE] Starting weather database cleanup")
+        current_app.logger.info("[DATABASE] Starting complete weather database cleanup")
         
         # Delete all weather records
         weather_count = Weather.query.delete()
         current_app.logger.info(f"[DATABASE] Deleted {weather_count} weather records")
         
-        # Delete weather calculations for current walking bus
-        calc_count = WeatherCalculation.query.filter_by(
-            walking_bus_id=walking_bus_id
-        ).delete()
+        # Delete ALL weather calculations (removed walking_bus_id filter)
+        calc_count = WeatherCalculation.query.delete()
         current_app.logger.info(f"[DATABASE] Deleted {calc_count} weather calculations")
         
         # Commit the changes
@@ -929,7 +924,7 @@ def clear_weather_database():
             "success": True,
             "message": f"Successfully deleted {weather_count} weather records and {calc_count} calculations",
             "details": {
-                "weather_records": weather_count,
+                "weather_records": weather_count, 
                 "calculations": calc_count
             }
         })

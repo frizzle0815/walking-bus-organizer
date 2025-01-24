@@ -212,22 +212,20 @@ class WeatherService:
             app.logger.error(f"[WEATHER] Error fetching weather data: {str(e)}")
             return None
 
+    def verify_weather_data_available(self, retries=3, delay=0.5):
+        """Verify weather data is available in database with retry mechanism"""
+        for attempt in range(retries):
+            count = Weather.query.count()
+            print(f"[WEATHER][VERIFY] Attempt {attempt + 1}: Found {count} records")
+            if count > 0:
+                return True
+            time.sleep(delay)
+        return False
+
     def update_weather(self):
-        LOCK_KEY = "weather_update_lock"
-        LOCK_TIMEOUT = 10
+        """Main function to fetch and store weather data"""
+        print("[WEATHER][UPDATE] Starting weather update process")
         
-        print("[WEATHER] Starting weather update process")
-        
-        lock_acquired = redis_client.set(
-            LOCK_KEY,
-            'locked',
-            ex=LOCK_TIMEOUT,
-            nx=True
-        )
-        
-        if not lock_acquired:
-            return {"success": False, "message": "Another update is in progress"}
-            
         try:
             # First cleanup old records
             self.cleanup_old_records()
@@ -236,10 +234,9 @@ class WeatherService:
             # Check rate limit
             can_fetch, seconds_remaining = self.can_fetch_weather()
             if not can_fetch:
-                print("[WEATHER] Rate limit in effect, skipping update")
                 return {
                     "success": False, 
-                    "message": f"Rate limit in effect. Please wait {seconds_remaining} seconds before updating"
+                    "message": f"Rate limit in effect. Please wait {seconds_remaining} seconds"
                 }
 
             # Fetch new data
@@ -247,9 +244,9 @@ class WeatherService:
             if not data:
                 return {"success": False, "message": "No data received from weather API"}
 
-            # Process each type of weather data
+            # Process weather data
             records_to_save = []
-            print(f"[WEATHER] Processing new weather data")
+            print(f"[WEATHER][UPDATE] Processing new weather data")
             
             # Process minutely data
             if 'minutely' in data:
@@ -262,7 +259,7 @@ class WeatherService:
                         pop=1.0 if minute['precipitation'] > 0 else 0.0
                     )
                     records_to_save.append(weather)
-                print(f"[WEATHER] Processed {len(data['minutely'])} minutely records")
+                print(f"[WEATHER][UPDATE] Processed {len(data['minutely'])} minutely records")
 
             # Process hourly data
             if 'hourly' in data:
@@ -290,7 +287,7 @@ class WeatherService:
                         weather_icon=icon_name
                     )
                     records_to_save.append(weather)
-                print(f"[WEATHER] Processed {len(data['hourly'])} hourly records")
+                print(f"[WEATHER][UPDATE] Processed {len(data['hourly'])} hourly records")
 
             # Process daily data
             if 'daily' in data:
@@ -312,18 +309,48 @@ class WeatherService:
                         weather_icon=icon_name
                     )
                     records_to_save.append(weather)
-                print(f"[WEATHER] Processed {len(data['daily'])} daily records")
+                print(f"[WEATHER][UPDATE] Processed {len(data['daily'])} daily records")
 
-            # Save all weather records using merge
+            # Save weather records
             if records_to_save:
-                print(f"[WEATHER] Merging {len(records_to_save)} total records")
+                print(f"[WEATHER][UPDATE] Merging {len(records_to_save)} total records")
                 for record in records_to_save:
                     db.session.merge(record)
                 db.session.commit()
+                
+                # Verify database state
+                if self.verify_weather_data_available():
+                    self._verify_database_state()
+                    self.update_last_fetch_time()
+                    
+                    # Trigger calculations update
+                    print("[WEATHER] Starting automatic calculations update")
+                    calc_result = self.update_weather_calculations()
+                    
+                    if calc_result["success"]:
+                        return {"success": True, "message": "Weather data and calculations updated successfully"}
+                    else:
+                        return {
+                            "success": False, 
+                            "message": f"Weather data updated but calculations failed: {calc_result['message']}"
+                        }
+                        
+                return {"success": False, "message": "Weather data verification failed"}
 
-            # Process walking bus calculations
+            return {"success": False, "message": "No weather records to save"}
+
+        except Exception as e:
+            print(f"[WEATHER][UPDATE] Error during update: {str(e)}")
+            db.session.rollback()
+            return {"success": False, "message": f"Error during update: {str(e)}"}
+
+    def update_weather_calculations(self):
+        """Process and update weather calculations for all walking buses"""
+        try:
             calculations_to_save = []
             buses = WalkingBus.query.all()
+            
+            print("[WEATHER][CALC] Starting calculations update")
             
             for bus in buses:
                 schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
@@ -346,7 +373,7 @@ class WeatherService:
                         calculations_to_save.append(calc)
 
             if calculations_to_save:
-                print(f"[WEATHER] Updating {len(calculations_to_save)} weather calculations")
+                print(f"[WEATHER][CALC] Updating {len(calculations_to_save)} weather calculations")
                 for calc in calculations_to_save:
                     stmt = pg_insert(WeatherCalculation).values(
                         walking_bus_id=calc.walking_bus_id,
@@ -369,24 +396,15 @@ class WeatherService:
                     db.session.execute(stmt)
                 
                 db.session.commit()
-
-            # Verify final state
-            self._verify_database_state()
-            self._verify_calculations_state()
-            
-            # Update last fetch time and notify frontend
-            self.update_last_fetch_time()
-            
-            return {"success": True, "message": "Weather data updated successfully"}
+                self._verify_calculations_state()
+                return {"success": True, "message": "Calculations updated successfully"}
+                
+            return {"success": False, "message": "No calculations to update"}
 
         except Exception as e:
-            print(f"[WEATHER] Error during update: {str(e)}")
+            print(f"[WEATHER][CALC] Error updating calculations: {str(e)}")
             db.session.rollback()
-            return {"success": False, "message": f"Error during update: {str(e)}"}
-            
-        finally:
-            redis_client.delete(LOCK_KEY)
-
+            return {"success": False, "message": f"Error updating calculations: {str(e)}"}
 
     def _verify_database_state(self):
         """Helper method for database state verification"""
