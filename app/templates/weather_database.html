@@ -55,6 +55,11 @@
             <h2>Record Statistics</h2>
             <div id="recordStats"></div>
         </div>
+
+        <div class="stats-box">
+            <h2>Weather Calculations per Walking Bus</h2>
+            <div id="weatherCalculations"></div>
+        </div>
         
         <div class="stats-box">
             <h2>Sample Records</h2>
@@ -83,7 +88,43 @@
                     <p>Hourly Records: ${data.types.hourly}</p>
                     <p>Daily Records: ${data.types.daily}</p>
                 `;
+
+                // Add Weather Calculations Table
+                let calcTableHtml = `
+                    <table class="weather-table">
+                        <thead>
+                            <tr>
+                                <th>Walking Bus ID</th>
+                                <th>Date</th>
+                                <th>Icon</th>
+                                <th>Precipitation</th>
+                                <th>PoP</th>
+                                <th>Calculation Type</th>
+                                <th>Last Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
                 
+                if (data.weather_calculations) {
+                    data.weather_calculations.forEach(calc => {
+                        calcTableHtml += `
+                            <tr>
+                                <td>${calc.walking_bus_id || 'N/A'}</td>
+                                <td>${calc.date || 'N/A'}</td>
+                                <td>${calc.icon || 'N/A'}</td>
+                                <td>${calc.precipitation !== null ? calc.precipitation + ' mm' : 'N/A'}</td>
+                                <td>${calc.pop !== null ? (calc.pop * 100).toFixed(1) + '%' : 'N/A'}</td>
+                                <td>${calc.calculation_type || 'N/A'}</td>
+                                <td>${calc.last_updated ? calc.last_updated.replace('T', ' ').split('.')[0] : 'N/A'}</td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                calcTableHtml += '</tbody></table>';
+                document.getElementById('weatherCalculations').innerHTML = calcTableHtml;
+
                 // Update Sample Records Table
                 let tableHtml = `
                     <table class="weather-table">

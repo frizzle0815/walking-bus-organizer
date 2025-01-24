@@ -59,6 +59,7 @@
     <div class="weather-data">
         <h2>Weather Calculation Details</h2>
         <button onclick="updateWeather()" class="update-button">Update Weather Data</button>
+        <button onclick="clearDatabase()" class="clear-button" style="background-color: #ff4444; color: white; margin-left: 10px;">Clear Database</button>
         <span id="lastUpdate"></span>
         <div id="updateResult"></div>
         <div id="calculationDetails">
@@ -97,6 +98,31 @@ async function updateWeather() {
     }
 }
 
+async function clearDatabase() {
+    if (!confirm('Are you sure you want to clear all weather data? This action cannot be undone.')) {
+        return;
+    }
+    
+    const updateResult = document.getElementById('updateResult');
+    try {
+        const response = await fetch('/api/weather/clear', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            updateResult.innerHTML = `<p class="success">${data.message}</p>`;
+            // Aktualisiere die Anzeige
+            loadCalculationDetails();
+            document.getElementById('lastUpdate').innerHTML = '';
+        } else {
+            updateResult.innerHTML = `<p class="error">${data.message}</p>`;
+        }
+    } catch (error) {
+        console.error('[DATABASE]Error clearing database:', error);
+        updateResult.innerHTML = `<p class="error">Error clearing database: ${error}</p>`;
+    }
+}
 
 async function loadCalculationDetails() {
     try {

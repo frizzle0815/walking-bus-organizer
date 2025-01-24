@@ -190,7 +190,6 @@ def get_initial_load():
         return jsonify({"error": str(e)}), 500
 
 
-
 def get_stations_data(walking_bus_id):
     """Helper function to get stations with participants"""
     stations = (Station.query
@@ -903,6 +902,47 @@ def update_weather():
     })
 
 
+@bp.route("/api/weather/clear", methods=["POST"])
+@require_auth
+def clear_weather_database():
+    try:
+        # Get current walking bus ID for WeatherCalculation
+        walking_bus_id = get_current_walking_bus_id()
+        
+        # Log the start of operation
+        current_app.logger.info("[DATABASE] Starting weather database cleanup")
+        
+        # Delete all weather records
+        weather_count = Weather.query.delete()
+        current_app.logger.info(f"[DATABASE] Deleted {weather_count} weather records")
+        
+        # Delete weather calculations for current walking bus
+        calc_count = WeatherCalculation.query.filter_by(
+            walking_bus_id=walking_bus_id
+        ).delete()
+        current_app.logger.info(f"[DATABASE] Deleted {calc_count} weather calculations")
+        
+        # Commit the changes
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Successfully deleted {weather_count} weather records and {calc_count} calculations",
+            "details": {
+                "weather_records": weather_count,
+                "calculations": calc_count
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"[DATABASE] Error clearing weather database: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": f"Error clearing database: {str(e)}"
+        }), 500
+
+
 @bp.route('/api/weather/all')
 def get_all_weather():
     minutely_data = Weather.query.filter_by(forecast_type='minutely').order_by(Weather.timestamp).all()
@@ -1027,6 +1067,7 @@ def get_weather_calculations():
 @bp.route('/api/weather/debug')
 def weather_debug():
     records = Weather.query.order_by(Weather.timestamp).all()
+    calculations = WeatherCalculation.query.all()
     
     response = {
         'query_timeframe': {
@@ -1045,7 +1086,16 @@ def weather_debug():
             'precipitation': r.precipitation if r.forecast_type == 'minutely' else r.total_precipitation,
             'pop': r.pop,
             'weather_icon': r.weather_icon
-        } for r in records[:500]]
+        } for r in records[:500]],
+        'weather_calculations': [{
+            'walking_bus_id': calc.walking_bus_id,
+            'date': calc.date.strftime('%Y-%m-%d'),
+            'icon': calc.icon,
+            'precipitation': calc.precipitation,
+            'pop': calc.pop,
+            'calculation_type': calc.calculation_type,
+            'last_updated': calc.last_updated.astimezone(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S %Z')
+        } for calc in calculations]
     }
     
     return jsonify(response)
