@@ -590,8 +590,9 @@ class WeatherService:
         is_active = getattr(schedule, weekday, False)
         if not is_active:
             logger.info(f"[WEATHER][TIMEFRAME] Schedule inactive, using daily data")
+            daily_timestamp = datetime.combine(date, time(12, 0), tzinfo=TIMEZONE)
             daily_record = Weather.query.filter(
-                Weather.timestamp == datetime.combine(date, time(12, 0)),
+                Weather.timestamp == daily_timestamp,
                 Weather.forecast_type == 'daily'
             ).first()
             
@@ -638,8 +639,9 @@ class WeatherService:
         if len(minutely_records) >= duration_minutes:
             logger.info(f"[WEATHER][TIMEFRAME] Using minutely data ({len(minutely_records)}/{duration_minutes} records)")
             
+            hourly_start = start_datetime.replace(minute=0)
             hourly_record = Weather.query.filter(
-                Weather.timestamp == start_datetime.replace(minute=0),
+                Weather.timestamp == hourly_start,
                 Weather.forecast_type == 'hourly'
             ).first()
             
@@ -687,6 +689,8 @@ class WeatherService:
             
             for record in hourly_records:
                 hour_start = record.timestamp
+                if hour_start.tzinfo is None:
+                    hour_start = hour_start.replace(tzinfo=TIMEZONE)
                 hour_end = hour_start + timedelta(hours=1)
                 
                 if hour_end > start_datetime and hour_start < end_datetime:
@@ -733,8 +737,9 @@ class WeatherService:
             return result
 
         logger.info("[WEATHER][TIMEFRAME] No hourly data, falling back to daily")
+        daily_timestamp = datetime.combine(date, time(12, 0), tzinfo=TIMEZONE)
         daily_record = Weather.query.filter(
-            Weather.timestamp == datetime.combine(date, time(12, 0)),
+            Weather.timestamp == daily_timestamp,
             Weather.forecast_type == 'daily'
         ).first()
 
