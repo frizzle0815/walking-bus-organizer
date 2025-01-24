@@ -1,24 +1,19 @@
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 import os
 import pytz
 import logging
 import secrets
 import subprocess
-import json
-import sys
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 from redis import Redis
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.combining import OrTrigger
-from apscheduler.triggers.cron import CronTrigger
+
 
 db = SQLAlchemy()
 migrate = Migrate()
-scheduler = BackgroundScheduler()
 
 
 # Define the application's timezone
@@ -80,133 +75,47 @@ class RequestFormatter(logging.Formatter):
         return f"[{self.formatTime(record)}] [{record.client_ip}] {record.getMessage()}"
 
 
-def reconfigure_weather_scheduler(app):
-    # Add lock mechanism for scheduler configuration
-    lock_key = "scheduler_config_lock"
-    if redis_client.set(lock_key, 'locked', ex=30, nx=True):
-        try:
-            with app.app_context():
-                if scheduler.running:
-                    scheduler.remove_job('weather_update')
-                    app.logger.info("[SCHEDULER] Removed existing weather update job")
-                
-                from .services.weather_service import WeatherService
-                from .models import WalkingBusSchedule
-                
-                # Initialize service with retry mechanism
-                weather_service = WeatherService()
-                
-                def perform_weather_update():
-                    try:
-                        with app.app_context():
-                            success = weather_service.update_weather()
-                            if success:
-                                redis_client.publish('status_updates', json.dumps({
-                                    "type": "weather_update",
-                                    "timestamp": get_current_time().isoformat(),
-                                    "status": "success"
-                                }))
-                                app.logger.info("[SCHEDULER] Weather update successful")
-                            else:
-                                app.logger.warning("[SCHEDULER] Weather update failed")
-                    except Exception as e:
-                        app.logger.error(f"[SCHEDULER] Error in weather update: {str(e)}")
-
-                # Configure schedule with error handling
-                try:
-                    schedules = WalkingBusSchedule.query.all()
-                    app.logger.info(f"[SCHEDULER] Found {len(schedules)} walking bus schedules")
-                    
-                    # Schedule analysis
-                    earliest_time = time(23, 59)
-                    latest_time = time(0, 0)
-                    active_days = set()
-                    
-                    for schedule in schedules:
-                        for day in WEEKDAY_MAPPING.values():
-                            if getattr(schedule, day):
-                                active_days.add(day[:3].lower())
-                                day_start = getattr(schedule, f"{day}_start")
-                                day_end = getattr(schedule, f"{day}_end")
-                                earliest_time = min(earliest_time, day_start)
-                                latest_time = max(latest_time, day_end)
-                    
-                    minutely_window_start = max(0, earliest_time.hour - 1)
-                    minutely_window_end = min(23, latest_time.hour + 1)
-                    active_days_str = ','.join(sorted(active_days)) or 'mon-sun'
-                    
-                    # Add job with both triggers
-                    scheduler.add_job(
-                        func=perform_weather_update,
-                        trigger=OrTrigger([
-                            CronTrigger(
-                                day_of_week=active_days_str,
-                                hour=f'{minutely_window_start}-{minutely_window_end}',
-                                minute='*/5'
-                            ),
-                            CronTrigger(
-                                day_of_week='mon-sun',
-                                hour='*',
-                                minute='0'
-                            )
-                        ]),
-                        id='weather_update',
-                        max_instances=1,
-                        coalesce=True,
-                        misfire_grace_time=300
-                    )
-                    
-                    if not scheduler.running:
-                        scheduler.start()
-                        app.logger.info("[SCHEDULER] Weather update scheduler started")
-                    else:
-                        app.logger.info("[SCHEDULER] Weather update scheduler reconfigured")
-                        
-                except Exception as e:
-                    app.logger.error(f"[SCHEDULER] Configuration error: {str(e)}")
-                    raise
-                    
-        finally:
-            redis_client.delete(lock_key)
-    else:
-        app.logger.info("[SCHEDULER] Another process is configuring the scheduler")
-
-
-def start_weather_service(app):
-    """Centralized weather service initialization and first update"""
-    from .services.weather_service import WeatherService
-    weather_service = WeatherService()
-    
-    try:
-        success = weather_service.update_weather()
-        app.logger.info(f"[SCHEDULER][WEATHER] Initial update {'successful' if success else 'failed'}")
-        return success
-    except Exception as e:
-        app.logger.error(f"[SCHEDULER][WEATHER] Initial update error: {str(e)}")
-        return False
-
-
 def create_app():
     app = Flask(__name__)
 
-    # 1. Basic Configuration
+    # Security Configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
     app.config['SESSION_COOKIE_SECURE'] = True
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'
+    
+    # Add bus configuration timestamp
     app.config['BUS_CONFIG_TIMESTAMP'] = datetime.now(TIMEZONE).timestamp()
     
-    # 2. Database Configuration
+    # Database Configuration
     database_url = os.getenv('DATABASE_URL', 'postgresql://walkingbus:password@localhost:5432/walkingbus')
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # 3. Initialize extensions
-    db.init_app(app)
-    migrate.init_app(app, db)
+    # Session validation middleware
+    @app.before_request
+    def validate_session():
+        # Only check for PWA resources
+        pwa_paths = {
+            'manifest.json',
+            'service-worker.js',
+            'static/icons/',
+            'static/manifest.json'
+        }
+        
+        if any(path in request.path for path in pwa_paths) or \
+           (request.endpoint and 'static' in request.endpoint):
+            return None
 
-    # 4. Configure logging
+    # Auth token capture middleware
+    @app.after_request
+    def capture_auth_token(response):
+        if 'X-Auth-Token' in response.headers:
+            response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
+        return response
+
+    # Configure logging
     if not app.debug:
         if not os.path.exists('logs'):
             os.mkdir('logs')
@@ -227,24 +136,9 @@ def create_app():
         app.logger.setLevel(logging.INFO)
         app.logger.info('Walking Bus startup')
 
-    # 5. Register middleware
-    @app.before_request
-    def validate_session():
-        pwa_paths = {
-            'manifest.json',
-            'service-worker.js',
-            'static/icons/',
-            'static/manifest.json'
-        }
-        if any(path in request.path for path in pwa_paths) or \
-           (request.endpoint and 'static' in request.endpoint):
-            return None
-
-    @app.after_request
-    def capture_auth_token(response):
-        if 'X-Auth-Token' in response.headers:
-            response.headers['Access-Control-Expose-Headers'] = 'X-Auth-Token'
-        return response
+    # Initialize extensions
+    db.init_app(app)
+    migrate.init_app(app, db)
 
     # Register blueprints
     from .routes import bp

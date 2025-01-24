@@ -9,4 +9,3 @@ requests
 PyJWT
 qrcode[pil]
 redis
-APScheduler

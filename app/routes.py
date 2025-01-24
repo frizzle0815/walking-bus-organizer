@@ -16,7 +16,6 @@ from .models import (
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
-from . import scheduler, start_weather_service, reconfigure_weather_scheduler
 from . import get_git_revision
 from .auth import (
     require_auth, SECRET_KEY, is_ip_allowed, 
@@ -148,19 +147,31 @@ def revoke_auth_token(token_id):
 @require_auth
 def get_initial_load():
     """
-    Initial load provides structural data and initializes scheduler if needed
+    Initial load provides structural data and triggers weather update
     """
     try:
         walking_bus_id = get_current_walking_bus_id()
         current_app.logger.info("[INITIAL_LOAD] Starting initial data load")
         
-        # Check and start scheduler if not running
-        if not scheduler.running:
-            current_app.logger.info("[INITIAL_LOAD] Starting scheduler")
-            start_weather_service(current_app)
-            reconfigure_weather_scheduler(current_app)
-        else:
-            current_app.logger.info("[INITIAL_LOAD] Scheduler already running")
+        # Create background task with proper app context
+        def background_weather_update(app):
+            with app.app_context():
+                try:
+                    weather_service = WeatherService()
+                    result = weather_service.update_weather()
+                    current_app.logger.info(f"[INITIAL_LOAD] Background weather update completed: {result}")
+                except Exception as e:
+                    current_app.logger.error(f"[INITIAL_LOAD] Background weather update failed: {str(e)}")
+        
+        # Start weather update in separate thread with app context
+        from threading import Thread
+        Thread(
+            target=background_weather_update, 
+            args=(current_app._get_current_object(),),
+            daemon=True
+        ).start()
+        
+        current_app.logger.info("[INITIAL_LOAD] Weather update triggered in background")
 
         # Get stations with participants
         stations_data = get_stations_data(walking_bus_id)
@@ -168,7 +179,7 @@ def get_initial_load():
 
         response_data = {
             "stations": stations_data,
-            "scheduler_status": "running" if scheduler.running else "stopped"
+            "weather_update": "triggered"
         }
 
         current_app.logger.info("[INITIAL_LOAD] Data compilation complete")
@@ -177,6 +188,7 @@ def get_initial_load():
     except Exception as e:
         current_app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 
 def get_stations_data(walking_bus_id):
@@ -1040,52 +1052,6 @@ def weather_debug():
 
 
 
-@bp.route('/scheduler-status')
-def scheduler_status():
-    jobs = scheduler.get_jobs()
-    scheduler_info = {
-        'status': 'Running' if scheduler.running else 'Stopped',
-        'jobs': [{
-            'id': job.id,
-            'next_run': job.next_run_time,
-            'trigger': str(job.trigger),
-            'function': job.func.__name__,
-            'max_instances': job.max_instances,
-            'misfire_grace_time': job.misfire_grace_time
-        } for job in jobs]
-    }
-    
-    return render_template(
-        'scheduler_status.html',
-        scheduler=scheduler_info
-    )
-
-
-@bp.route('/api/scheduler/start', methods=['POST'])
-@require_auth
-def start_scheduler():
-    if scheduler.running:
-        return jsonify({
-            'status': 'already_running',
-            'message': 'Scheduler is already running'
-        })
-    
-    try:
-        start_weather_service(current_app)
-        reconfigure_weather_scheduler(current_app)
-        return jsonify({
-            'status': 'success',
-            'message': 'Scheduler started successfully'
-        })
-    except Exception as e:
-        current_app.logger.error(f"Failed to start scheduler: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-
-
 #####################################################
 ######################################################
 
@@ -1408,16 +1374,9 @@ def get_schedule():
 @bp.route("/api/walking-bus-schedule", methods=["PUT"])
 @require_auth
 def update_schedule():
-    import os
-    process_type = "Main" if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' else "Reloader"
-    print(f"[DEBUG] Running in {process_type} process")  # This will show in both processes
-
     walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
-
-    print(f"[DEBUG] Updating schedule for bus {walking_bus_id}")
-    print("[DEBUG] About to reconfigure scheduler")
-
+    
     current_app.logger.info("[SCHEDULE] Starting schedule update")
     
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
@@ -1446,17 +1405,10 @@ def update_schedule():
             setattr(schedule, f"{day}_end", end)
     
     db.session.commit()
-    
-    # Add explicit logging configuration
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # Try both logging approaches
-    print("[DEBUG] Starting scheduler reconfiguration")
-    reconfigure_weather_scheduler(current_app)
-    print("[DEBUG] Scheduler reconfiguration complete")
+    current_app.logger.info("[SCHEDULE] Schedule update completed")
     
     return jsonify({"success": True})
+
 
 
 @bp.route("/api/calendar-status", methods=["POST"])
