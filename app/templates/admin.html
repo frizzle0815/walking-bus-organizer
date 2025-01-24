@@ -157,7 +157,14 @@
              </div>
          </div>
     </div>
-    
+   
+    <!-- Order Mode Toggle Button -->
+    <div class="d-grid mb-2">
+        <button id="toggleOrderMode" class="btn btn-outline-secondary btn-lg">
+            <i class="fas fa-arrows-alt"></i> Reihenfolge ändern
+        </button>
+    </div>
+
     <!-- Add Station Button -->
     <div class="d-grid mb-3">
         <button id="addStationBtn" class="btn btn-primary btn-lg">
@@ -171,7 +178,6 @@
         <div class="station-template d-none station-card">
             <div class="card mb-3">
                 <div class="card-header d-flex align-items-center bg-light py-2">
-                    <div class="drag-handle me-2">⋮⋮</div>
                     <input type="text" class="form-control station-name" placeholder="Stationsname">
                     <input type="time" class="form-control station-time ms-2" style="width: auto;" placeholder="Ankunftszeit">
                     <button class="btn btn-danger btn-sm ms-2 delete-station">
@@ -192,7 +198,6 @@
           <div class="participant-template d-none">
            <div class="participant-card mb-2 border rounded p-2">
                <div class="d-flex align-items-center mb-2">
-                   <div class="drag-handle me-2">⋮⋮</div>
                    <div class="flex-grow-1 d-flex align-items-center">
                        <input type="text" class="form-control participant-name" placeholder="Name">
                        <button class="btn btn-danger btn-sm ms-2 delete-participant">
@@ -352,7 +357,7 @@ input[type="time"]::-webkit-inner-spin-button {
  /* General Styles */
  .drag-handle {
      cursor: move;
-     font-size: 2.3rem;
+     font-size: 1rem;
      color: #666;
      user-select: none;
      touch-action: none;
@@ -463,16 +468,67 @@ input[type="time"]::-webkit-inner-spin-button {
      border-color: #0d6efd !important;
      color: white !important;
 
-}</style>
+}
+
+.order-mode .station-card,
+.order-mode .participant-card {
+    cursor: move;
+    background-color: #f8f9fa;
+    transition: all 0.2s;
+}
+
+.order-mode .station-card:hover,
+.order-mode .participant-card:hover {
+    transform: scale(1.01);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.order-mode .station-name,
+.order-mode .participant-name {
+    pointer-events: none;
+    border: none;
+    background: none !important;
+    color: inherit;
+}
+
+.order-mode #stationsContainer .participants-container .days-container {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.order-mode #stationsContainer .station-time,
+.order-mode #stationsContainer .delete-station,
+.order-mode #stationsContainer .delete-participant,
+.order-mode #stationsContainer .drag-handle,
+.order-mode #stationsContainer .participants-container,
+.order-mode #stationsContainer .add-participant {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.container-fluid.order-mode #stationsContainer .station-card .card .card-body .participant-card .days-container {
+    display: none !important;
+}
+</style>
 <!-- Include necessary scripts -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
  document.addEventListener('DOMContentLoaded', async () => {
-     let globalSchedule = null;
+    const toggleOrderModeBtn = document.getElementById('toggleOrderMode');
+    let sortableInstances = [];
+    let globalSchedule = null;
      const stationsContainer = document.getElementById('stationsContainer');
      const stationTemplate = document.querySelector('.station-template');
      const participantTemplate = document.querySelector('.participant-template');
-
+    
      // Add a passive touchstart event listener to improve scrolling performance
      document.addEventListener('touchstart', function() {}, { passive: true });
 
@@ -773,7 +829,7 @@ input[type="time"]::-webkit-inner-spin-button {
                  fragment.appendChild(card);
              }
              stationsContainer.appendChild(fragment);
-             initializeSortable();
+             //initializeSortable();
          } catch (error) {
              console.error('Failed to load stations:', error);
          }
@@ -914,7 +970,7 @@ input[type="time"]::-webkit-inner-spin-button {
                     updateStationOrder();
                     
                     // Reinitialize sortable
-                    initializeSortable();
+                    //initializeSortable();
                 });
             });
         }
@@ -1088,15 +1144,28 @@ input[type="time"]::-webkit-inner-spin-button {
         }
 
         function updateParticipantOrder(evt) {
-            const newStationId = evt.to.closest('.station-card').dataset.stationId;
-            const oldStationId = evt.from.closest('.station-card').dataset.stationId;
+            console.log('Update participant order triggered', evt);
+            
+            // Get station IDs with null checks
+            const newStationId = evt.to?.closest('.station-card')?.dataset?.stationId;
+            const oldStationId = evt.from?.closest('.station-card')?.dataset?.stationId;
+            
+            console.log('Station IDs:', { newStationId, oldStationId });
+            
+            if (!newStationId) {
+                console.error('No target station found');
+                return;
+            }
             
             // Update all positions in destination container
             const destinationContainer = evt.to;
             const destinationUpdates = Array.from(destinationContainer.children)
                 .map((participantElement, index) => {
-                    const participantCard = participantElement.querySelector('.participant-card');
-                    const participantId = participantCard.dataset.participantId;
+                    const participantId = participantElement?.dataset?.participantId;
+                    if (!participantId) {
+                        console.log('Skipping participant without ID', participantElement);
+                        return null;
+                    }
                     
                     return fetchWithAuth(`/api/stations/${newStationId}/participants/${participantId}`, {
                         method: 'PUT',
@@ -1106,16 +1175,17 @@ input[type="time"]::-webkit-inner-spin-button {
                             position: index
                         })
                     });
-                });
+                })
+                .filter(Boolean); // Remove null entries
 
-            // Update all positions in source container if different from destination
+            // Update source container if different from destination
             let sourceUpdates = [];
-            if (oldStationId !== newStationId) {
+            if (oldStationId && oldStationId !== newStationId) {
                 const sourceContainer = evt.from;
                 sourceUpdates = Array.from(sourceContainer.children)
                     .map((participantElement, index) => {
-                        const participantCard = participantElement.querySelector('.participant-card');
-                        const participantId = participantCard.dataset.participantId;
+                        const participantId = participantElement?.dataset?.participantId;
+                        if (!participantId) return null;
                         
                         return fetchWithAuth(`/api/stations/${oldStationId}/participants/${participantId}`, {
                             method: 'PUT',
@@ -1124,17 +1194,136 @@ input[type="time"]::-webkit-inner-spin-button {
                                 position: index
                             })
                         });
-                    });
+                    })
+                    .filter(Boolean);
             }
 
             // Execute all updates
             Promise.all([...destinationUpdates, ...sourceUpdates])
+                .then(() => {
+                    console.log('All participant updates completed');
+                })
                 .catch(error => {
                     console.error('Participant update failed:', error);
                     alert('Fehler beim Aktualisieren der Teilnehmer. Bitte laden Sie die Seite neu.');
                     location.reload();
                 });
         }
+
+
+        async function loadStationsOrderMode() {
+            try {
+                const response = await fetchWithAuth('/api/stations?admin=1&include=participants');
+                const stations = await response.json();
+                
+                stationsContainer.innerHTML = '';
+                sortableInstances = []; // Reset instances array
+                
+                const fragment = document.createDocumentFragment();
+                for (const station of stations) {
+                    const card = document.createElement('div');
+                    card.className = 'station-card';
+                    card.dataset.stationId = station.id;
+                    // Add cursor style to indicate draggability
+                    card.style.cursor = 'move';
+                    
+                    card.innerHTML = `
+                        <div class="card mb-3">
+                            <div class="card-header d-flex align-items-center bg-light py-2">
+                                <div class="d-flex align-items-center w-100">
+                                    <div class="drag-handle me-2">⋮⋮</div>
+                                    <div class="station-name">${station.name}</div>
+                                </div>
+                            </div>
+                            <div class="card-body p-2 participants-container">
+                                ${station.participants.map(participant => `
+                                    <div class="participant-card mb-2 border rounded p-2" 
+                                        data-participant-id="${participant.id}">
+                                        <div class="d-flex align-items-center">
+                                            <div class="drag-handle me-2">⋮⋮</div>
+                                            <div class="participant-name">${participant.name}</div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                    
+                    fragment.appendChild(card);
+                }
+        
+                stationsContainer.appendChild(fragment);
+
+                // Store station sortable instance
+                sortableInstances.push(new Sortable(stationsContainer, {
+                    animation: 150,
+                    draggable: '.station-card',
+                    onEnd: updateStationOrder
+                }));
+
+                // Store participant sortable instances
+                document.querySelectorAll('.participants-container').forEach(container => {
+                    sortableInstances.push(new Sortable(container, {
+                        animation: 150,
+                        group: 'participants',
+                        draggable: '.participant-card',
+                        onEnd: updateParticipantOrder
+                    }));
+                });
+                
+            } catch (error) {
+                console.error('Failed to load stations in order mode:', error);
+            }
+        }
+
+
+        toggleOrderModeBtn.addEventListener('click', () => {
+            const isOrderMode = toggleOrderModeBtn.classList.toggle('btn-success');
+            
+            if (isOrderMode) {
+                loadStationsOrderMode();
+                toggleOrderModeBtn.innerHTML = '<i class="fas fa-check"></i> Fertig';
+            } else {
+                destroySortable();
+                stationsContainer.innerHTML = ''; // Clear order mode view
+                loadStations();                   // Load full featured view
+                toggleOrderModeBtn.innerHTML = '<i class="fas fa-arrows-alt"></i> Reihenfolge ändern';
+            }
+        });
+
+    function initializeSortableOrderMode() {
+        // Only initialize if we're in order mode
+        if (!document.querySelector('.container-fluid').classList.contains('order-mode')) {
+            return;
+        }
+
+        // Initialize station sorting
+        sortableInstances.push(new Sortable(stationsContainer, {
+            animation: 150,
+            draggable: '.station-card',
+            onEnd: updateStationOrder
+        }));
+        
+        // Initialize participant sorting for each station
+        document.querySelectorAll('.participants-container').forEach(container => {
+            sortableInstances.push(new Sortable(container, {
+                animation: 150,
+                group: 'participants',
+                onEnd: updateParticipantOrder
+            }));
+        });
+    }
+    
+    function destroySortable() {
+        // Destroy all sortable instances
+        sortableInstances.forEach(instance => {
+            if (instance && instance.destroy) {
+                instance.destroy();
+            }
+        });
+        // Clear the instances array
+        sortableInstances = [];
+    }
 
     });
 </script>
