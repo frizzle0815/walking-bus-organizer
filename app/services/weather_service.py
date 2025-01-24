@@ -217,7 +217,6 @@ class WeatherService:
         
         print("[WEATHER] Starting weather update process")
         
-        # Keep the lock mechanism for API rate limiting
         lock_acquired = redis_client.set(
             LOCK_KEY,
             'locked',
@@ -230,7 +229,6 @@ class WeatherService:
             return {"success": False, "message": "Another update is in progress"}
             
         try:
-            # Process raw weather data as before
             can_fetch, seconds_remaining = self.can_fetch_weather()
             if not can_fetch:
                 print("[WEATHER] Rate limit in effect, skipping update")
@@ -244,9 +242,27 @@ class WeatherService:
                 print("[WEATHER] No data received from API")
                 return {"success": False, "message": "No data received from weather API"}
 
-            # Clean and save raw weather records
-            self.cleanup_old_records()
-            self.cleanup_old_calculations()
+            print("[WEATHER] Deleting future hourly and daily records")
+            current_time = get_current_time()
+
+            # Minutely data isn't deleted but updated to prevent data loss
+                        
+            # Delete hourly records from current hour
+            current_hour = current_time.replace(minute=0, second=0, microsecond=0)
+            Weather.query.filter(
+                Weather.forecast_type == 'hourly',
+                Weather.timestamp >= current_hour
+            ).delete()
+            
+            # Delete daily records from current day
+            current_day = current_time.replace(hour=12, minute=0, second=0, microsecond=0)
+            Weather.query.filter(
+                Weather.forecast_type == 'daily',
+                Weather.timestamp >= current_day
+            ).delete()
+            
+            db.session.commit()
+
             records_to_save = []
             for data_type in ['minutely', 'hourly', 'daily']:
                 if data_type in data:
@@ -260,12 +276,12 @@ class WeatherService:
                 db.session.bulk_save_objects(records_to_save)
                 db.session.commit()
 
-            # New: Calculate and store weather for each walking bus
+            # Process walking bus calculations
             print("[WEATHER] Starting weather calculations for walking buses")
             buses = WalkingBus.query.all()
             calculations_to_save = []
             
-            print("[WEATHER] Cleaning up existing calculations")
+            # Clean up future calculations
             for bus in buses:
                 current_date = get_current_date()
                 end_date = current_date + timedelta(days=6)
@@ -276,57 +292,36 @@ class WeatherService:
                 ).delete()
             db.session.commit()
 
+            # Calculate new weather data for each bus
             for bus in buses:
-                print(f"[WEATHER] Processing calculations for bus {bus.id}")
                 schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
-                
-                # Calculate for next 6 days
                 current_date = get_current_date()
+                
                 for i in range(6):
                     target_date = current_date + timedelta(days=i)
-                    
-                    # Get weather calculation
                     weather_data = self.get_weather_for_timeframe(target_date, schedule, include_details=True)
-                    if not weather_data:
-                        continue
-
-                    print(f"[WEATHER CALC] Saving calculation for date {target_date}: "
-                        f"type={weather_data['calculation_details']['coverage_type']}, "
-                        f"precip={weather_data['result']['precipitation']}")
                     
-                    # Create or update calculation record
-                    calc = WeatherCalculation.query.filter_by(
-                        walking_bus_id=bus.id,
-                        date=target_date
-                    ).first()
-                    
-                    if not calc:
+                    if weather_data:
                         calc = WeatherCalculation(
                             walking_bus_id=bus.id,
-                            date=target_date
+                            date=target_date,
+                            icon=weather_data['result']['icon'],
+                            precipitation=weather_data['result']['precipitation'],
+                            pop=weather_data['result']['pop'],
+                            calculation_type=weather_data['calculation_details']['coverage_type'],
+                            last_updated=get_current_time()
                         )
-                    
-                    # Store calculation results
-                    calc.icon = weather_data['result']['icon']
-                    calc.precipitation = weather_data['result']['precipitation']
-                    calc.pop = weather_data['result']['pop']
-                    calc.calculation_type = weather_data['calculation_details']['coverage_type']
-                    calc.last_updated = get_current_time()
-                    
-                    if not calc.id:  # New record
                         calculations_to_save.append(calc)
-            
-            # Bulk save all calculations
+
+            # Save all new calculations
             if calculations_to_save:
                 print(f"[WEATHER] Saving {len(calculations_to_save)} weather calculations")
-                for calc in calculations_to_save:
-                    print(f"Bus {calc.walking_bus_id}, Date {calc.date}: {calc.calculation_type}")
                 db.session.bulk_save_objects(calculations_to_save)
                 db.session.commit()
 
             # Verify and notify
             self._verify_database_state()
-            self._verify_calculations_state()  # New verification method
+            self._verify_calculations_state()
             
             redis_client.set(
                 self.RATE_LIMIT_KEY,
@@ -399,43 +394,38 @@ class WeatherService:
             print(f"[WEATHER CALC] Latest calculation: {latest.date} for bus {latest.walking_bus_id}")
             print(f"[WEATHER CALC] Calculation type: {latest.calculation_type}")
 
-
     def process_minutely(self, minutely_data):
-        """Process minutely precipitation data with local timezone"""
         records = []
-        app.logger.info(f"[WEATHER][MINUTELY] Processing {len(minutely_data)} records")
+        print(f"[WEATHER][MINUTELY] Processing {len(minutely_data)} records")
         
-        skipped = 0
+        updated = 0
+        created = 0
         for minute in minutely_data:
             local_timestamp = datetime.fromtimestamp(minute['dt'])
             
-            # Check for existing record
+            # Suche existierenden Eintrag
             existing = Weather.query.filter(
                 Weather.timestamp == local_timestamp,
                 Weather.forecast_type == 'minutely'
             ).first()
             
             if existing:
-                skipped += 1
-                continue
-            
-            hourly_timestamp = local_timestamp.replace(minute=0)
-            hourly_record = Weather.query.filter(
-                Weather.timestamp == hourly_timestamp,
-                Weather.forecast_type == 'hourly'
-            ).first()
-            
-            pop = hourly_record.pop if hourly_record else (1.0 if minute['precipitation'] > 0 else 0.0)
-            
-            weather = Weather(
-                timestamp=local_timestamp,
-                forecast_type='minutely',
-                precipitation=minute['precipitation'],
-                pop=pop
-            )
-            records.append(weather)
+                # Update existierenden Eintrag
+                existing.precipitation = minute['precipitation']
+                existing.pop = 1.0 if minute['precipitation'] > 0 else 0.0
+                updated += 1
+            else:
+                # Erstelle neuen Eintrag
+                weather = Weather(
+                    timestamp=local_timestamp,
+                    forecast_type='minutely',
+                    precipitation=minute['precipitation'],
+                    pop=1.0 if minute['precipitation'] > 0 else 0.0
+                )
+                records.append(weather)
+                created += 1
 
-        app.logger.info(f"[WEATHER][MINUTELY] Completed: {len(records)} created, {skipped} skipped")
+        print(f"[WEATHER][MINUTELY] Completed: {created} created, {updated} updated")
         return records
 
     def process_hourly(self, hourly_data):
