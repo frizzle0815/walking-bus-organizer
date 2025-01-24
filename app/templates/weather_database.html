@@ -67,11 +67,13 @@
             try {
                 const response = await fetch('/api/weather/debug');
                 const data = await response.json();
+                console.log('[WEATHER-DB] API Response:', data);
+                console.log('[WEATHER-DB] Timeframe:', data.query_timeframe);
                 
                 // Update Query Info
                 document.getElementById('queryInfo').innerHTML = `
-                    <p>Query Start: ${data.query_timeframe.start}</p>
-                    <p>Query End: ${data.query_timeframe.end}</p>
+                    <p>Query Start: ${data.query_timeframe.oldest}</p>
+                    <p>Query End: ${data.query_timeframe.newest}</p>
                 `;
                 
                 // Update Statistics

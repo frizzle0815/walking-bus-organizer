@@ -400,18 +400,12 @@ class WeatherService:
             print(f"[WEATHER CALC] Latest calculation: {latest.date} for bus {latest.walking_bus_id}")
             print(f"[WEATHER CALC] Calculation type: {latest.calculation_type}")
 
-    def convert_timestamp(self, unix_timestamp):
-        """Convert UTC unix timestamp to local datetime once and for all"""
-        utc_time = datetime.fromtimestamp(unix_timestamp, tz=pytz.UTC)
-        local_time = utc_time.astimezone(TIMEZONE)
-        # Return naive datetime after conversion
-        return local_time.replace(tzinfo=None)
 
     def process_minutely(self, minutely_data):
         """Process minutely precipitation data with local timezone"""
         records = []
         for minute in minutely_data:
-            local_timestamp = self.convert_timestamp(minute['dt'])
+            local_timestamp = datetime.fromtimestamp(minute['dt'])
             
             # Check for existing record
             existing = Weather.query.filter(
@@ -450,7 +444,7 @@ class WeatherService:
         print(f"[WEATHER] Processing {len(hourly_data)} hourly records") # Immediate feedback
         
         for hour in hourly_data:
-            local_timestamp = self.convert_timestamp(hour['dt'])
+            local_timestamp = datetime.fromtimestamp(hour['dt'])
             print(f"[WEATHER] Processing hour: {local_timestamp}")  # Debug timestamp
             
             existing = Weather.query.filter(
@@ -497,7 +491,7 @@ class WeatherService:
         print(f"[WEATHER] Processing {len(daily_data)} daily records")
         
         for day in daily_data:
-            local_timestamp = self.convert_timestamp(day['dt'])
+            local_timestamp = datetime.fromtimestamp(day['dt'])
             print(f"[WEATHER] Processing day: {local_timestamp}")
             
             existing = Weather.query.filter(
