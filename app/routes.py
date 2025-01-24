@@ -150,30 +150,24 @@ def get_initial_load():
         walking_bus_id = get_current_walking_bus_id()
         current_app.logger.info("[INITIAL_LOAD] Starting initial data load")
 
-        # Create weather service instance
         weather_service = WeatherService()
         
-        # Execute weather updates sequentially
-        def process_weather_updates():
-            try:
-                # First update weather data
-                update_result = weather_service.update_weather()
-                current_app.logger.info("[INITIAL_LOAD] Weather update completed")
-                
-                # Only proceed with calculations if update was successful
-                if update_result["success"]:
-                    weather_service.update_weather_calculations()
-                    current_app.logger.info("[INITIAL_LOAD] Weather calculations completed")
-            except Exception as e:
-                current_app.logger.error(f"[INITIAL_LOAD] Weather processing error: {str(e)}")
+        def process_weather_updates(app):
+            with app.app_context():
+                try:
+                    update_result = weather_service.update_weather()
+                    current_app.logger.info("[INITIAL_LOAD] Weather update completed")
+                    
+                    if update_result["success"]:
+                        weather_service.update_weather_calculations()
+                        current_app.logger.info("[INITIAL_LOAD] Weather calculations completed")
+                except Exception as e:
+                    current_app.logger.error(f"[INITIAL_LOAD] Weather processing error: {str(e)}")
 
-        # Trigger weather updates without waiting for completion
         from concurrent.futures import ThreadPoolExecutor
         executor = ThreadPoolExecutor(max_workers=1)
-        executor.submit(process_weather_updates)
-        current_app.logger.info("[INITIAL_LOAD] Weather updates triggered")
+        executor.submit(process_weather_updates, current_app._get_current_object())
 
-        # Get stations with participants
         stations_data = get_stations_data(walking_bus_id)
         
         return jsonify({
