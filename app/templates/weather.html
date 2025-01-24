@@ -159,13 +159,14 @@ async function loadCalculationDetails() {
                 } else if (dayData.calculation_details.data_type === 'hourly') {
                     html += '<div class="used-records">Hourly Records:<br>';
                     dayData.calculation_details.hourly_used.forEach(record => {
-                        html += `${record.timestamp}: ${record.total_precipitation}mm (${record.overlap_minutes} min overlap = ${record.contribution}mm)<br>`;
+                        html += `${record.timestamp}: ${record.total_precipitation}mm (PoP: ${(record.pop * 100).toFixed(1)}%) (${record.overlap_minutes} min overlap = ${record.contribution}mm)<br>`;
                     });
                     html += '</div>';
                 } else if (dayData.calculation_details.data_type === 'daily') {
                     html += '<div class="used-records">Daily Record:<br>';
                     const daily = dayData.calculation_details.daily_used;
-                    html += `${daily.timestamp}: ${daily.total_precipitation}mm (PoP: ${(daily.pop * 100).toFixed(1)}%)<br>`;
+                    html += `${daily.timestamp}: ${daily.total_precipitation}mm (PoP: ${(daily.pop * 100).toFixed(1)}%) (1/24 for hourly estimation = ${(daily.total_precipitation / 24).toFixed(2)}mm) `;
+                    html += `(PoP: ${(daily.pop * 100).toFixed(1)}%)<br>`;
                     html += '</div>';
                 }
             }
@@ -177,7 +178,7 @@ async function loadCalculationDetails() {
                 Weather Icon: <img src="/static/icons/weather/${dayData.result?.icon || 'unknown'}.svg" alt="weather icon" style="width: 50px; height: 50px;"> (${dayData.result?.icon || 'N/A'})<br>
                 Precipitation Probability: ${((dayData.result?.pop || 0) * 100).toFixed(1)}%<br>
                 Total Precipitation: ${dayData.result?.precipitation || 0}mm<br>
-                Created at: ${new Date(dayData.result?.created_at).toLocaleString() || 'N/A'}
+                Created at: ${dayData.result?.created_at ? new Date(dayData.result.created_at.replace(' ', 'T')).toLocaleString() : 'N/A'}
             </div>`;
             
             container.innerHTML = html;
