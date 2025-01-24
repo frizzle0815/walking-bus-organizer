@@ -975,9 +975,9 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
     updateTimeIcons(dailyStatus);
     updateHeaderAndAlerts(dailyStatus);
     window.appState.stations.forEach(station => {
-        updateStationStats(station.id);
+        updateStationStats(station.id, dailyStatus); 
     });
-    updateTotalStats();
+    updateTotalStats(dailyStatus);
 }
 
 
@@ -2614,14 +2614,39 @@ document.addEventListener('visibilitychange', () => {
         const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
         console.log('[VISIBILITY] Reloading data for date:', selectedDate);
         
-        // Perform full initial load
-        loadInitialData().then(() => {
-            console.log('[RELOAD] Initial load complete');
-            initializeSSE();
-        }).catch(error => {
-            console.error('[RELOAD] Error during reload:', error);
-            showErrorMessage('Fehler beim Neuladen der Daten');
-        });
+        // First get the daily status for the selected date
+        axios.get('/api/daily-status', { params: { date: selectedDate } })
+            .then(dailyStatusResponse => {
+                // Enhance daily status with necessary data
+                const enhancedDailyStatus = {
+                    ...dailyStatusResponse.data,
+                    currentDate: selectedDate,
+                    reason: createReasonMap(
+                        dailyStatusResponse.data.stateReason,
+                        dailyStatusResponse.data.holidayData,
+                        dailyStatusResponse.data.isWalkingBusDay,
+                        dailyStatusResponse.data.schedule,
+                        dailyStatusResponse.data.reason
+                    ),
+                    reason_type: dailyStatusResponse.data.stateReason
+                };
+
+                // Now perform the full initial load with the correct status
+                return loadInitialData().then(() => {
+                    // Update stats with the enhanced daily status
+                    window.appState.stations.forEach(station => {
+                        updateStationStats(station.id, enhancedDailyStatus);
+                    });
+                    updateTotalStats(enhancedDailyStatus);
+                    
+                    console.log('[RELOAD] Initial load complete');
+                    initializeSSE();
+                });
+            })
+            .catch(error => {
+                console.error('[RELOAD] Error during reload:', error);
+                showErrorMessage('Fehler beim Neuladen der Daten');
+            });
     }
 });
 
