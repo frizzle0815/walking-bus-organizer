@@ -286,21 +286,23 @@ class WeatherService:
             print("[WEATHER] Starting weather calculations for walking buses")
             buses = WalkingBus.query.all()
             calculations_to_save = []
-            
+
             with db.session.begin_nested():
-                # Clean up future calculations
+                # First collect all bus IDs that need updating
+                bus_ids = [bus.id for bus in buses]
                 current_date = get_current_date()
                 end_date = current_date + timedelta(days=6)
                 
-                for bus in buses:
-                    deleted_calcs = WeatherCalculation.query.filter(
-                        WeatherCalculation.walking_bus_id == bus.id,
-                        WeatherCalculation.date >= current_date,
-                        WeatherCalculation.date <= end_date
-                    ).delete()
-                    print(f"[WEATHER] Deleted {deleted_calcs} calculations for bus {bus.id}")
+                # Delete all future calculations in one query
+                deleted_count = WeatherCalculation.query.filter(
+                    WeatherCalculation.walking_bus_id.in_(bus_ids),
+                    WeatherCalculation.date >= current_date,
+                    WeatherCalculation.date <= end_date
+                ).delete(synchronize_session=False)
+                
+                print(f"[WEATHER] Deleted {deleted_count} future calculations")
 
-                # Calculate new weather data
+                # Calculate new weather data for each bus
                 for bus in buses:
                     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
                     
@@ -320,11 +322,12 @@ class WeatherService:
                             )
                             calculations_to_save.append(calc)
 
+                # Save all new calculations within the same transaction
                 if calculations_to_save:
+                    print(f"[WEATHER] Saving {len(calculations_to_save)} new calculations")
                     db.session.bulk_save_objects(calculations_to_save)
-                    print(f"[WEATHER] Saved {len(calculations_to_save)} new calculations")
 
-            # Final commit and verification
+            # Final commit happens here
             db.session.commit()
             self._verify_database_state()
             self._verify_calculations_state()
