@@ -357,7 +357,7 @@ class WeatherService:
                 for record in weather_data:
                     print(f"[WEATHER][TIME] - {record.timestamp} ({record.forecast_type})")
 
-                    
+
                 current_date = get_current_date()
                 
                 for i in range(6):
@@ -624,8 +624,8 @@ class WeatherService:
 
         start_time = getattr(schedule, f"{weekday}_start")
         end_time = getattr(schedule, f"{weekday}_end")
-        start_datetime = datetime.combine(date, start_time)
-        end_datetime = datetime.combine(date, end_time)
+        start_datetime = datetime.combine(date, start_time, tzinfo=TIMEZONE)
+        end_datetime = datetime.combine(date, end_time, tzinfo=TIMEZONE)
         duration_minutes = int((end_datetime - start_datetime).total_seconds() / 60)
 
         logger.info(f"[WEATHER][TIMEFRAME] Time window: {start_datetime.strftime('%H:%M')} - {end_datetime.strftime('%H:%M')}")
