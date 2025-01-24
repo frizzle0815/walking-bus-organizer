@@ -251,7 +251,7 @@ class WeatherService:
             # Process minutely data
             if 'minutely' in data:
                 for minute in data['minutely']:
-                    local_timestamp = datetime.fromtimestamp(minute['dt'])
+                    local_timestamp = datetime.fromtimestamp(minute['dt'], tz=TIMEZONE)
                     weather = Weather(
                         timestamp=local_timestamp,
                         forecast_type='minutely',
@@ -264,7 +264,7 @@ class WeatherService:
             # Process hourly data
             if 'hourly' in data:
                 for hour in data['hourly']:
-                    local_timestamp = datetime.fromtimestamp(hour['dt'])
+                    local_timestamp = datetime.fromtimestamp(hour['dt'], tz=TIMEZONE)
                     weather_code = str(hour['weather'][0]['id'])
                     is_night = hour['weather'][0]['icon'].endswith('n')
                     time_of_day = "night" if is_night else "day"
@@ -292,7 +292,7 @@ class WeatherService:
             # Process daily data
             if 'daily' in data:
                 for day in data['daily']:
-                    local_timestamp = datetime.fromtimestamp(day['dt'])
+                    local_timestamp = datetime.fromtimestamp(day['dt'], tz=TIMEZONE)
                     weather_code = str(day['weather'][0]['id'])
                     icon_name = WEATHER_ICON_MAP['day'].get(weather_code, "clear-day")
 
@@ -334,6 +334,9 @@ class WeatherService:
 
     def update_weather_calculations(self):
         """Process and update weather calculations for all walking buses"""
+        print(f"[WEATHER][TIME] TIMEZONE setting: {TIMEZONE}")
+        print(f"[WEATHER][TIME] Current server time: {datetime.now()}")
+        print(f"[WEATHER][TIME] Current time in TIMEZONE: {datetime.now(TIMEZONE)}")
         try:
             calculations_to_save = []
             buses = WalkingBus.query.all()
@@ -342,6 +345,19 @@ class WeatherService:
             
             for bus in buses:
                 schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
+                print(f"[WEATHER][TIME] Bus {bus.id} schedule:")
+                print(f"[WEATHER][TIME] Start time: {schedule.monday_start} ({type(schedule.monday_start)})")
+                print(f"[WEATHER][TIME] End time: {schedule.monday_end} ({type(schedule.monday_end)})")
+                
+                weather_data = Weather.query.filter(
+                    Weather.timestamp >= datetime.now(TIMEZONE)
+                ).order_by(Weather.timestamp).limit(5).all()
+                
+                print("[WEATHER][TIME] Next 5 weather records:")
+                for record in weather_data:
+                    print(f"[WEATHER][TIME] - {record.timestamp} ({record.forecast_type})")
+
+                    
                 current_date = get_current_date()
                 
                 for i in range(6):
