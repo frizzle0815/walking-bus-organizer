@@ -322,19 +322,7 @@ class WeatherService:
                 if self.verify_weather_data_available():
                     self._verify_database_state()
                     self.update_last_fetch_time()
-                    
-                    # Trigger calculations update
-                    print("[WEATHER] Starting automatic calculations update")
-                    calc_result = self.update_weather_calculations()
-                    
-                    if calc_result["success"]:
-                        return {"success": True, "message": "Weather data and calculations updated successfully"}
-                    else:
-                        return {
-                            "success": False, 
-                            "message": f"Weather data updated but calculations failed: {calc_result['message']}"
-                        }
-                        
+                    return {"success": True, "message": "Weather data updated successfully"}
                 return {"success": False, "message": "Weather data verification failed"}
 
             return {"success": False, "message": "No weather records to save"}

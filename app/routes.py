@@ -146,44 +146,40 @@ def revoke_auth_token(token_id):
 @bp.route("/api/initial-load")
 @require_auth
 def get_initial_load():
-    """
-    Initial load provides structural data and triggers weather update
-    """
     try:
         walking_bus_id = get_current_walking_bus_id()
         current_app.logger.info("[INITIAL_LOAD] Starting initial data load")
+
+        # Create weather service instance
+        weather_service = WeatherService()
         
-        # Create background task with proper app context
-        def background_weather_update(app):
-            with app.app_context():
-                try:
-                    weather_service = WeatherService()
-                    result = weather_service.update_weather()
-                    current_app.logger.info(f"[INITIAL_LOAD] Background weather update completed: {result}")
-                except Exception as e:
-                    current_app.logger.error(f"[INITIAL_LOAD] Background weather update failed: {str(e)}")
-        
-        # Start weather update in separate thread with app context
-        from threading import Thread
-        Thread(
-            target=background_weather_update, 
-            args=(current_app._get_current_object(),),
-            daemon=True
-        ).start()
-        
-        current_app.logger.info("[INITIAL_LOAD] Weather update triggered in background")
+        # Execute weather updates sequentially
+        def process_weather_updates():
+            try:
+                # First update weather data
+                update_result = weather_service.update_weather()
+                current_app.logger.info("[INITIAL_LOAD] Weather update completed")
+                
+                # Only proceed with calculations if update was successful
+                if update_result["success"]:
+                    weather_service.update_weather_calculations()
+                    current_app.logger.info("[INITIAL_LOAD] Weather calculations completed")
+            except Exception as e:
+                current_app.logger.error(f"[INITIAL_LOAD] Weather processing error: {str(e)}")
+
+        # Trigger weather updates without waiting for completion
+        from concurrent.futures import ThreadPoolExecutor
+        executor = ThreadPoolExecutor(max_workers=1)
+        executor.submit(process_weather_updates)
+        current_app.logger.info("[INITIAL_LOAD] Weather updates triggered")
 
         # Get stations with participants
         stations_data = get_stations_data(walking_bus_id)
-        current_app.logger.info("[INITIAL_LOAD] Stations data loaded")
-
-        response_data = {
+        
+        return jsonify({
             "stations": stations_data,
             "weather_update": "triggered"
-        }
-
-        current_app.logger.info("[INITIAL_LOAD] Data compilation complete")
-        return jsonify(response_data)
+        })
 
     except Exception as e:
         current_app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
@@ -891,13 +887,41 @@ def get_bus_weather():
 @bp.route("/api/weather/update", methods=["POST"])
 @require_auth
 def update_weather():
-    current_app.logger.info("[WEATHER_UPDATE] Starting manual weather update")
+    current_app.logger.info("[WEATHER_UPDATE] Starting manual weather update sequence")
+    
     weather_service = WeatherService()
-    result = weather_service.update_weather()
-    current_app.logger.info(f"[WEATHER_UPDATE] Update completed with status: {result}")
+    
+    # First step: Update weather data
+    update_result = weather_service.update_weather()
+    
+    # Only proceed with calculations if weather update was successful
+    if update_result["success"]:
+        current_app.logger.info("[WEATHER_UPDATE] Weather data update successful, proceeding with calculations")
+        
+        try:
+            # Perform weather calculations
+            calc_result = weather_service.update_weather_calculations()
+            
+            if calc_result["success"]:
+                final_message = "Weather update and calculations completed successfully"
+                success = True
+            else:
+                final_message = f"Weather update succeeded but calculations failed: {calc_result['message']}"
+                success = False
+                
+        except Exception as e:
+            current_app.logger.error(f"[WEATHER_UPDATE] Calculation error: {str(e)}")
+            final_message = f"Weather update succeeded but calculations failed: {str(e)}"
+            success = False
+    else:
+        final_message = f"Weather update failed: {update_result['message']}"
+        success = False
+    
+    current_app.logger.info(f"[WEATHER_UPDATE] Complete sequence finished. Status: {success}")
+    
     return jsonify({
-        "success": result["success"],
-        "message": result["message"],
+        "success": success,
+        "message": final_message,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
