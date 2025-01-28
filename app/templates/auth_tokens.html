@@ -10,11 +10,12 @@
         
         <!-- Active Tokens Section -->
         <div class="card-body">
-            <h5 class="mb-3">Aktive Tokens</h5>
+            <h5 class="mb-3">Aktive Tokens ({{ tokens|selectattr('is_active', 'eq', true)|list|length }})</h5>
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>Token Identifier</th>
                             <th>Client</th>
                             <th>Erstellt am</th>
@@ -26,8 +27,9 @@
                     <tbody>
                         {% for token in tokens if token.is_active %}
                         <tr>
-                            <td>{{ token.token_identifier[:16] }}...</td>
-                            <td>{{ token.client_info or 'Unknown' }}</td>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ token.token_identifier[:4] }}...</td>
+                            <td>{{ token.platform }}</td>
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.last_used.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
@@ -50,34 +52,43 @@
 
         <!-- Inactive Tokens Section -->
         <div class="card-body border-top">
-            <h5 class="mb-3">Inaktive Tokens</h5>
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Token Identifier</th>
-                            <th>Client</th>
-                            <th>Erstellt am</th>
-                            <th>Deaktiviert am</th>
-                            <th>Grund</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for token in tokens if not token.is_active %}
-                        <tr>
-                            <td>{{ token.token_identifier[:16] }}...</td>
-                            <td>{{ token.client_info or 'Unknown' }}</td>
-                            <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
-                            <td>{{ token.invalidated_at.strftime('%d.%m.%Y %H:%M') }}</td>
-                            <td>{{ token.invalidation_reason }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="4" class="text-center">Keine inaktiven Tokens vorhanden</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <h5 class="mb-3">
+                <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#inactiveTokens{{ bus_id }}" aria-expanded="false">
+                    <i class="fas fa-chevron-right"></i> Inaktive Tokens
+                </button>
+            </h5>
+            
+            <div class="collapse" id="inactiveTokens{{ bus_id }}">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Token Identifier</th>
+                                <th>Client</th>
+                                <th>Erstellt am</th>
+                                <th>Deaktiviert am</th>
+                                <th>Grund</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for token in tokens if not token.is_active %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ token.token_identifier[:4] }}...</td>
+                                <td>{{ token.platform }}</td>
+                                <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>{{ token.invalidated_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>{{ token.invalidation_reason }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center">Keine inaktiven Tokens vorhanden</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -103,6 +114,13 @@ async function revokeToken(tokenId) {
         }
     }
 }
+
+document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(button => {
+    button.addEventListener('click', () => {
+        const icon = button.querySelector('i');
+        icon.classList.toggle('fa-rotate-90');
+    });
+});
 
 // Auto-refresh every 5 minutes to show current token states
 setInterval(() => {

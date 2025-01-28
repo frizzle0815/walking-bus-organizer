@@ -123,9 +123,44 @@ def delete_temp_token(token):
 def list_auth_tokens():
     tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
     
+    def get_platform(user_agent):
+        if not user_agent:
+            return 'Unknown'
+            
+        platforms = {
+            'Windows': 'Windows',
+            'Android': 'Android',
+            'iPhone': 'iOS',
+            'iPad': 'iOS',
+            'Macintosh': 'macOS',
+            'Linux': 'Linux'
+        }
+        
+        for key, value in platforms.items():
+            if key in user_agent:
+                return value
+        return 'Unknown'
+    
+    # Create a new list with enhanced token objects
+    enhanced_tokens = []
+    for token in tokens:
+        token_dict = {
+            'id': token.id,
+            'token_identifier': token.token_identifier,
+            'platform': get_platform(token.client_info),
+            'created_at': token.created_at,
+            'last_used': token.last_used,
+            'expires_at': token.expires_at,
+            'is_active': token.is_active,
+            'invalidated_at': token.invalidated_at,
+            'invalidation_reason': token.invalidation_reason,
+            'walking_bus_id': token.walking_bus_id
+        }
+        enhanced_tokens.append(token_dict)
+    
     return render_template(
         "auth_tokens.html",
-        tokens=tokens
+        tokens=enhanced_tokens
     )
 
 
