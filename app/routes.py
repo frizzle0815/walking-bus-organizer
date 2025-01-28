@@ -842,7 +842,7 @@ def get_daily_status():
     })
 
 
-@bp.route('/api/weather/calculations')
+@bp.route('/api/weather/get-calculations')
 @require_auth
 def get_bus_weather():
     bus_id = get_current_walking_bus_id()
