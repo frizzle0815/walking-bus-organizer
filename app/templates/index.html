@@ -851,12 +851,15 @@ async function loadInitialData() {
         const [initialResponse, weekResponse, weatherResponse] = await Promise.all([
             axios.get('/api/initial-load'),
             axios.get('/api/week-overview'),
-            axios.get('/api/weather', {
+            axios.get('/api/weather/calculations', {
                 params: { 
                     date: new Date().toISOString().split('T')[0] 
                 }
             })
         ]);
+
+        axios.post('/api/weather/trigger-update')
+        .catch(error => console.error('[WEATHER] Update trigger failed:', error));
         
         const currentDate = new Date().toISOString().split('T')[0];
         const dailyStatusResponse = await axios.get('/api/daily-status', {
@@ -1112,7 +1115,7 @@ async function selectDay(dateStr) {
     try {
         const [dailyStatusResponse, weatherResponse] = await Promise.all([
             axios.get('/api/daily-status', { params: { date: dateStr } }),
-            fetch(`/api/weather?date=${dateStr}`).then(r => r.json())
+            axios.get('/api/weather/calculations', { params: { date: dateStr } })
         ]);
 
         const dailyStatus = {
@@ -2696,8 +2699,9 @@ async function updateWeatherDisplay(date) {
         const formattedDate = date.includes('T') ? date.split('T')[0] : date;
         console.log('[WEATHER] Updating display for date:', formattedDate);
         
-        const response = await fetch(`/api/weather?date=${formattedDate}`);
-        const data = await response.json();
+        const { data } = await axios.get('/api/weather/calculations', {
+            params: { date: formattedDate }
+        });
         
         const weatherInfo = document.getElementById('weather-info');
         const weatherIcon = document.querySelector('.weather-icon');
