@@ -2560,15 +2560,25 @@ function SSE_handleError() {
 
 function SSE_updateConnectionStatus(status) {
     const indicator = document.querySelector('.connection-indicator');
-    const connectionAlert = document.getElementById('connection-alert');
+    if (!indicator) return;
+
+    // Remove all possible states
+    indicator.classList.remove('connected', 'disconnected', 'reconnecting');
     
-    if (indicator) {
-        indicator.classList.remove('connected', 'disconnected');
-        indicator.classList.add(status);
-        
-        if (status === 'connected' && connectionAlert) {
-            connectionAlert.classList.add('d-none');
-        }
+    // Update icon and class based on status
+    switch(status) {
+        case 'reconnecting':
+            indicator.classList.add('reconnecting');
+            indicator.className = 'fas fa-spinner connection-indicator reconnecting';
+            break;
+        case 'connected':
+            indicator.classList.add('connected');
+            indicator.className = 'fas fa-circle connection-indicator connected';
+            break;
+        case 'disconnected':
+            indicator.classList.add('disconnected');
+            indicator.className = 'fas fa-circle connection-indicator disconnected';
+            break;
     }
 }
 
@@ -2598,7 +2608,7 @@ function showErrorMessage(message) {
 // Unified visibility and page show handling
 document.addEventListener('visibilitychange', () => {
     isPageVisible = !document.hidden;
-    
+
     if (document.hidden) {
         console.log('[SSE] Page hidden, closing connection');
         if (globalEventSource) {
@@ -2607,6 +2617,9 @@ document.addEventListener('visibilitychange', () => {
     } else {
         console.log('[SSE] Page visible, performing full reload');
         
+        // Show reconnecting state immediately
+        SSE_updateConnectionStatus('reconnecting');
+
         // Clear any existing alert
         const connectionAlert = document.getElementById('connection-alert');
         connectionAlert.classList.add('d-none');
@@ -2641,25 +2654,38 @@ document.addEventListener('visibilitychange', () => {
                     
                     console.log('[RELOAD] Initial load complete');
                     initializeSSE();
+                    
+                    // Set connection status to connected after successful reload
+                    SSE_updateConnectionStatus('connected');
                 });
             })
             .catch(error => {
                 console.error('[RELOAD] Error during reload:', error);
                 showErrorMessage('Fehler beim Neuladen der Daten');
+                // Set connection status to disconnected on error
+                SSE_updateConnectionStatus('disconnected');
             });
     }
 });
 
 
+
 // Keep pageshow handler for browser cache scenarios
 window.addEventListener('pageshow', (event) => {
     if (event.persisted) {
+        // Show reconnecting state immediately when page is loaded from cache
+        SSE_updateConnectionStatus('reconnecting');
+
         loadInitialData().then(() => {
             console.log('[PAGESHOW] Initial load complete');
             initializeSSE();
+            // Update to connected state after successful load
+            SSE_updateConnectionStatus('connected');
         }).catch(error => {
             console.error('[PAGESHOW] Error during reload:', error);
             showErrorMessage('Fehler beim Neuladen der Daten');
+            // Update to disconnected state on error
+            SSE_updateConnectionStatus('disconnected');
         });
     }
 });

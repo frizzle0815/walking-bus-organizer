@@ -168,6 +168,11 @@
         animation: none;
     }
 
+    .connection-indicator.reconnecting {
+        color: #ffc107; /* Bootstrap warning color */
+        animation: spin 1s infinite linear;
+    }
+
     @keyframes glow {
         0% {
             text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
@@ -178,6 +183,11 @@
         100% {
             text-shadow: 0 0 10px rgba(212, 237, 218, 0.2);
         }
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
     }
 
     /* Size Slider */
