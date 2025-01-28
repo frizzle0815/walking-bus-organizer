@@ -183,33 +183,8 @@ def revoke_auth_token(token_id):
 def get_initial_load():
     try:
         walking_bus_id = get_current_walking_bus_id()
-        current_app.logger.info("[INITIAL_LOAD] Starting initial data load")
-
-        weather_service = WeatherService()
-        
-        def process_weather_updates(app):
-            with app.app_context():
-                try:
-                    update_result = weather_service.update_weather()
-                    current_app.logger.info("[INITIAL_LOAD] Weather update completed")
-                    
-                    if update_result["success"]:
-                        weather_service.update_weather_calculations()
-                        current_app.logger.info("[INITIAL_LOAD] Weather calculations completed")
-                except Exception as e:
-                    current_app.logger.error(f"[INITIAL_LOAD] Weather processing error: {str(e)}")
-
-        from concurrent.futures import ThreadPoolExecutor
-        executor = ThreadPoolExecutor(max_workers=1)
-        executor.submit(process_weather_updates, current_app._get_current_object())
-
         stations_data = get_stations_data(walking_bus_id)
-        
-        return jsonify({
-            "stations": stations_data,
-            "weather_update": "triggered"
-        })
-
+        return jsonify({"stations": stations_data})
     except Exception as e:
         current_app.logger.error(f"[INITIAL_LOAD] Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -867,7 +842,7 @@ def get_daily_status():
     })
 
 
-@bp.route('/api/weather')
+@bp.route('/api/weather/calculations')
 @require_auth
 def get_bus_weather():
     bus_id = get_current_walking_bus_id()
@@ -911,6 +886,23 @@ def get_bus_weather():
             'status': 'error',
             'message': 'Invalid date format'
         }), 400
+
+
+@bp.route("/api/weather/trigger-update", methods=['POST'])
+@require_auth
+def trigger_weather_update():
+    try:
+        weather_service = WeatherService()
+        update_result = weather_service.update_weather()
+        
+        if update_result["success"]:
+            weather_service.update_weather_calculations()
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        current_app.logger.error(f"[WEATHER] Update error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 @bp.route("/api/weather/update", methods=["POST"])
