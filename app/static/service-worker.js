@@ -118,6 +118,46 @@ async function showParticipantNotification(notificationData) {
 }
 
 
+async function syncNotificationSchedules() {
+    console.log('[SW] Starting notification schedule sync');
+    try {
+        // Get auth token from cache for authenticated request
+        const cache = await caches.open(AUTH_CACHE);
+        const tokenResponse = await cache.match(AUTH_TOKEN_CACHE_KEY);
+        if (!tokenResponse) {
+            console.log('[SW] No auth token found, skipping sync');
+            return;
+        }
+        const tokenData = await tokenResponse.json();
+        
+        // Fetch new schedules
+        const response = await fetch('/api/notifications/schedules', {
+            headers: {
+                'Authorization': `Bearer ${tokenData.token}`
+            }
+        });
+        const data = await response.json();
+        
+        // Update IndexedDB
+        const db = await openDB(SCHEDULE_DB_NAME);
+        const tx = db.transaction(SCHEDULE_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(SCHEDULE_STORE_NAME);
+        
+        // Clear old unprocessed schedules
+        await store.clear();
+        
+        // Store new schedules
+        for (const schedule of data.schedules) {
+            await scheduleNotification(schedule);
+        }
+        
+        console.log('[SW] Notification schedules synchronized successfully');
+    } catch (error) {
+        console.error('[SW] Schedule sync error:', error);
+    }
+}
+
+
 // Handle notification clicks
 self.addEventListener('notificationclick', async (event) => {
     event.notification.close();
@@ -147,23 +187,51 @@ self.addEventListener('notificationclick', async (event) => {
 
 
 self.addEventListener('activate', (event) => {
- event.waitUntil(
-     // Get all cache keys
-     caches.keys().then(cacheNames => {
-         return Promise.all(
-             cacheNames.map(cacheName => {
-                 // If cache name doesn't include current version, delete it
-                 if (!cacheName.includes(CACHE_VERSION)) {
-                     return caches.delete(cacheName);
-                 }
-             })
-         );
-     }).then(() => {
-         // Claim control immediately
-         return self.clients.claim();
-     })
- );
+    event.waitUntil(
+        Promise.all([
+            // Cache cleanup
+            caches.keys().then(cacheNames => {
+                return Promise.all(
+                    cacheNames.map(cacheName => {
+                        if (!cacheName.includes(CACHE_VERSION)) {
+                            return caches.delete(cacheName);
+                        }
+                    })
+                );
+            }),
+            
+            // Notification sync setup
+            (async () => {
+                try {
+                    // Initial sync of notification schedules
+                    await syncNotificationSchedules();
+                    
+                    // Register periodic sync if supported
+                    if ('periodicSync' in self.registration) {
+                        await self.registration.periodicSync.register('sync-notifications', {
+                            minInterval: 24 * 60 * 60 * 1000 // Once per day
+                        });
+                        console.log('[SW] Periodic sync registered');
+                    }
+                } catch (error) {
+                    console.error('[SW] Activation sync error:', error);
+                }
+            })(),
+            
+            // Claim clients
+            self.clients.claim()
+        ])
+    );
 });
+
+
+// Handle periodic sync events
+self.addEventListener('periodicsync', (event) => {
+    if (event.tag === 'sync-notifications') {
+        event.waitUntil(syncNotificationSchedules());
+    }
+});
+
 
 // Message handler for token storage and removal
 self.addEventListener('message', (event) => {
@@ -234,6 +302,28 @@ self.addEventListener('message', (event) => {
                 console.log('[SW] Error message sent back');
             }
         });
+
+    } else if (event.data?.type === 'SYNC_NOTIFICATIONS') {
+        // New handler for manual notification sync
+        console.log('[SW] Manual notification sync requested');
+        event.waitUntil(
+            syncNotificationSchedules()
+                .then(() => {
+                    if (event.ports?.[0]) {
+                        event.ports[0].postMessage({ success: true });
+                        console.log('[SW] Sync completed successfully');
+                    }
+                })
+                .catch(error => {
+                    console.error('[SW] Sync error:', error);
+                    if (event.ports?.[0]) {
+                        event.ports[0].postMessage({
+                            success: false,
+                            error: error.message
+                        });
+                    }
+                })
+        );
     } else {
         console.log('[SW] Unknown message type received:', event.data?.type);
     }

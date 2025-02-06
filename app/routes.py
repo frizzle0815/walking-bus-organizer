@@ -199,6 +199,51 @@ def get_notification_participant_status(participant_id):
     })
 
 
+@bp.route('/api/notifications/schedules')
+@require_auth
+def get_notification_schedules():
+    walking_bus_id = get_current_walking_bus_id()
+    current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    # Get all notification preferences for this token
+    preferences = NotificationPreference.query.filter_by(
+        auth_token_id=current_token,
+        walking_bus_id=walking_bus_id
+    ).all()
+    
+    # Get walking bus schedule
+    bus_schedule = WalkingBusSchedule.query.filter_by(
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if not bus_schedule:
+        return jsonify({'schedules': []})
+    
+    schedules = []
+    for pref in preferences:
+        participant = pref.participant
+        
+        # Get schedule for next 7 days
+        for i in range(7):
+            future_date = get_current_date() + timedelta(days=i)
+            weekday = WEEKDAY_MAPPING[future_date.weekday()]
+            
+            # Check if bus runs on this day
+            if getattr(bus_schedule, weekday):
+                start_time = getattr(bus_schedule, f"{weekday}_start")
+                
+                # Calculate notification time (1 hour before)
+                notification_time = datetime.combine(future_date, start_time) - timedelta(hours=1)
+                
+                schedules.append({
+                    'participantId': participant.id,
+                    'scheduleTime': notification_time.isoformat(),
+                    'busTime': start_time.strftime('%H:%M')
+                })
+    
+    return jsonify({'schedules': schedules})
+
+
 @bp.route("/api/temp-tokens")
 @require_auth
 def get_active_temp_tokens_route():
