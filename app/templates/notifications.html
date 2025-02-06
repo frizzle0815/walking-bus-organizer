@@ -4,16 +4,22 @@
 <div class="container mt-3">
     <h2>Benachrichtigungen einrichten</h2>
     <div id="alert-container"></div>
+
+    <div class="alert alert-info" id="pwa-status">
+        Checking PWA installation status...
+    </div>
     
     <div class="alert alert-info" id="permission-status">
         Checking notification permissions...
     </div>
+
+    <div class="alert alert-info mb-3">
+        <h5>Teilnehmer auswählen</h5>
+        <p>Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.<br><br>Erinnerung werden automatisch 1 Stunde vor Beginn des Walking Bus angezeigt.</p>
+    </div>
     
     <div class="card mb-3">
         <div class="card-body">
-            <h5 class="card-title">Teilnehmer auswählen</h5>
-            <p class="card-text">Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.<br><br>Erinnerung werden auomatisch 1 Stunde vor Beginn des Walking Bus ausgeführt.</p>
-            
             <form id="notification-form">
                 {% for station in walking_bus.stations %}
                 <div class="station-group mb-3">
@@ -49,9 +55,89 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('[INIT] DOM loaded, setting up handlers');
+    requestNotificationPermission();
+    updatePWAStatus();
     checkNotificationPermission();
     setupFormHandlers();
+    console.log('[INIT] Setup complete');
 });
+
+async function requestNotificationPermission() {
+    console.log('[PERM] Checking notification permission status');
+    
+    switch(Notification.permission) {
+        case 'default':
+        case 'denied':  // Handle both cases the same way
+            console.log('[PERM] Requesting permission from user');
+            try {
+                // This triggers the browser permission dialog
+                const permission = await Notification.requestPermission();
+                console.log('[PERM] User response:', permission);
+                handleNewPermissionState(permission);
+            } catch (error) {
+                console.error('[PERM] Error requesting permission:', error);
+                // showAlert('warning', 'Fehler beim Aktivieren der Benachrichtigungen');
+            }
+            break;
+            
+        case 'granted':
+            console.log('[PERM] Notifications already permitted');
+            // showAlert('success', 'Benachrichtigungen sind bereits aktiviert');
+            break;
+    }
+    checkNotificationPermission();
+}
+
+function handleNewPermissionState(permission) {
+    switch(permission) {
+        case 'granted':
+            showAlert('success', 'Benachrichtigungen wurden erfolgreich aktiviert');
+            break;
+        case 'denied':
+            showAlert('warning', 'Benachrichtigungen wurden abgelehnt');
+            break;
+        default:
+            showAlert('info', 'Benachrichtigungsstatus wurde nicht geändert');
+    }
+}
+
+function isPWAInstalled() {
+    // Check if running as standalone PWA (Android)
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        return true;
+    }
+    // Check iOS "Add to Home Screen"
+    if (window.navigator.standalone) {
+        return true;  
+    }
+    return false;
+}
+
+function showInstallBanner() {
+    if (!isPWAInstalled()) {
+        const banner = document.createElement('div');
+        banner.className = 'alert alert-info alert-dismissible fade show';
+        banner.innerHTML = `
+            <strong>Tipp:</strong> 
+            Fügen Sie diese App Ihrem Startbildschirm hinzu für bessere Nutzung!
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+}
+
+function updatePWAStatus() {
+    const statusElement = document.getElementById('pwa-status');
+    
+    if (isPWAInstalled()) {
+        statusElement.className = 'alert alert-success';
+        statusElement.textContent = 'App ist installiert.';
+    } else {
+        statusElement.className = 'alert alert-warning';
+        statusElement.textContent = 'Sie müssen die App installieren (Android) oder dem Home Bildschirm hinzufügen (iOS), um Erinnerungen erhalten zu können!';
+    }
+}
 
 function checkNotificationPermission() {
     const statusElement = document.getElementById('permission-status');
@@ -65,11 +151,11 @@ function checkNotificationPermission() {
     switch(Notification.permission) {
         case 'granted':
             statusElement.className = 'alert alert-success';
-            statusElement.textContent = 'Berechtigungen für Benachrichtigungen sind aktiviert.';
+            statusElement.textContent = 'Berechtigung für Benachrichtigungen wurde gewährt.';
             break;
         case 'denied':
             statusElement.className = 'alert alert-warning';
-            statusElement.textContent = 'Benachrichtigungen wurden blockiert. Bitte in den Browser-Einstellungen aktivieren.';
+            statusElement.textContent = 'Benachrichtigungen wurden blockiert. Bitte unten auf "Test Benachrichtigung" klicken und Benachrichtigungen zulassen.';
             break;
         default:
             statusElement.className = 'alert alert-info';
@@ -79,21 +165,33 @@ function checkNotificationPermission() {
 
 function setupFormHandlers() {
     // Test notification button
-    document.getElementById('test-notification').addEventListener('click', async () => {
+    console.log('[SETUP] Starting form handler setup');
+    
+    const testButton = document.getElementById('test-notification');
+    console.log('[SETUP] Test button found:', testButton);
+    
+    // Test notification button with debug logs
+    testButton.addEventListener('click', async () => {
+        console.log('[CLICK] Test notification button clicked');
+        console.log('[CLICK] Current permission state:', Notification.permission);
         try {
             if (Notification.permission === 'default') {
+                console.log('[CLICK] Requesting permission');
                 const permission = await Notification.requestPermission();
                 if (permission === 'granted') {
                     sendTestNotification();
                 }
             } else if (Notification.permission === 'granted') {
+                console.log('[CLICK] Permission already granted');
                 sendTestNotification();
             }
             checkNotificationPermission();
         } catch (error) {
-            console.error('Error:', error);
+            console.error('[CLICK] Error:', error);
         }
     });
+    
+    console.log('[SETUP] Form handlers setup complete');
 
     // Form submission
     // Add console logs in the form submission handler
@@ -164,6 +262,10 @@ function setupFormHandlers() {
 async function sendTestNotification() {
     console.log('[TEST] Starting notification sequence');
     try {
+        // First ensure Service Worker is initialized and active
+        const activeWorker = await initializeServiceWorker();
+        console.log('[TEST] Service Worker initialized:', activeWorker);
+
         const response = await fetchWithAuth('/api/test-notification', {
             method: 'POST',
             headers: {
@@ -172,22 +274,14 @@ async function sendTestNotification() {
         });
         
         if (response.ok) {
-            console.log('[TEST] API response successful');
-            console.log('[TEST] Permission check:', Notification.permission);
-            console.log('[TEST] ServiceWorker check:', 'serviceWorker' in navigator);
-            
-            if ('serviceWorker' in navigator && 'Notification' in window) {
-                const registration = await navigator.serviceWorker.ready;
-                console.log('[TEST] ServiceWorker registration:', registration);
-                
-                await registration.showNotification('Test Benachrichtigung', {
-                    body: 'Die Benachrichtigungen funktionieren!',
-                    icon: '/static/icons/icon-192x192.png',
-                    badge: '/static/icons/icon-192x192.png',
-                    tag: 'test-notification'
-                });
-                console.log('[TEST] Notification sent successfully');
-            }
+            // Use the active worker directly
+            await activeWorker.showNotification('Test Benachrichtigung', {
+                body: 'Die Benachrichtigungen funktionieren!',
+                icon: '/static/icons/icon-192x192.png',
+                badge: '/static/icons/icon-192x192.png',
+                tag: 'test-notification'
+            });
+            console.log('[TEST] Notification sent successfully');
         }
     } catch (error) {
         console.log('[TEST] Error sending notification:', error);
