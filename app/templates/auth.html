@@ -163,7 +163,7 @@
                             activeWorker.postMessage({
                                 type: 'STORE_AUTH_TOKEN',
                                 token: newToken,
-                                version: 'v5'
+                                version: 'v1'
                             }, [messageChannel.port2]);
                         });
                     } catch (error) {
@@ -183,6 +183,19 @@
         }
     );
 })();
+
+
+navigator.serviceWorker.addEventListener('message', async event => {
+    if (event.data.type === 'FETCH_WITH_AUTH') {
+        try {
+            const response = await window.fetchWithAuth(event.data.url, event.data.options);
+            const data = await response.json();
+            event.ports[0].postMessage({ response: data });
+        } catch (error) {
+            event.ports[0].postMessage({ error: error.message });
+        }
+    }
+});
 
 
 //Make sure, we use the correct service worker
@@ -291,7 +304,7 @@ async function loginUser() {
                             activeWorker.postMessage({
                                 type: 'STORE_AUTH_TOKEN',
                                 token: authToken,
-                                version: 'v5'
+                                version: 'v1'
                             }, [messageChannel.port2]);
                         });
                     } catch (error) {

@@ -1,12 +1,12 @@
 importScripts('https://cdn.jsdelivr.net/npm/idb@7/build/umd.js');
 const { openDB } = idb;
 
-const CACHE_VERSION = 'v5'; // Increment this when you update your service worker
+self.CACHE_VERSION = 'v5'; // Increment this when you update your service worker
 
-const STATIC_CACHE = 'walking-bus-static-v1';
-const DATA_CACHE = 'walking-bus-data-v1';
-const AUTH_CACHE = `walking-bus-auth-v5`;
-const NOTIFICATION_CACHE = 'walking-bus-notifications-v1';
+const STATIC_CACHE = `walking-bus-static-${CACHE_VERSION}`;
+const DATA_CACHE = `walking-bus-data-${CACHE_VERSION}`;
+const AUTH_CACHE = 'walking-bus-auth-v1';
+const NOTIFICATION_CACHE = `walking-bus-notifications-${CACHE_VERSION}`;
 const SCHEDULE_DB_NAME = 'walking-bus-schedules';
 const SCHEDULE_STORE_NAME = 'notification-schedules';
 
@@ -137,7 +137,7 @@ setInterval(async () => {
 // Show notification with participant status
 async function showParticipantNotification(notificationData) {
     try {
-        const response = await fetch(`/api/notifications/participant-status/${notificationData.participantId}`);
+        const response = await fetchWithAuth(`/api/notifications/participant-status/${notificationData.participantId}`);
         const data = await response.json();
         
         return self.registration.showNotification('Walking Bus Erinnerung', {
@@ -153,6 +153,10 @@ async function showParticipantNotification(notificationData) {
                 {
                     action: 'toggle-status',
                     title: data.status ? 'Abmelden' : 'Anmelden'
+                },
+                {
+                    action: 'okay',
+                    title: 'Okay'
                 }
             ]
         });
@@ -175,11 +179,7 @@ async function syncNotificationSchedules() {
         const tokenData = await tokenResponse.json();
         
         // Fetch new schedules
-        const response = await fetch('/api/notifications/schedules', {
-            headers: {
-                'Authorization': `Bearer ${tokenData.token}`
-            }
-        });
+        const response = await fetchWithAuth('/api/notifications/schedules');
         const data = await response.json();
         
         // Update IndexedDB
@@ -202,17 +202,89 @@ async function syncNotificationSchedules() {
 }
 
 
+async function fetchWithAuth(url, options = {}) {
+    console.log('[SW][FETCH] Starting authenticated request to:', url);
+    
+    try {
+        let token = null;
+        
+        // Try Service Worker cache first
+        const cache = await caches.open(AUTH_CACHE);
+        const tokenResponse = await cache.match(AUTH_TOKEN_CACHE_KEY);
+        
+        if (tokenResponse) {
+            const tokenData = await tokenResponse.json();
+            token = tokenData.token;
+            console.log('[SW][FETCH] Token retrieved from cache');
+            
+            // Make authenticated request
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${token}`
+            };
+            
+            console.log('[SW][FETCH] Sending request with auth header');
+            return fetch(url, options);
+        }
+        
+        throw new Error('No authentication token available');
+    } catch (error) {
+        console.error('[SW][FETCH] Error during authenticated request:', error);
+        throw error;
+    }
+}
+
+
+
+async function getAuthToken() {
+    let token = null;
+    
+    // Try Service Worker cache first
+    try {
+        const cache = await caches.open('walking-bus-auth-v1');
+        const response = await cache.match('static/auth-token');
+        if (response) {
+            const data = await response.json();
+            token = data.token;
+        }
+    } catch (error) {
+        console.log('[SW][AUTH] Cache access failed, trying localStorage');
+    }
+    
+    // Fallback to localStorage via client
+    if (!token) {
+        const clients = await self.clients.matchAll();
+        if (clients.length > 0) {
+            const client = clients[0];
+            token = await new Promise(resolve => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = event => resolve(event.data?.token);
+                client.postMessage({type: 'GET_LOCAL_STORAGE_TOKEN'}, [channel.port2]);
+            });
+        }
+    }
+    
+    return token;
+}
+
+
 // Handle notification clicks
 self.addEventListener('notificationclick', async (event) => {
     event.notification.close();
     
     if (event.action === 'toggle-status') {
         try {
-            await fetch(`/api/participation/${event.notification.data.participantId}`, {
-                method: 'PATCH'
+            await fetchWithAuth(`/api/participation/${event.notification.data.participantId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    date: new Date().toISOString().split('T')[0]
+                })
             });
         } catch (error) {
-            console.error('Error toggling status:', error);
+            console.error('[SW][NOTIFY] Error toggling status:', error);
         }
     }
     
@@ -235,33 +307,13 @@ self.addEventListener('activate', (event) => {
     
     event.waitUntil(
         Promise.all([
-            // Verbessertes Cache Management
-            caches.keys().then(async cacheNames => {
-                console.log('[SW][CACHE] Current caches:', cacheNames);
-                return Promise.all(
-                    cacheNames.map(cacheName => {
-                        // Lösche ALLE alten Auth Caches die nicht zur aktuellen Version gehören
-                        if (cacheName.includes('walking-bus-auth') && cacheName !== AUTH_CACHE) {
-                            console.log('[SW][CACHE] Deleting old auth cache:', cacheName);
-                            return caches.delete(cacheName);
-                        }
-                        // Lösche andere outdated caches
-                        if (!cacheName.includes(CACHE_VERSION)) {
-                            console.log('[SW][CACHE] Deleting outdated cache:', cacheName);
-                            return caches.delete(cacheName);
-                        }
-                        console.log('[SW][CACHE] Keeping cache:', cacheName);
-                    })
-                );
-            }),
-
             // Auth Cache Überprüfung
             checkAuthCache().then(token => {
                 console.log('[SW][AUTH] Auth cache status during activation:', 
                     token ? 'Token present' : 'No token found');
             }),
 
-            // Notification Sync Setup
+            // Notification Sync Setup 
             (async () => {
                 console.log('[SW][NOTIFY] Setting up notification sync');
                 try {
@@ -297,11 +349,46 @@ self.addEventListener('activate', (event) => {
 
 // Helper Funktion für Auth Cache Überprüfung
 async function checkAuthCache() {
-    const cache = await caches.open(AUTH_CACHE);
-    const token = await cache.match(AUTH_TOKEN_CACHE_KEY);
-    return token;
-}
+    let token = null;
+    
+    // 1. Check Service Worker Cache
+    try {
+        const cache = await caches.open(AUTH_CACHE);
+        const tokenResponse = await cache.match(AUTH_TOKEN_CACHE_KEY);
+        if (tokenResponse) {
+            const data = await tokenResponse.json();
+            token = data.token;
+            console.log('[SW][AUTH] Token found in cache');
+            return tokenResponse;
+        }
+    } catch (error) {
+        console.log('[SW][AUTH] Cache check failed:', error);
+    }
 
+    // 2. Check localStorage via client
+    try {
+        const clients = await self.clients.matchAll();
+        if (clients.length > 0) {
+            const client = clients[0];
+            const response = await new Promise(resolve => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = event => {
+                    resolve(event.data?.token);
+                };
+                client.postMessage({type: 'GET_LOCAL_STORAGE_TOKEN'}, [channel.port2]);
+            });
+            
+            if (response) {
+                console.log('[SW][AUTH] Token found in localStorage');
+                return new Response(JSON.stringify({token: response}));
+            }
+        }
+    } catch (error) {
+        console.log('[SW][AUTH] localStorage check failed:', error);
+    }
+
+    return null;
+}
 
 
 // Handle periodic sync events
