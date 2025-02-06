@@ -111,6 +111,7 @@ function setupFormHandlers() {
             });
             
             if (response.ok) {
+                await syncNotifications();
                 showAlert('success', 'Einstellungen wurden gespeichert');
             } else {
                 showAlert('danger', 'Fehler beim Speichern');
@@ -145,6 +146,21 @@ function showAlert(type, message) {
     document.querySelector('.container').insertBefore(alert, document.querySelector('.card'));
     
     setTimeout(() => alert.remove(), 5000);
+}
+
+async function syncNotifications() {
+    if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        try {
+            await registration.active.postMessage({
+                type: 'SYNC_NOTIFICATIONS'
+            });
+            showAlert('success', 'Benachrichtigungen synchronisiert');
+        } catch (error) {
+            console.error('Sync error:', error);
+            showAlert('danger', 'Synchronisation fehlgeschlagen');
+        }
+    }
 }
 </script>
 {% endblock %}

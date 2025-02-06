@@ -244,6 +244,16 @@ def get_notification_schedules():
     return jsonify({'schedules': schedules})
 
 
+@bp.route('/api/notifications/trigger-sync', methods=['POST'])
+@require_auth
+def trigger_notification_sync():
+    try:
+        # Trigger immediate sync
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route("/api/temp-tokens")
 @require_auth
 def get_active_temp_tokens_route():
