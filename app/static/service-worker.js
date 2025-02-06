@@ -137,6 +137,10 @@ setInterval(async () => {
 // Show notification with participant status
 async function showParticipantNotification(notificationData) {
     try {
+        const registration = await self.registration;
+        if (!registration.active) {
+            throw new Error('No active service worker');
+        }
         const response = await fetchWithAuth(`/api/notifications/participant-status/${notificationData.participantId}`);
         const data = await response.json();
         

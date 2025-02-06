@@ -3,6 +3,7 @@
 {% block content %}
 <div class="container mt-3">
     <h2>Benachrichtigungen einrichten</h2>
+    <div id="alert-container"></div>
     
     <div class="alert alert-info" id="permission-status">
         Checking notification permissions...
@@ -11,7 +12,7 @@
     <div class="card mb-3">
         <div class="card-body">
             <h5 class="card-title">Teilnehmer auswählen</h5>
-            <p class="card-text">Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.</p>
+            <p class="card-text">Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.<br><br>Erinnerung werden auomatisch 1 Stunde vor Beginn des Walking Bus ausgeführt.</p>
             
             <form id="notification-form">
                 {% for station in walking_bus.stations %}
@@ -64,7 +65,7 @@ function checkNotificationPermission() {
     switch(Notification.permission) {
         case 'granted':
             statusElement.className = 'alert alert-success';
-            statusElement.textContent = 'Benachrichtigungen sind aktiviert.';
+            statusElement.textContent = 'Berechtigungen für Benachrichtigungen sind aktiviert.';
             break;
         case 'denied':
             statusElement.className = 'alert alert-warning';
@@ -97,11 +98,17 @@ function setupFormHandlers() {
     // Form submission
     document.getElementById('notification-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        console.log('[FORM] Submit event triggered');
+        
         const form = e.target;
+        console.log('[FORM] Form element:', form);
+        
         const participants = Array.from(form.querySelectorAll('input[name="participants[]"]:checked'))
             .map(input => input.value);
-            
+        console.log('[FORM] Selected participants:', participants);
+        
         try {
+            console.log('[API] Sending request to /api/notification-preferences');
             const response = await fetchWithAuth('/api/notification-preferences', {
                 method: 'POST',
                 headers: {
@@ -109,59 +116,113 @@ function setupFormHandlers() {
                 },
                 body: JSON.stringify({ participants })
             });
+            console.log('[API] Response received:', response);
             
             if (response.ok) {
-                await syncNotifications();
+                console.log('[SUCCESS] API call successful');
                 showAlert('success', 'Einstellungen wurden gespeichert');
+                try {
+                    await syncNotifications();
+                    console.log('[SYNC] Notifications synchronized');
+                } catch (syncError) {
+                    console.log('[SYNC] Failed:', syncError);
+                    // Don't block on sync error
+                }
             } else {
+                console.log('[ERROR] API call failed with status:', response.status);
                 const data = await response.json();
+                console.log('[ERROR] Error data:', data);
                 showAlert('danger', 'Fehler beim Speichern');
             }
         } catch (error) {
-            console.error('Error:', error);
+            console.log('[ERROR] Exception caught:', error);
+            console.error('Detailed error:', error);
             showAlert('danger', 'Fehler beim Speichern');
         }
     });
 }
 
-function sendTestNotification() {
-    if ('serviceWorker' in navigator && 'Notification' in window) {
-        navigator.serviceWorker.ready.then(registration => {
-            registration.showNotification('Test Benachrichtigung', {
-                body: 'Die Benachrichtigungen funktionieren!',
-                icon: '/static/icons/icon-192x192.png',
-                badge: '/static/icons/icon-192x192.png',
-                tag: 'test-notification'
-            });
+async function sendTestNotification() {
+    console.log('[TEST] Starting notification sequence');
+    try {
+        const response = await fetchWithAuth('/api/test-notification', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
+        
+        if (response.ok) {
+            console.log('[TEST] API response successful');
+            console.log('[TEST] Permission check:', Notification.permission);
+            console.log('[TEST] ServiceWorker check:', 'serviceWorker' in navigator);
+            
+            if ('serviceWorker' in navigator && 'Notification' in window) {
+                const registration = await navigator.serviceWorker.ready;
+                console.log('[TEST] ServiceWorker registration:', registration);
+                
+                await registration.showNotification('Test Benachrichtigung', {
+                    body: 'Die Benachrichtigungen funktionieren!',
+                    icon: '/static/icons/icon-192x192.png',
+                    badge: '/static/icons/icon-192x192.png',
+                    tag: 'test-notification'
+                });
+                console.log('[TEST] Notification sent successfully');
+            }
+        }
+    } catch (error) {
+        console.log('[TEST] Error sending notification:', error);
+        showAlert('danger', 'Fehler beim Senden der Test-Benachrichtigung');
     }
 }
 
+
+// Add the initialization function from auth.html
+async function initializeServiceWorker() {
+    console.log('[TEST] Starting Service Worker initialization');
+    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+
+    if (registration.installing) {
+        console.log('[TEST] Service Worker installing');
+        await new Promise(resolve => {
+            registration.installing.addEventListener('statechange', e => {
+                if (e.target.state === 'activated') {
+                    console.log('[TEST] Service Worker activated');
+                    resolve();
+                }
+            });
+        });
+    }
+
+    return registration.active;
+}
+
+
 function showAlert(type, message) {
-    // Remove any existing alerts first
-    const existingAlerts = document.querySelectorAll('.alert');
-    existingAlerts.forEach(alert => alert.remove());
+    console.log('[DEBUG] Showing alert:', type, message);
+    
+    // Create alert container if it doesn't exist
+    let alertContainer = document.getElementById('alert-container');
+    if (!alertContainer) {
+        alertContainer = document.createElement('div');
+        alertContainer.id = 'alert-container';
+        const container = document.querySelector('.container');
+        container.insertBefore(alertContainer, container.firstChild);
+    }
     
     // Create new alert
     const alert = document.createElement('div');
     alert.className = `alert alert-${type} alert-dismissible fade show`;
     alert.innerHTML = `
         ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     `;
     
-    // Get container and first child
-    const container = document.querySelector('.container');
-    
-    // Insert at the beginning of container
-    container.insertAdjacentElement('afterbegin', alert);
+    // Add to container
+    alertContainer.appendChild(alert);
     
     // Auto remove after 5 seconds
-    setTimeout(() => {
-        if (alert && alert.parentNode) {
-            alert.remove();
-        }
-    }, 5000);
+    setTimeout(() => alert.remove(), 5000);
 }
 
 async function syncNotifications() {
