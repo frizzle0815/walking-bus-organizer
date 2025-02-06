@@ -197,21 +197,51 @@ async function cleanupNotificationSchedules(participantIds) {
     await storageManager.cleanupSchedules(participantIds);
 }
 
-// Update notification check interval
-setInterval(async () => {
-    if (Notification.permission === 'granted') {
-        const now = new Date();
-        const schedules = await storageManager.getAllSchedules();
-        
-        for (const notification of schedules) {
-            if (!notification.processed && new Date(notification.scheduleTime) <= now) {
-                await showParticipantNotification(notification);
-                notification.processed = true;
-                await storageManager.storeSchedule(notification);
-            }
+
+// Add this new scheduling system
+async function scheduleNotification(participantData) {
+    const { scheduleTime } = participantData;
+    
+    // Register background sync first
+    await registerBackgroundSync();
+    
+    // Store schedule data
+    await storageManager.storeSchedule({
+        ...participantData,
+        processed: false
+    });
+    
+    // Schedule the actual notification
+    if ('showTrigger' in Notification.prototype) {
+        const trigger = new TimestampTrigger(new Date(scheduleTime).getTime());
+        await self.registration.showNotification('Walking Bus Reminder', {
+            tag: `notification-${participantData.participantId}`,
+            body: 'Checking participant status...',
+            showTrigger: trigger
+        });
+    }
+}
+
+// Add background sync registration
+async function registerBackgroundSync() {
+    if ('periodicSync' in self.registration) {
+        try {
+            await self.registration.periodicSync.register('check-notifications', {
+                minInterval: 12 * 60 * 60 * 1000 // 12 hours
+            });
+            console.log('[SYNC] Background sync registered successfully');
+        } catch (error) {
+            console.error('[SYNC] Background sync registration failed:', error);
         }
     }
-}, 60000);
+}
+
+// Add periodic sync event handler
+self.addEventListener('periodicsync', (event) => {
+    if (event.tag === 'check-notifications') {
+        event.waitUntil(syncNotificationSchedules());
+    }
+});
 
 
 // Show notification with participant status
