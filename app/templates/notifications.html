@@ -245,12 +245,21 @@ async function syncNotifications() {
     if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.ready;
         try {
-            await registration.active.postMessage({
+            const syncChannel = new MessageChannel();
+            syncChannel.port1.onmessage = (event) => {
+                console.log('[NOTIFY] Sync completed:', event.data);
+                if (event.data.success) {
+                    showAlert('success', 'Benachrichtigungen synchronisiert');
+                } else {
+                    showAlert('warning', 'Synchronisation teilweise fehlgeschlagen');
+                }
+            };
+            
+            registration.active.postMessage({
                 type: 'SYNC_NOTIFICATIONS'
-            });
-            showAlert('success', 'Benachrichtigungen synchronisiert');
+            }, [syncChannel.port2]);
         } catch (error) {
-            console.error('Sync error:', error);
+            console.error('[NOTIFY] Sync error:', error);
             showAlert('danger', 'Synchronisation fehlgeschlagen');
         }
     }

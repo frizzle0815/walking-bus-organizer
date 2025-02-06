@@ -3,12 +3,13 @@ const { openDB } = idb;
 
 self.CACHE_VERSION = 'v5'; // Increment this when you update your service worker
 
-const STATIC_CACHE = `walking-bus-static-${CACHE_VERSION}`;
-const DATA_CACHE = `walking-bus-data-${CACHE_VERSION}`;
+const STATIC_CACHE = 'walking-bus-static-v1';
+const DATA_CACHE = 'walking-bus-data-v1';
 const AUTH_CACHE = 'walking-bus-auth-v1';
-const NOTIFICATION_CACHE = `walking-bus-notifications-${CACHE_VERSION}`;
+const NOTIFICATION_CACHE = 'walking-bus-notifications-v1';
 const SCHEDULE_DB_NAME = 'walking-bus-schedules';
 const SCHEDULE_STORE_NAME = 'notification-schedules';
+const STORAGE_KEY_PREFIX = 'walking-bus-notification-';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
@@ -114,20 +115,99 @@ async function scheduleNotification(participantData) {
 }
 
 
-// Check for pending notifications every minute
+class NotificationStorageManager {
+    constructor() {
+        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    }
+
+    async storeSchedule(participantData) {
+        const { participantId, scheduleTime, busTime } = participantData;
+        const notificationId = `notification-${participantId}-${busTime}`;
+        const data = {
+            id: notificationId,
+            participantId,
+            scheduleTime,
+            busTime,
+            processed: false
+        };
+
+        if (this.isIOS) {
+            localStorage.setItem(
+                `${STORAGE_KEY_PREFIX}${notificationId}`, 
+                JSON.stringify(data)
+            );
+        } else {
+            const db = await openDB(SCHEDULE_DB_NAME);
+            await db.put(SCHEDULE_STORE_NAME, data);
+        }
+    }
+
+    async getAllSchedules() {
+        if (this.isIOS) {
+            const schedules = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith(STORAGE_KEY_PREFIX)) {
+                    schedules.push(JSON.parse(localStorage.getItem(key)));
+                }
+            }
+            return schedules;
+        } else {
+            const db = await openDB(SCHEDULE_DB_NAME);
+            return db.getAll(SCHEDULE_STORE_NAME);
+        }
+    }
+
+    async cleanupSchedules(participantIds) {
+        if (this.isIOS) {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith(STORAGE_KEY_PREFIX)) {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    if (participantIds.includes(data.participantId)) {
+                        localStorage.removeItem(key);
+                    }
+                }
+            }
+        } else {
+            const db = await openDB(SCHEDULE_DB_NAME);
+            const tx = db.transaction(SCHEDULE_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SCHEDULE_STORE_NAME);
+            const schedules = await store.getAll();
+            
+            for (const schedule of schedules) {
+                if (participantIds.includes(schedule.participantId)) {
+                    await store.delete(schedule.id);
+                }
+            }
+            await tx.complete;
+        }
+    }
+}
+
+// Create instance
+const storageManager = new NotificationStorageManager();
+
+// Update existing functions to use storage manager
+async function scheduleNotification(participantData) {
+    await storageManager.storeSchedule(participantData);
+}
+
+async function cleanupNotificationSchedules(participantIds) {
+    await storageManager.cleanupSchedules(participantIds);
+}
+
+// Update notification check interval
 setInterval(async () => {
     if (Notification.permission === 'granted') {
         const now = new Date();
-        const db = await openDB(SCHEDULE_DB_NAME);
-        const pending = await db.getAll(SCHEDULE_STORE_NAME);
+        const schedules = await storageManager.getAllSchedules();
         
-        for (const notification of pending) {
+        for (const notification of schedules) {
             if (!notification.processed && new Date(notification.scheduleTime) <= now) {
                 await showParticipantNotification(notification);
-                
-                // Mark as processed
                 notification.processed = true;
-                await db.put(SCHEDULE_STORE_NAME, notification);
+                await storageManager.storeSchedule(notification);
             }
         }
     }
