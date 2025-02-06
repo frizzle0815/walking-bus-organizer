@@ -126,23 +126,21 @@ def update_notification_preferences():
         walking_bus_id = get_current_walking_bus_id()
         data = request.get_json()
         
-        # Add logging
-        current_app.logger.info(f"[NOTIFICATIONS] Updating preferences for token: {current_token}")
-        current_app.logger.info(f"[NOTIFICATIONS] Data received: {data}")
+        # Get new selection set
+        selected_participants = set(int(id) for id in data.get('participants', []))
         
-        selected_participants = set(data.get('participants', []))
-        
-        # Convert string IDs to integers
-        selected_participants = {int(id) for id in selected_participants}
-        
+        # Get existing preferences
         existing_preferences = NotificationPreference.query.filter_by(
             auth_token_id=current_token
         ).all()
         existing_participant_ids = {pref.participant_id for pref in existing_preferences}
         
-        # Delete removed preferences
+        # Find removed participants
+        removed_participants = existing_participant_ids - selected_participants
+        
+        # Delete removed preferences and their scheduled notifications
         for pref in existing_preferences:
-            if pref.participant_id not in selected_participants:
+            if pref.participant_id in removed_participants:
                 db.session.delete(pref)
         
         # Add new preferences
@@ -156,11 +154,14 @@ def update_notification_preferences():
                 db.session.add(new_pref)
         
         db.session.commit()
-        current_app.logger.info("[NOTIFICATIONS] Preferences updated successfully")
-        return jsonify({'status': 'success'})
+        
+        # Return removed participants for service worker cleanup
+        return jsonify({
+            'status': 'success',
+            'removed_participants': list(removed_participants)
+        })
         
     except Exception as e:
-        current_app.logger.error(f"[NOTIFICATIONS] Error updating preferences: {str(e)}")
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 

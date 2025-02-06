@@ -410,7 +410,7 @@ self.addEventListener('message', (event) => {
                 const response = new Response(JSON.stringify(tokenData));
                 return cache.put(AUTH_TOKEN_CACHE_KEY, response);
             })
-            .then(() => checkAuthCache()) // Verifizierung der Speicherung
+            .then(() => checkAuthCache())
             .then(token => {
                 console.log('[SW][AUTH] Token storage verified:', token ? 'success' : 'failed');
                 if (event.ports?.[0]) {
@@ -433,7 +433,6 @@ self.addEventListener('message', (event) => {
     } else if (event.data?.type === 'CLEAR_AUTH_TOKEN') {
         console.log('[SW] Starting cache clearing');
         
-        // Log existing caches before deletion
         caches.keys().then(keys => {
             console.log('[SW] Existing caches before deletion:', keys);
         });
@@ -451,7 +450,6 @@ self.addEventListener('message', (event) => {
             console.log('[SW] Updating service worker registration');
             self.registration.update();
             
-            // Verify cache deletion
             return caches.keys();
         }).then(remainingKeys => {
             console.log('[SW] Remaining caches after deletion:', remainingKeys);
@@ -466,8 +464,26 @@ self.addEventListener('message', (event) => {
             }
         });
 
+    } else if (event.data?.type === 'CLEANUP_NOTIFICATIONS') {
+        const removedParticipants = event.data.participants;
+        console.log('[SW] Starting notification cleanup for participants:', removedParticipants);
+        
+        cleanupNotificationSchedules(removedParticipants).then(() => {
+            console.log('[SW] Notification cleanup completed successfully');
+            if (event.ports?.[0]) {
+                event.ports[0].postMessage({ success: true });
+            }
+        }).catch(error => {
+            console.error('[SW] Cleanup error:', error);
+            if (event.ports?.[0]) {
+                event.ports[0].postMessage({ 
+                    success: false, 
+                    error: error.message 
+                });
+            }
+        });
+
     } else if (event.data?.type === 'SYNC_NOTIFICATIONS') {
-        // New handler for manual notification sync
         console.log('[SW] Manual notification sync requested');
         event.waitUntil(
             syncNotificationSchedules()
@@ -487,10 +503,36 @@ self.addEventListener('message', (event) => {
                     }
                 })
         );
+
     } else {
         console.log('[SW] Unknown message type received:', event.data?.type);
     }
 });
+
+
+async function cleanupNotificationSchedules(participantIds) {
+    console.log('[SW][CLEANUP] Starting cleanup for participants:', participantIds);
+    
+    const db = await openDB(SCHEDULE_DB_NAME);
+    const tx = db.transaction(SCHEDULE_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(SCHEDULE_STORE_NAME);
+    
+    // Get all schedules
+    const schedules = await store.getAll();
+    console.log('[SW][CLEANUP] Current schedules:', schedules);
+    
+    let deletedCount = 0;
+    // Delete schedules for removed participants
+    for (const schedule of schedules) {
+        if (participantIds.includes(schedule.participantId)) {
+            await store.delete(schedule.id);
+            deletedCount++;
+        }
+    }
+    
+    await tx.complete;
+    console.log('[SW][CLEANUP] Deleted', deletedCount, 'schedules');
+}
 
 
 // Modern static asset handling

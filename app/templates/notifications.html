@@ -96,19 +96,17 @@ function setupFormHandlers() {
     });
 
     // Form submission
+    // Add console logs in the form submission handler
     document.getElementById('notification-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        console.log('[FORM] Submit event triggered');
+        console.log('[NOTIFY] Form submission started');
         
         const form = e.target;
-        console.log('[FORM] Form element:', form);
-        
         const participants = Array.from(form.querySelectorAll('input[name="participants[]"]:checked'))
             .map(input => input.value);
-        console.log('[FORM] Selected participants:', participants);
+        console.log('[NOTIFY] Selected participants:', participants);
         
         try {
-            console.log('[API] Sending request to /api/notification-preferences');
             const response = await fetchWithAuth('/api/notification-preferences', {
                 method: 'POST',
                 headers: {
@@ -116,27 +114,48 @@ function setupFormHandlers() {
                 },
                 body: JSON.stringify({ participants })
             });
-            console.log('[API] Response received:', response);
             
             if (response.ok) {
-                console.log('[SUCCESS] API call successful');
-                showAlert('success', 'Einstellungen wurden gespeichert');
-                try {
-                    await syncNotifications();
-                    console.log('[SYNC] Notifications synchronized');
-                } catch (syncError) {
-                    console.log('[SYNC] Failed:', syncError);
-                    // Don't block on sync error
-                }
-            } else {
-                console.log('[ERROR] API call failed with status:', response.status);
                 const data = await response.json();
-                console.log('[ERROR] Error data:', data);
-                showAlert('danger', 'Fehler beim Speichern');
+                console.log('[NOTIFY] Server response:', data);
+                
+                if ('serviceWorker' in navigator) {
+                    try {
+                        // First ensure Service Worker is initialized
+                        const activeWorker = await initializeServiceWorker();
+                        console.log('[NOTIFY] Service Worker initialized');
+
+                        // Create message channel for cleanup
+                        const cleanupChannel = new MessageChannel();
+                        cleanupChannel.port1.onmessage = async (event) => {
+                            console.log('[NOTIFY] Cleanup completed:', event.data);
+                            
+                            // After cleanup, sync new notifications
+                            const syncChannel = new MessageChannel();
+                            syncChannel.port1.onmessage = (syncEvent) => {
+                                console.log('[NOTIFY] Sync completed:', syncEvent.data);
+                            };
+                            
+                            activeWorker.postMessage({
+                                type: 'SYNC_NOTIFICATIONS'
+                            }, [syncChannel.port2]);
+                        };
+                        
+                        // Start cleanup process
+                        activeWorker.postMessage({
+                            type: 'CLEANUP_NOTIFICATIONS',
+                            participants: data.removed_participants
+                        }, [cleanupChannel.port2]);
+                        
+                    } catch (error) {
+                        console.error('[NOTIFY] Service Worker error:', error);
+                    }
+                }
+                
+                showAlert('success', 'Einstellungen wurden gespeichert');
             }
         } catch (error) {
-            console.log('[ERROR] Exception caught:', error);
-            console.error('Detailed error:', error);
+            console.error('[NOTIFY] Error:', error);
             showAlert('danger', 'Fehler beim Speichern');
         }
     });
