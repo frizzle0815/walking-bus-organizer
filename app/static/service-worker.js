@@ -1,6 +1,9 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 const DATA_CACHE = 'walking-bus-data-v1';
 const AUTH_CACHE = 'walking-bus-auth-v1';
+const NOTIFICATION_CACHE = 'walking-bus-notifications-v1';
+const SCHEDULE_DB_NAME = 'walking-bus-schedules';
+const SCHEDULE_STORE_NAME = 'notification-schedules';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
@@ -27,10 +30,121 @@ self.addEventListener('install', (event) => {
                 return cache.addAll(URLS_TO_CACHE);
             }),
             caches.open(DATA_CACHE).then(() => console.log('[SW] Data cache created')),
-            caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created'))
+            caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created')),
+            caches.open(NOTIFICATION_CACHE),
+            initializeScheduleDB()
         ]).then(() => console.log('[SW] Installation complete'))
     );
 });
+
+
+// Initialize IndexedDB for notification schedules
+async function initializeScheduleDB() {
+    const db = await openDB(SCHEDULE_DB_NAME, 1, {
+        upgrade(db) {
+            if (!db.objectStoreNames.contains(SCHEDULE_STORE_NAME)) {
+                db.createObjectStore(SCHEDULE_STORE_NAME, { keyPath: 'id' });
+            }
+        }
+    });
+    return db;
+}
+
+
+// Handle notification scheduling
+async function scheduleNotification(participantData) {
+    const { participantId, scheduleTime, busTime } = participantData;
+    
+    // Create unique ID for this notification
+    const notificationId = `notification-${participantId}-${busTime}`;
+    
+    // Store schedule in IndexedDB
+    const db = await openDB(SCHEDULE_DB_NAME);
+    await db.put(SCHEDULE_STORE_NAME, {
+        id: notificationId,
+        participantId,
+        scheduleTime,
+        busTime,
+        processed: false
+    });
+}
+
+
+// Check for pending notifications every minute
+setInterval(async () => {
+    if (Notification.permission === 'granted') {
+        const now = new Date();
+        const db = await openDB(SCHEDULE_DB_NAME);
+        const pending = await db.getAll(SCHEDULE_STORE_NAME);
+        
+        for (const notification of pending) {
+            if (!notification.processed && new Date(notification.scheduleTime) <= now) {
+                await showParticipantNotification(notification);
+                
+                // Mark as processed
+                notification.processed = true;
+                await db.put(SCHEDULE_STORE_NAME, notification);
+            }
+        }
+    }
+}, 60000);
+
+
+// Show notification with participant status
+async function showParticipantNotification(notificationData) {
+    try {
+        const response = await fetch(`/api/participant-status/${notificationData.participantId}`);
+        const data = await response.json();
+        
+        return self.registration.showNotification('Walking Bus Erinnerung', {
+            body: `${data.participantName} ist für heute ${data.status ? 'angemeldet' : 'abgemeldet'}`,
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/icon-192x192.png',
+            tag: notificationData.id,
+            data: {
+                participantId: notificationData.participantId,
+                url: '/notifications'
+            },
+            actions: [
+                {
+                    action: 'toggle-status',
+                    title: data.status ? 'Abmelden' : 'Anmelden'
+                }
+            ]
+        });
+    } catch (error) {
+        console.error('Error showing notification:', error);
+    }
+}
+
+
+// Handle notification clicks
+self.addEventListener('notificationclick', async (event) => {
+    event.notification.close();
+    
+    if (event.action === 'toggle-status') {
+        try {
+            await fetch(`/api/participation/${event.notification.data.participantId}`, {
+                method: 'PATCH'
+            });
+        } catch (error) {
+            console.error('Error toggling status:', error);
+        }
+    }
+    
+    // Open app on notification click
+    const windowClients = await clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true
+    });
+    
+    if (windowClients.length > 0) {
+        windowClients[0].focus();
+    } else {
+        clients.openWindow('/notifications');
+    }
+});
+
 
 self.addEventListener('activate', (event) => {
  event.waitUntil(
