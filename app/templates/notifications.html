@@ -102,10 +102,10 @@ function setupFormHandlers() {
             .map(input => input.value);
             
         try {
-            const response = await fetch('/api/notification-preferences', {
+            const response = await fetchWithAuth('/api/notification-preferences', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ participants })
             });
@@ -114,6 +114,7 @@ function setupFormHandlers() {
                 await syncNotifications();
                 showAlert('success', 'Einstellungen wurden gespeichert');
             } else {
+                const data = await response.json();
                 showAlert('danger', 'Fehler beim Speichern');
             }
         } catch (error) {
@@ -137,15 +138,30 @@ function sendTestNotification() {
 }
 
 function showAlert(type, message) {
+    // Remove any existing alerts first
+    const existingAlerts = document.querySelectorAll('.alert');
+    existingAlerts.forEach(alert => alert.remove());
+    
+    // Create new alert
     const alert = document.createElement('div');
     alert.className = `alert alert-${type} alert-dismissible fade show`;
     alert.innerHTML = `
         ${message}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
-    document.querySelector('.container').insertBefore(alert, document.querySelector('.card'));
     
-    setTimeout(() => alert.remove(), 5000);
+    // Get container and first child
+    const container = document.querySelector('.container');
+    
+    // Insert at the beginning of container
+    container.insertAdjacentElement('afterbegin', alert);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+        if (alert && alert.parentNode) {
+            alert.remove();
+        }
+    }, 5000);
 }
 
 async function syncNotifications() {

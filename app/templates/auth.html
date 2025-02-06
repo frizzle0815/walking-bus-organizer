@@ -162,7 +162,8 @@
                             console.log('[AUTH.HTML] Sending new token to Service Worker');
                             activeWorker.postMessage({
                                 type: 'STORE_AUTH_TOKEN',
-                                token: newToken
+                                token: newToken,
+                                version: 'v5'
                             }, [messageChannel.port2]);
                         });
                     } catch (error) {
@@ -289,7 +290,8 @@ async function loginUser() {
 
                             activeWorker.postMessage({
                                 type: 'STORE_AUTH_TOKEN',
-                                token: authToken
+                                token: authToken,
+                                version: 'v5'
                             }, [messageChannel.port2]);
                         });
                     } catch (error) {

@@ -85,6 +85,10 @@ def notifications():
     
     # Get existing preferences for current auth token
     current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not current_token and 'auth_token' in session:
+        current_token = session['auth_token']
+    
+    # Get all preferences for this token
     current_preferences = NotificationPreference.query.filter_by(
         auth_token_id=current_token
     ).all()
@@ -117,22 +121,31 @@ def get_notification_preferences():
 @bp.route('/api/notification-preferences', methods=['POST'])
 @require_auth
 def update_notification_preferences():
-    current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    walking_bus_id = get_current_walking_bus_id()
-    data = request.get_json()
-    
-    selected_participants = set(data.get('participants', []))
-    
-    existing_preferences = NotificationPreference.query.filter_by(
-        auth_token_id=current_token
-    ).all()
-    existing_participant_ids = {pref.participant_id for pref in existing_preferences}
-    
     try:
+        current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        walking_bus_id = get_current_walking_bus_id()
+        data = request.get_json()
+        
+        # Add logging
+        current_app.logger.info(f"[NOTIFICATIONS] Updating preferences for token: {current_token}")
+        current_app.logger.info(f"[NOTIFICATIONS] Data received: {data}")
+        
+        selected_participants = set(data.get('participants', []))
+        
+        # Convert string IDs to integers
+        selected_participants = {int(id) for id in selected_participants}
+        
+        existing_preferences = NotificationPreference.query.filter_by(
+            auth_token_id=current_token
+        ).all()
+        existing_participant_ids = {pref.participant_id for pref in existing_preferences}
+        
+        # Delete removed preferences
         for pref in existing_preferences:
             if pref.participant_id not in selected_participants:
                 db.session.delete(pref)
         
+        # Add new preferences
         for participant_id in selected_participants:
             if participant_id not in existing_participant_ids:
                 new_pref = NotificationPreference(
@@ -143,11 +156,14 @@ def update_notification_preferences():
                 db.session.add(new_pref)
         
         db.session.commit()
+        current_app.logger.info("[NOTIFICATIONS] Preferences updated successfully")
         return jsonify({'status': 'success'})
         
     except Exception as e:
+        current_app.logger.error(f"[NOTIFICATIONS] Error updating preferences: {str(e)}")
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 
 @bp.route('/api/test-notification', methods=['POST'])

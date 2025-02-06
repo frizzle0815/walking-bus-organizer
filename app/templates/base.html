@@ -374,51 +374,63 @@ let authInitialized = false;
 
  // Service Worker registration
  async function registerServiceWorker() {
-     if ('serviceWorker' in navigator) {
-         try {
-             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
-             
-             // Log current service worker state
-             console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');
-             
-             // Force check for updates immediately
-             console.log('[BASE.HTML][UPDATE] Checking for service worker updates...');
-             
-             try {
-                 await registration.update();
-                 console.log('[BASE.HTML][UPDATE] Update check completed - No new version found');
-             } catch (updateError) {
-                 console.log('[BASE.HTML][UPDATE] Update check failed:', updateError);
-             }
-             
-             // Listen for new service worker installation
-             registration.addEventListener('updatefound', () => {
-                 console.log('[BASE.HTML][UPDATE] New service worker found and installing');
-                 const newWorker = registration.installing;
-                 
-                 newWorker.addEventListener('statechange', () => {
-                     console.log('[BASE.HTML][UPDATE] Service worker state changed to:', newWorker.state);
-                     
-                     if (newWorker.state === 'installed') {
-                         if (navigator.serviceWorker.controller) {
-                             console.log('[BASE.HTML][UPDATE] New service worker installed and ready to take over');
-                             console.log('[BASE.HTML][UPDATE] Reloading page to activate new service worker');
-                             window.location.reload();
-                         } else {
-                             console.log('[BASE.HTML][UPDATE] Service worker installed for the first time');
-                         }
-                     }
-                 });
-             });
-             
-             return registration;
-         } catch (err) {
-             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed:', err);
-         }
-     }
-     return null;
- }
+    if ('serviceWorker' in navigator) {
+        try {
+            // First cleanup existing service workers
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            console.log('[BASE.HTML][CLEANUP] Found registrations:', registrations);
+            
+            for (const registration of registrations) {
+                console.log('[BASE.HTML][CLEANUP] Unregistering worker with scope:', registration.scope);
+                await registration.unregister();
+            }
+
+            // Register fresh service worker
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js', {
+                scope: '/static/'
+            });
+            console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+            
+            // Log current service worker state
+            console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');
+            
+            // Force check for updates immediately
+            console.log('[BASE.HTML][UPDATE] Checking for service worker updates...');
+            
+            try {
+                await registration.update();
+                console.log('[BASE.HTML][UPDATE] Update check completed - No new version found');
+            } catch (updateError) {
+                console.log('[BASE.HTML][UPDATE] Update check failed:', updateError);
+            }
+            
+            // Listen for new service worker installation
+            registration.addEventListener('updatefound', () => {
+                console.log('[BASE.HTML][UPDATE] New service worker found and installing');
+                const newWorker = registration.installing;
+                
+                newWorker.addEventListener('statechange', () => {
+                    console.log('[BASE.HTML][UPDATE] Service worker state changed to:', newWorker.state);
+                    
+                    if (newWorker.state === 'installed') {
+                        if (navigator.serviceWorker.controller) {
+                            console.log('[BASE.HTML][UPDATE] New service worker installed and ready to take over');
+                            console.log('[BASE.HTML][UPDATE] Reloading page to activate new service worker');
+                            window.location.reload();
+                        } else {
+                            console.log('[BASE.HTML][UPDATE] Service worker installed for the first time');
+                        }
+                    }
+                });
+            });
+            
+            return registration;
+        } catch (err) {
+            console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed:', err);
+        }
+    }
+    return null;
+}
 
 
 async function ensurePersistentStorage() {

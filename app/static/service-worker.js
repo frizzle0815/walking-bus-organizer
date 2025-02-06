@@ -1,15 +1,16 @@
 importScripts('https://cdn.jsdelivr.net/npm/idb@7/build/umd.js');
+const { openDB } = idb;
+
+const CACHE_VERSION = 'v5'; // Increment this when you update your service worker
 
 const STATIC_CACHE = 'walking-bus-static-v1';
 const DATA_CACHE = 'walking-bus-data-v1';
-const AUTH_CACHE = 'walking-bus-auth-v1';
+const AUTH_CACHE = `walking-bus-auth-v5`;
 const NOTIFICATION_CACHE = 'walking-bus-notifications-v1';
 const SCHEDULE_DB_NAME = 'walking-bus-schedules';
 const SCHEDULE_STORE_NAME = 'notification-schedules';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
-
-const CACHE_VERSION = 'v5'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -24,33 +25,73 @@ const URLS_TO_CACHE = [
 ];
 
 // Installation handler
-self.addEventListener('install', (event) => {
+self.addEventListener('install', async (event) => {
     console.log('[SW] Install event triggered');
+
+    // Log registration info using service worker context
+    console.log('[SW] Registration scope:', self.registration.scope);
+    console.log('[SW] Registration state:', self.registration.active?.state || 'installing');
+
+    // Force waiting service worker to become active
+    self.skipWaiting();
+
     event.waitUntil(
         Promise.all([
+            // Static cache initialization with detailed logging
             caches.open(STATIC_CACHE).then(cache => {
-                console.log('[SW] Caching static resources');
-                return cache.addAll(URLS_TO_CACHE);
+                console.log('[SW] Static cache created');
+                return cache.addAll(URLS_TO_CACHE).then(() => {
+                    console.log('[SW] Static resources cached');
+                });
             }),
-            caches.open(DATA_CACHE).then(() => console.log('[SW] Data cache created')),
-            caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created')),
-            caches.open(NOTIFICATION_CACHE),
+
+            // Data cache initialization
+            caches.open(DATA_CACHE).then(cache => {
+                console.log('[SW] Data cache created');
+                return cache;
+            }),
+
+            // Auth cache initialization
+            caches.open(AUTH_CACHE).then(cache => {
+                console.log('[SW] Auth cache created');
+                return cache;
+            }),
+
+            // Notification cache initialization
+            caches.open(NOTIFICATION_CACHE).then(cache => {
+                console.log('[SW] Notification cache created');
+                return cache;
+            }),
+
+            // IndexedDB initialization
             initializeScheduleDB()
-        ]).then(() => console.log('[SW] Installation complete'))
+        ]).then(() => {
+            console.log('[SW] All caches initialized successfully');
+        }).catch(error => {
+            console.error('[SW] Cache initialization failed:', error);
+            throw error; // Re-throw to ensure installation fails on error
+        })
     );
 });
 
 
+
 // Initialize IndexedDB for notification schedules
 async function initializeScheduleDB() {
-    const db = await openDB(SCHEDULE_DB_NAME, 1, {
-        upgrade(db) {
-            if (!db.objectStoreNames.contains(SCHEDULE_STORE_NAME)) {
-                db.createObjectStore(SCHEDULE_STORE_NAME, { keyPath: 'id' });
+    try {
+        const db = await openDB(SCHEDULE_DB_NAME, 1, {
+            upgrade(db) {
+                if (!db.objectStoreNames.contains(SCHEDULE_STORE_NAME)) {
+                    db.createObjectStore(SCHEDULE_STORE_NAME, { keyPath: 'id' });
+                }
             }
-        }
-    });
-    return db;
+        });
+        console.log('[SW][DB] Database initialized successfully');
+        return db;
+    } catch (error) {
+        console.error('[SW][DB] Database initialization failed:', error);
+        throw error;
+    }
 }
 
 
@@ -190,42 +231,77 @@ self.addEventListener('notificationclick', async (event) => {
 
 
 self.addEventListener('activate', (event) => {
+    console.log('[SW][ACTIVATE] Service Worker activating');
+    
     event.waitUntil(
         Promise.all([
-            // Cache cleanup
-            caches.keys().then(cacheNames => {
+            // Verbessertes Cache Management
+            caches.keys().then(async cacheNames => {
+                console.log('[SW][CACHE] Current caches:', cacheNames);
                 return Promise.all(
                     cacheNames.map(cacheName => {
-                        if (!cacheName.includes(CACHE_VERSION)) {
+                        // Lösche ALLE alten Auth Caches die nicht zur aktuellen Version gehören
+                        if (cacheName.includes('walking-bus-auth') && cacheName !== AUTH_CACHE) {
+                            console.log('[SW][CACHE] Deleting old auth cache:', cacheName);
                             return caches.delete(cacheName);
                         }
+                        // Lösche andere outdated caches
+                        if (!cacheName.includes(CACHE_VERSION)) {
+                            console.log('[SW][CACHE] Deleting outdated cache:', cacheName);
+                            return caches.delete(cacheName);
+                        }
+                        console.log('[SW][CACHE] Keeping cache:', cacheName);
                     })
                 );
             }),
-            
-            // Notification sync setup
+
+            // Auth Cache Überprüfung
+            checkAuthCache().then(token => {
+                console.log('[SW][AUTH] Auth cache status during activation:', 
+                    token ? 'Token present' : 'No token found');
+            }),
+
+            // Notification Sync Setup
             (async () => {
+                console.log('[SW][NOTIFY] Setting up notification sync');
                 try {
-                    // Initial sync of notification schedules
                     await syncNotificationSchedules();
                     
-                    // Register periodic sync if supported
-                    if ('periodicSync' in self.registration) {
-                        await self.registration.periodicSync.register('sync-notifications', {
-                            minInterval: 24 * 60 * 60 * 1000 // Once per day
-                        });
-                        console.log('[SW] Periodic sync registered');
+                    if ('periodicSync' in self.registration && 
+                        Notification.permission === 'granted') {
+                        try {
+                            await self.registration.periodicSync.register('sync-notifications', {
+                                minInterval: 24 * 60 * 60 * 1000 // 24 Stunden
+                            });
+                            console.log('[SW][NOTIFY] Periodic sync registered successfully');
+                        } catch (error) {
+                            console.log('[SW][NOTIFY] Periodic sync registration failed:', error.message);
+                        }
+                    } else {
+                        console.log('[SW][NOTIFY] Periodic sync not available or notifications not permitted');
                     }
                 } catch (error) {
-                    console.error('[SW] Activation sync error:', error);
+                    console.log('[SW][NOTIFY] Initial sync failed:', error.message);
                 }
             })(),
-            
-            // Claim clients
-            self.clients.claim()
-        ])
+
+            // Client Control übernehmen
+            self.clients.claim().then(() => {
+                console.log('[SW][CLIENTS] Service Worker claimed clients');
+            })
+        ]).then(() => {
+            console.log('[SW][ACTIVATE] Service Worker activation complete');
+        })
     );
 });
+
+// Helper Funktion für Auth Cache Überprüfung
+async function checkAuthCache() {
+    const cache = await caches.open(AUTH_CACHE);
+    const token = await cache.match(AUTH_TOKEN_CACHE_KEY);
+    return token;
+}
+
 
 
 // Handle periodic sync events
@@ -241,32 +317,37 @@ self.addEventListener('message', (event) => {
     console.log('[SW] Received message event:', event.data?.type);
 
     if (event.data?.type === 'STORE_AUTH_TOKEN') {
-        console.log('[SW] Processing token storage');
+        console.log('[SW][AUTH] Starting token storage process');
         
+        const tokenData = {
+            token: event.data.token,
+            timestamp: new Date().toISOString(),
+            version: CACHE_VERSION
+        };
+
         caches.open(AUTH_CACHE)
             .then(cache => {
-                console.log('[SW] Cache opened successfully');
-                const response = new Response(JSON.stringify({
-                    token: event.data.token,
-                    timestamp: new Date().toISOString()
-                }));
+                console.log('[SW][AUTH] Cache opened successfully');
+                const response = new Response(JSON.stringify(tokenData));
                 return cache.put(AUTH_TOKEN_CACHE_KEY, response);
             })
-            .then(() => {
-                console.log('[SW] Token stored successfully');
+            .then(() => checkAuthCache()) // Verifizierung der Speicherung
+            .then(token => {
+                console.log('[SW][AUTH] Token storage verified:', token ? 'success' : 'failed');
                 if (event.ports?.[0]) {
-                    event.ports[0].postMessage({ success: true });
-                    console.log('[SW] Success message sent back');
+                    event.ports[0].postMessage({ 
+                        success: true,
+                        timestamp: tokenData.timestamp 
+                    });
                 }
             })
             .catch(error => {
-                console.error('[SW] Storage error:', error);
+                console.error('[SW][AUTH] Storage error:', error);
                 if (event.ports?.[0]) {
                     event.ports[0].postMessage({
                         success: false,
                         error: error.message
                     });
-                    console.log('[SW] Error message sent back');
                 }
             });
 
