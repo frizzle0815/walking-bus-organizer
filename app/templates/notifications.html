@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-3">
+    <h2>Benachrichtigungen einrichten</h2>
+    
+    <div class="alert alert-info" id="permission-status">
+        Checking notification permissions...
+    </div>
+    
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Teilnehmer auswählen</h5>
+            <p class="card-text">Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.</p>
+            
+            <form id="notification-form">
+                {% for station in walking_bus.stations %}
+                <div class="station-group mb-3">
+                    <h6>{{ station.name }}</h6>
+                    {% for participant in station.participants %}
+                    <div class="form-check">
+                        <input type="checkbox" 
+                               class="form-check-input" 
+                               id="participant-{{ participant.id }}"
+                               name="participants[]" 
+                               value="{{ participant.id }}"
+                               {% if participant.id in preferred_participants %}checked{% endif %}>
+                        <label class="form-check-label" for="participant-{{ participant.id }}">
+                            {{ participant.name }}
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+                
+                <div class="mt-3">
+                    <button type="button" id="test-notification" class="btn btn-secondary">
+                        Test Benachrichtigung
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        Speichern
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    checkNotificationPermission();
+    setupFormHandlers();
+});
+
+function checkNotificationPermission() {
+    const statusElement = document.getElementById('permission-status');
+    
+    if (!('Notification' in window)) {
+        statusElement.className = 'alert alert-danger';
+        statusElement.textContent = 'Ihr Browser unterstützt keine Benachrichtigungen.';
+        return;
+    }
+    
+    switch(Notification.permission) {
+        case 'granted':
+            statusElement.className = 'alert alert-success';
+            statusElement.textContent = 'Benachrichtigungen sind aktiviert.';
+            break;
+        case 'denied':
+            statusElement.className = 'alert alert-warning';
+            statusElement.textContent = 'Benachrichtigungen wurden blockiert. Bitte in den Browser-Einstellungen aktivieren.';
+            break;
+        default:
+            statusElement.className = 'alert alert-info';
+            statusElement.textContent = 'Klicken Sie auf "Test Benachrichtigung" um Benachrichtigungen zu aktivieren.';
+    }
+}
+
+function setupFormHandlers() {
+    // Test notification button
+    document.getElementById('test-notification').addEventListener('click', async () => {
+        try {
+            if (Notification.permission === 'default') {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    sendTestNotification();
+                }
+            } else if (Notification.permission === 'granted') {
+                sendTestNotification();
+            }
+            checkNotificationPermission();
+        } catch (error) {
+            console.error('Error:', error);
+        }
+    });
+
+    // Form submission
+    document.getElementById('notification-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const participants = Array.from(form.querySelectorAll('input[name="participants[]"]:checked'))
+            .map(input => input.value);
+            
+        try {
+            const response = await fetch('/api/notification-preferences', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ participants })
+            });
+            
+            if (response.ok) {
+                showAlert('success', 'Einstellungen wurden gespeichert');
+            } else {
+                showAlert('danger', 'Fehler beim Speichern');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showAlert('danger', 'Fehler beim Speichern');
+        }
+    });
+}
+
+function sendTestNotification() {
+    if ('serviceWorker' in navigator && 'Notification' in window) {
+        navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification('Test Benachrichtigung', {
+                body: 'Die Benachrichtigungen funktionieren!',
+                icon: '/static/icons/icon-192x192.png',
+                badge: '/static/icons/icon-192x192.png',
+                tag: 'test-notification'
+            });
+        });
+    }
+}
+
+function showAlert(type, message) {
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type} alert-dismissible fade show`;
+    alert.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container').insertBefore(alert, document.querySelector('.card'));
+    
+    setTimeout(() => alert.remove(), 5000);
+}
+</script>
+{% endblock %}

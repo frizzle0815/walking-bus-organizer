@@ -11,7 +11,8 @@ from .models import (
     CalendarStatus, WalkingBusSchedule, 
     SchoolHoliday, WalkingBusOverride, 
     DailyNote, TempToken, AuthToken,
-    Weather, WeatherCalculation
+    Weather, WeatherCalculation,
+    NotificationPreference
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -74,6 +75,90 @@ def share():
                          active_tokens=token_data['tokens'],
                          token_count=token_data['count'],
                          max_tokens=token_data['max'])
+
+
+@bp.route('/notifications')
+@require_auth
+def notifications():
+    walking_bus_id = get_current_walking_bus_id()
+    walking_bus = WalkingBus.query.get(walking_bus_id)
+    
+    # Get existing preferences for current auth token
+    current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    current_preferences = NotificationPreference.query.filter_by(
+        auth_token_id=current_token
+    ).all()
+    
+    # Convert to set of participant IDs for easy lookup
+    preferred_participants = {pref.participant_id for pref in current_preferences}
+    
+    return render_template(
+        'notifications.html',
+        walking_bus=walking_bus,
+        preferred_participants=preferred_participants
+    )
+
+
+@bp.route('/api/notification-preferences', methods=['GET'])
+@require_auth
+def get_notification_preferences():
+    current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    preferences = NotificationPreference.query.filter_by(
+        auth_token_id=current_token
+    ).all()
+    
+    return jsonify({
+        'preferences': [{
+            'participant_id': pref.participant_id,
+            'enabled': pref.enabled
+        } for pref in preferences]
+    })
+
+@bp.route('/api/notification-preferences', methods=['POST'])
+@require_auth
+def update_notification_preferences():
+    current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    selected_participants = set(data.get('participants', []))
+    
+    existing_preferences = NotificationPreference.query.filter_by(
+        auth_token_id=current_token
+    ).all()
+    existing_participant_ids = {pref.participant_id for pref in existing_preferences}
+    
+    try:
+        for pref in existing_preferences:
+            if pref.participant_id not in selected_participants:
+                db.session.delete(pref)
+        
+        for participant_id in selected_participants:
+            if participant_id not in existing_participant_ids:
+                new_pref = NotificationPreference(
+                    walking_bus_id=walking_bus_id,
+                    participant_id=participant_id,
+                    auth_token_id=current_token
+                )
+                db.session.add(new_pref)
+        
+        db.session.commit()
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@bp.route('/api/test-notification', methods=['POST'])
+@require_auth
+def send_test_notification():
+    try:
+        # This endpoint will be used later for testing notifications
+        # Currently just returns success to validate permissions
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 
 @bp.route("/api/temp-tokens")
