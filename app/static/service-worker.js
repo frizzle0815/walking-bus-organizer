@@ -93,7 +93,7 @@ setInterval(async () => {
 // Show notification with participant status
 async function showParticipantNotification(notificationData) {
     try {
-        const response = await fetch(`/api/participant-status/${notificationData.participantId}`);
+        const response = await fetch(`/api/notifications/participant-status/${notificationData.participantId}`);
         const data = await response.json();
         
         return self.registration.showNotification('Walking Bus Erinnerung', {

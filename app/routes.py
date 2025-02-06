@@ -149,6 +149,7 @@ def update_notification_preferences():
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
 @bp.route('/api/test-notification', methods=['POST'])
 @require_auth
 def send_test_notification():
@@ -159,6 +160,43 @@ def send_test_notification():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
+@bp.route('/api/notifications/participant-status/<int:participant_id>')
+@require_auth
+def get_notification_participant_status(participant_id):
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Get participant and verify they belong to this walking bus
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
+    # Get current date in application timezone
+    current_date = get_current_date()
+    
+    # Check calendar status for today
+    calendar_status = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=current_date
+    ).first()
+    
+    # If calendar status exists, use it
+    # Otherwise fall back to default weekday status
+    if calendar_status:
+        status = calendar_status.status
+    else:
+        # Get weekday name (monday, tuesday, etc)
+        weekday = WEEKDAY_MAPPING[current_date.weekday()]
+        # Get participant's default status for this weekday
+        status = getattr(participant, weekday)
+    
+    return jsonify({
+        'participantId': participant.id,
+        'participantName': participant.name,
+        'status': status,
+        'stationName': participant.station.name if participant.station else None
+    })
 
 
 @bp.route("/api/temp-tokens")
