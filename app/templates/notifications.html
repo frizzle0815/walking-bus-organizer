@@ -179,21 +179,18 @@ async function sendTestNotification() {
 
 // Add the initialization function from auth.html
 async function initializeServiceWorker() {
-    console.log('[TEST] Starting Service Worker initialization');
-    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-
-    if (registration.installing) {
-        console.log('[TEST] Service Worker installing');
-        await new Promise(resolve => {
-            registration.installing.addEventListener('statechange', e => {
-                if (e.target.state === 'activated') {
-                    console.log('[TEST] Service Worker activated');
-                    resolve();
-                }
-            });
-        });
+    // Prüfen ob bereits ein Service Worker existiert
+    const existingRegistration = await navigator.serviceWorker.getRegistration();
+    
+    if (existingRegistration) {
+        console.log('[SW] Using existing Service Worker');
+        return existingRegistration.active;
     }
 
+    // Nur wenn kein Service Worker existiert, neu registrieren
+    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+    console.log('[SW] New Service Worker registered');
+    
     return registration.active;
 }
 

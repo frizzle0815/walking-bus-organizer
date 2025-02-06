@@ -311,43 +311,31 @@ self.addEventListener('activate', (event) => {
     
     event.waitUntil(
         Promise.all([
-            // Auth Cache Überprüfung
+            // 1. First verify auth status
             checkAuthCache().then(token => {
-                console.log('[SW][AUTH] Auth cache status during activation:', 
-                    token ? 'Token present' : 'No token found');
+                if (token) {
+                    console.log('[SW][AUTH] Token verified, proceeding with activation');
+                    return token;
+                }
+                throw new Error('No valid auth token found');
             }),
 
-            // Notification Sync Setup 
+            // 2. Then setup notifications only if auth is valid
             (async () => {
-                console.log('[SW][NOTIFY] Setting up notification sync');
-                try {
-                    await syncNotificationSchedules();
-                    
-                    if ('periodicSync' in self.registration && 
-                        Notification.permission === 'granted') {
-                        try {
-                            await self.registration.periodicSync.register('sync-notifications', {
-                                minInterval: 24 * 60 * 60 * 1000 // 24 Stunden
-                            });
-                            console.log('[SW][NOTIFY] Periodic sync registered successfully');
-                        } catch (error) {
-                            console.log('[SW][NOTIFY] Periodic sync registration failed:', error.message);
-                        }
-                    } else {
-                        console.log('[SW][NOTIFY] Periodic sync not available or notifications not permitted');
-                    }
-                } catch (error) {
-                    console.log('[SW][NOTIFY] Initial sync failed:', error.message);
+                await syncNotificationSchedules();
+                
+                // Only register periodic sync if supported and notifications permitted
+                if ('periodicSync' in self.registration && 
+                    Notification.permission === 'granted') {
+                    await self.registration.periodicSync.register('sync-notifications', {
+                        minInterval: 24 * 60 * 60 * 1000 
+                    });
                 }
             })(),
 
-            // Client Control übernehmen
-            self.clients.claim().then(() => {
-                console.log('[SW][CLIENTS] Service Worker claimed clients');
-            })
-        ]).then(() => {
-            console.log('[SW][ACTIVATE] Service Worker activation complete');
-        })
+            // 3. Finally claim clients when everything is ready
+            self.clients.claim()
+        ])
     );
 });
 
