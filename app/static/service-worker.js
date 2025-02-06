@@ -1,3 +1,5 @@
+importScripts('https://cdn.jsdelivr.net/npm/idb@7/build/umd.js');
+
 const STATIC_CACHE = 'walking-bus-static-v1';
 const DATA_CACHE = 'walking-bus-data-v1';
 const AUTH_CACHE = 'walking-bus-auth-v1';
@@ -7,7 +9,7 @@ const SCHEDULE_STORE_NAME = 'notification-schedules';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v4'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v5'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -17,7 +19,8 @@ const URLS_TO_CACHE = [
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js',
     'https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css'
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
+    'https://cdn.jsdelivr.net/npm/idb@7/build/umd.js'
 ];
 
 // Installation handler
