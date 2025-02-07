@@ -511,7 +511,13 @@ self.addEventListener('message', (event) => {
             body: 'Die Benachrichtigungen funktionieren!',
             icon: '/static/icons/icon-192x192.png',
             badge: '/static/icons/icon-192x192.png',
-            tag: 'test-notification'
+            tag: 'test-notification',
+            actions: [
+                {
+                    action: 'okay',
+                    title: 'Okay'
+                }
+            ]
         }).then(() => {
             console.log('[SW] Test notification shown successfully');
             if (event.ports?.[0]) {

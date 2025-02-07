@@ -3,6 +3,11 @@
 {% block content %}
 <div class="container mt-3">
     <h2>Benachrichtigungen einrichten</h2>
+
+    <div class="alert alert-info mb-3">
+        <p>Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.<br>Erinnerung erfolgen automatisch 1 Stunde vor Beginn des Walking Bus.</p>
+    </div>
+
     <div id="alert-container"></div>
 
     <div class="alert alert-info" id="pwa-status">
@@ -13,13 +18,11 @@
         Checking notification permissions...
     </div>
 
-    <div class="alert alert-info mb-3">
-        <h5>Teilnehmer auswählen</h5>
-        <p>Wählen Sie die Teilnehmer aus, für die Sie Erinnerungen erhalten möchten.<br><br>Erinnerung werden automatisch 1 Stunde vor Beginn des Walking Bus angezeigt.</p>
-    </div>
+
     
     <div class="card mb-3">
         <div class="card-body">
+            <h5>Teilnehmer auswählen</h5>
             <form id="notification-form">
                 {% for station in walking_bus.stations %}
                 <div class="station-group mb-3">
@@ -56,7 +59,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     console.log('[INIT] DOM loaded, setting up handlers');
-    requestNotificationPermission();
+    // requestNotificationPermission();
     updatePWAStatus();
     checkNotificationPermission();
     setupFormHandlers();
@@ -132,10 +135,10 @@ function updatePWAStatus() {
     
     if (isPWAInstalled()) {
         statusElement.className = 'alert alert-success';
-        statusElement.textContent = 'App ist installiert.';
+        statusElement.innerHTML = '<i class="fas fa-check-circle"></i> App ist installiert.';
     } else {
         statusElement.className = 'alert alert-warning';
-        statusElement.textContent = 'Sie müssen die App installieren (Android) oder dem Home Bildschirm hinzufügen (iOS), um Erinnerungen erhalten zu können!';
+        statusElement.innerHTML = '<i class="fas fa-times-circle"></i> Sie müssen die App installieren (Android) oder dem Home Bildschirm hinzufügen (iOS), um Erinnerungen erhalten zu können!';
     }
 }
 
@@ -151,15 +154,15 @@ function checkNotificationPermission() {
     switch(Notification.permission) {
         case 'granted':
             statusElement.className = 'alert alert-success';
-            statusElement.textContent = 'Berechtigung für Benachrichtigungen wurde gewährt.';
+            statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Berechtigung für Benachrichtigungen wurde gewährt.';
             break;
         case 'denied':
             statusElement.className = 'alert alert-warning';
-            statusElement.textContent = 'Benachrichtigungen wurden blockiert. Bitte unten auf "Test Benachrichtigung" klicken und Benachrichtigungen zulassen.';
+            statusElement.innerHTML = '<i class="fas fa-times-circle"></i> Benachrichtigungen wurden blockiert. Die Einstellung muss manuell wie folgt geändert werden:<br><br><b>iOS</b><br><br>Einstellungen > Datenschutz & Sicherheit > WalkBus<br><br><b>Android</b><br><br>Einstellungen > Apps > WalkBus > Berechtigungen';
             break;
         default:
-            statusElement.className = 'alert alert-info';
-            statusElement.textContent = 'Klicken Sie auf "Test Benachrichtigung" um Benachrichtigungen zu aktivieren.';
+            statusElement.className = 'alert alert-warning';
+            statusElement.innerHTML = '<i class="fas fa-times-circle"></i> Berechtigung fehlt. Klicken Sie unten auf "Test Benachrichtigung" und erlauben Sie in der folgenden Abfrage die Benachrichtigungen.';
     }
 }
 
