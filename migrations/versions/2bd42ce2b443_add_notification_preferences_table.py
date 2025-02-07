@@ -1,8 +1,8 @@
 """Add notification preferences table
 
-Revision ID: d6bffc0c70b6
+Revision ID: 2bd42ce2b443
 Revises: 26f461b8eaf5
-Create Date: 2025-02-06 08:25:31.801267
+Create Date: 2025-02-07 08:08:43.932040
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'd6bffc0c70b6'
+revision = '2bd42ce2b443'
 down_revision = '26f461b8eaf5'
 branch_labels = None
 depends_on = None
@@ -26,7 +26,7 @@ def upgrade():
     sa.Column('enabled', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.ForeignKeyConstraint(['auth_token_id'], ['auth_tokens.id'], ),
+    sa.ForeignKeyConstraint(['auth_token_id'], ['auth_tokens.token_identifier'], ),
     sa.ForeignKeyConstraint(['participant_id'], ['participant.id'], ),
     sa.ForeignKeyConstraint(['walking_bus_id'], ['walking_bus.id'], ),
     sa.PrimaryKeyConstraint('id'),

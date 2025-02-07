@@ -190,7 +190,7 @@ class NotificationPreference(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     participant_id = db.Column(db.Integer, db.ForeignKey('participant.id'), nullable=False)
-    auth_token_id = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=False)
+    auth_token_id = db.Column(db.String(512), db.ForeignKey('auth_tokens.token_identifier'), nullable=False)
     enabled = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=get_current_time)
     updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
