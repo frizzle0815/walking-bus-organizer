@@ -1,7 +1,7 @@
 importScripts('https://cdn.jsdelivr.net/npm/idb@7/build/umd.js');
 const { openDB } = idb;
 
-self.CACHE_VERSION = 'v6'; // Increment this when you update your service worker
+self.CACHE_VERSION = 'v7'; // Increment this when you update your service worker
 
 const STATIC_CACHE = 'walking-bus-static-v1';
 const DATA_CACHE = 'walking-bus-data-v1';
@@ -235,15 +235,34 @@ async function showParticipantNotification(notificationData) {
         if (!registration.active) {
             throw new Error('No active service worker');
         }
+
+        // Update processed status in storage
+        const db = await openDB(SCHEDULE_DB_NAME);
+        const tx = db.transaction(SCHEDULE_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(SCHEDULE_STORE_NAME);
+        
+        // Mark notification as processed
+        await store.put({
+            id: notificationData.id,
+            participantId: notificationData.participantId,
+            busTime: notificationData.busTime,
+            processed: true,
+            scheduleTime: new Date().toISOString()
+        });
+        
+        await tx.complete;
+
+        // Fetch participant status
         const response = await fetchWithAuth(`/api/notifications/participant-status/${notificationData.participantId}`);
         const data = await response.json();
         
+        // Show the notification
         return self.registration.showNotification('Walking Bus Erinnerung', {
             body: `${data.participantName} ist für heute ${data.status ? 'angemeldet' : 'abgemeldet'}`,
             icon: '/static/icons/icon-192x192.png',
             badge: '/static/icons/icon-192x192.png',
             tag: notificationData.id,
-            requireInteraction: true, 
+            requireInteraction: true,
             data: {
                 participantId: notificationData.participantId,
                 url: '/notifications'
@@ -625,6 +644,28 @@ self.addEventListener('message', (event) => {
                     }
                 })
         );
+
+    } else if (event.data?.type === 'GET_NOTIFICATION_SCHEDULES') {
+        console.log('[SW] Fetching notification schedules');
+        
+        storageManager.getAllSchedules()
+            .then(schedules => {
+                // Send schedules directly without trying to fetch participant data
+                if (event.ports?.[0]) {
+                    event.ports[0].postMessage({
+                        schedules: schedules
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('[SW] Schedule fetch error:', error);
+                if (event.ports?.[0]) {
+                    event.ports[0].postMessage({
+                        schedules: [],
+                        error: error.message
+                    });
+                }
+            });
 
     } else {
         console.log('[SW] Unknown message type received:', event.data?.type);

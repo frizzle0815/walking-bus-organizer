@@ -18,7 +18,25 @@
         Checking notification permissions...
     </div>
 
-
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5>Aktive Erinnerungen</h5>
+            <table class="table" id="notification-schedule-table">
+                <thead>
+                    <tr>
+                        <th>Teilnehmer</th>
+                        <th>Nächste Erinnerung</th>
+                        <th>Bus-Zeit</th>
+                        <th>Status</th>
+                        <th>Gerät</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Wird dynamisch befüllt -->
+                </tbody>
+            </table>
+        </div>
+    </div>
     
     <div class="card mb-3">
         <div class="card-body">
@@ -63,6 +81,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updatePWAStatus();
     checkNotificationPermission();
     setupFormHandlers();
+    displayNotificationSchedules();
     console.log('[INIT] Setup complete');
 });
 
@@ -366,5 +385,102 @@ async function syncNotifications() {
         }
     }
 }
+
+async function displayNotificationSchedules() {
+    console.log('[TABLE] Starting schedule display');
+    
+    if ('serviceWorker' in navigator) {
+        const activeWorker = await initializeServiceWorker();
+        console.log('[TABLE] Service Worker ready:', activeWorker);
+        
+        const messageChannel = new MessageChannel();
+        
+        messageChannel.port1.onmessage = async (event) => {
+            console.log('[TABLE] Received schedules:', event.data);
+            const schedules = event.data.schedules;
+            const tbody = document.querySelector('#notification-schedule-table tbody');
+            
+            if (!tbody) {
+                console.error('[TABLE] Table body not found');
+                return;
+            }
+            
+            tbody.innerHTML = '';
+            
+            if (schedules.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="5" class="text-center">Keine aktiven Erinnerungen vorhanden</td>';
+                tbody.appendChild(row);
+                return;
+            }
+            
+            // Get all participant names at once
+            const participantNames = await getParticipantNames();
+            
+            // Sort schedules by scheduleTime
+            const sortedSchedules = schedules.sort((a, b) => {
+                const timeA = new Date(a.scheduleTime).getTime();
+                const timeB = new Date(b.scheduleTime).getTime();
+                return timeA - timeB;
+            });
+            
+            sortedSchedules.forEach(schedule => {
+                console.log('[TABLE] Processing schedule:', schedule);
+                const row = document.createElement('tr');
+                const deviceType = detectDeviceType();
+                const status = schedule.processed ? 
+                    '<span class="badge bg-success">Ausgeführt</span>' : 
+                    '<span class="badge bg-warning">Ausstehend</span>';
+                
+                const participantName = participantNames[schedule.participantId] || 'Unbekannt';
+                
+                row.innerHTML = `
+                    <td>${participantName}</td>
+                    <td>${new Date(schedule.scheduleTime).toLocaleString()}</td>
+                    <td>${schedule.busTime}</td>
+                    <td>${status}</td>
+                    <td>${deviceType}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        };
+
+        activeWorker.postMessage({
+            type: 'GET_NOTIFICATION_SCHEDULES'
+        }, [messageChannel.port2]);
+    }
+}
+
+// Helper function to get all participant names
+async function getParticipantNames() {
+    try {
+        const response = await fetchWithAuth('/api/initial-load');
+        const data = await response.json();
+        
+        // Create participant map from stations data
+        const participantMap = {};
+        data.stations.forEach(station => {
+            station.participants.forEach(participant => {
+                participantMap[participant.id] = participant.name;
+            });
+        });
+        
+        return participantMap;
+    } catch (error) {
+        console.error('[TABLE] Error fetching participant names:', error);
+        return {};
+    }
+}
+
+
+function detectDeviceType() {
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+        return 'iOS';
+    } else if (/android/i.test(navigator.userAgent)) {
+        return 'Android';
+    }
+    return 'Desktop';
+}
+
 </script>
 {% endblock %}
