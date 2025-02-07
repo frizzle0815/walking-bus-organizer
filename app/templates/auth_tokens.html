@@ -21,6 +21,7 @@
                             <th>Erstellt am</th>
                             <th>Zuletzt verwendet</th>
                             <th>Läuft ab am</th>
+                            <th>Notifications</th>
                             <th>Aktionen</th>
                         </tr>
                     </thead>
@@ -33,6 +34,17 @@
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.last_used.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                {% if token.notification_preferences|length > 0 %}
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-bell"></i> {{ token.notification_preferences|length }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary">
+                                        <i class="fas fa-bell-slash"></i> 0
+                                    </span>
+                                {% endif %}
+                            </td>
                             <td>
                                 <button class="btn btn-danger btn-sm" 
                                         onclick="revokeToken('{{ token.id }}')">

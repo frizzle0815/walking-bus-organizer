@@ -83,14 +83,17 @@ def notifications():
     walking_bus_id = get_current_walking_bus_id()
     walking_bus = WalkingBus.query.get(walking_bus_id)
     
-    # Get existing preferences for current auth token
+    # Get current token from header or session
     current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
     if not current_token and 'auth_token' in session:
         current_token = session['auth_token']
     
-    # Get all preferences for this token
+    # Get AuthToken record to access token_identifier
+    token_record = AuthToken.query.filter_by(id=current_token).first()
+    
+    # Get all preferences using token_identifier
     current_preferences = NotificationPreference.query.filter_by(
-        auth_token_id=current_token
+        auth_token_id=token_record.token_identifier
     ).all()
     
     # Convert to set of participant IDs for easy lookup
@@ -103,12 +106,15 @@ def notifications():
     )
 
 
+
 @bp.route('/api/notification-preferences', methods=['GET'])
 @require_auth
 def get_notification_preferences():
     current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token_record = AuthToken.query.filter_by(id=current_token).first()
+    
     preferences = NotificationPreference.query.filter_by(
-        auth_token_id=current_token
+        auth_token_id=token_record.token_identifier
     ).all()
     
     return jsonify({
@@ -118,11 +124,13 @@ def get_notification_preferences():
         } for pref in preferences]
     })
 
+
 @bp.route('/api/notification-preferences', methods=['POST'])
 @require_auth
 def update_notification_preferences():
     try:
         current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        token_record = AuthToken.query.filter_by(id=current_token).first()
         walking_bus_id = get_current_walking_bus_id()
         data = request.get_json()
         
@@ -131,7 +139,7 @@ def update_notification_preferences():
         
         # Get existing preferences
         existing_preferences = NotificationPreference.query.filter_by(
-            auth_token_id=current_token
+            auth_token_id=token_record.token_identifier
         ).all()
         existing_participant_ids = {pref.participant_id for pref in existing_preferences}
         
@@ -149,7 +157,7 @@ def update_notification_preferences():
                 new_pref = NotificationPreference(
                     walking_bus_id=walking_bus_id,
                     participant_id=participant_id,
-                    auth_token_id=current_token
+                    auth_token_id=token_record.token_identifier
                 )
                 db.session.add(new_pref)
         
@@ -221,10 +229,11 @@ def get_notification_participant_status(participant_id):
 def get_notification_schedules():
     walking_bus_id = get_current_walking_bus_id()
     current_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token_record = AuthToken.query.filter_by(id=current_token).first()
     
     # Get all notification preferences for this token
     preferences = NotificationPreference.query.filter_by(
-        auth_token_id=current_token,
+        auth_token_id=token_record.token_identifier,
         walking_bus_id=walking_bus_id
     ).all()
     
@@ -316,7 +325,10 @@ def delete_temp_token(token):
 @bp.route("/auth-tokens")
 @require_auth
 def list_auth_tokens():
-    tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
+    tokens = (AuthToken.query
+             .options(db.joinedload(AuthToken.notification_preferences))
+             .order_by(AuthToken.last_used.desc())
+             .all())
     
     def get_platform(user_agent):
         if not user_agent:
@@ -349,7 +361,8 @@ def list_auth_tokens():
             'is_active': token.is_active,
             'invalidated_at': token.invalidated_at,
             'invalidation_reason': token.invalidation_reason,
-            'walking_bus_id': token.walking_bus_id
+            'walking_bus_id': token.walking_bus_id,
+            'notification_preferences': token.notification_preferences
         }
         enhanced_tokens.append(token_dict)
     
