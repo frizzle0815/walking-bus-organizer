@@ -1,7 +1,7 @@
 importScripts('https://cdn.jsdelivr.net/npm/idb@7/build/umd.js');
 const { openDB } = idb;
 
-self.CACHE_VERSION = 'v5'; // Increment this when you update your service worker
+self.CACHE_VERSION = 'v6'; // Increment this when you update your service worker
 
 const STATIC_CACHE = 'walking-bus-static-v1';
 const DATA_CACHE = 'walking-bus-data-v1';
@@ -505,7 +505,28 @@ self.addEventListener('periodicsync', (event) => {
 self.addEventListener('message', (event) => {
     console.log('[SW] Received message event:', event.data?.type);
 
-    if (event.data?.type === 'STORE_AUTH_TOKEN') {
+    if (event.data?.type === 'SHOW_TEST_NOTIFICATION') {
+        console.log('[SW] Showing test notification');
+        self.registration.showNotification('Test Benachrichtigung', {
+            body: 'Die Benachrichtigungen funktionieren!',
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/icon-192x192.png',
+            tag: 'test-notification'
+        }).then(() => {
+            console.log('[SW] Test notification shown successfully');
+            if (event.ports?.[0]) {
+                event.ports[0].postMessage({ success: true });
+            }
+        }).catch(error => {
+            console.error('[SW] Test notification error:', error);
+            if (event.ports?.[0]) {
+                event.ports[0].postMessage({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+    } else if (event.data?.type === 'STORE_AUTH_TOKEN') {
         console.log('[SW][AUTH] Starting token storage process');
         
         const tokenData = {
@@ -524,9 +545,9 @@ self.addEventListener('message', (event) => {
             .then(token => {
                 console.log('[SW][AUTH] Token storage verified:', token ? 'success' : 'failed');
                 if (event.ports?.[0]) {
-                    event.ports[0].postMessage({ 
+                    event.ports[0].postMessage({
                         success: true,
-                        timestamp: tokenData.timestamp 
+                        timestamp: tokenData.timestamp
                     });
                 }
             })
@@ -586,9 +607,9 @@ self.addEventListener('message', (event) => {
         }).catch(error => {
             console.error('[SW] Cleanup error:', error);
             if (event.ports?.[0]) {
-                event.ports[0].postMessage({ 
-                    success: false, 
-                    error: error.message 
+                event.ports[0].postMessage({
+                    success: false,
+                    error: error.message
                 });
             }
         });

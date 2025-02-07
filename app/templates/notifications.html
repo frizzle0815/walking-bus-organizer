@@ -262,29 +262,34 @@ function setupFormHandlers() {
 async function sendTestNotification() {
     console.log('[TEST] Starting notification sequence');
     try {
-        // First ensure Service Worker is initialized and active
-        const activeWorker = await initializeServiceWorker();
-        console.log('[TEST] Service Worker initialized:', activeWorker);
+        // First ensure Service Worker is initialized
+        if ('serviceWorker' in navigator) {
+            const activeWorker = await initializeServiceWorker();
+            console.log('[TEST] Service Worker initialized:', activeWorker);
 
-        const response = await fetchWithAuth('/api/test-notification', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (response.ok) {
-            // Use the active worker directly
-            await activeWorker.showNotification('Test Benachrichtigung', {
-                body: 'Die Benachrichtigungen funktionieren!',
-                icon: '/static/icons/icon-192x192.png',
-                badge: '/static/icons/icon-192x192.png',
-                tag: 'test-notification'
-            });
-            console.log('[TEST] Notification sent successfully');
+            // Create message channel for response handling
+            const messageChannel = new MessageChannel();
+            
+            // Set up response handler
+            messageChannel.port1.onmessage = (event) => {
+                console.log('[TEST] Received response:', event.data);
+                if (event.data.success) {
+                    console.log('[TEST] Notification sent successfully');
+                } else {
+                    console.error('[TEST] Notification failed:', event.data.error);
+                    showAlert('danger', 'Fehler beim Senden der Test-Benachrichtigung');
+                }
+            };
+
+            // Send message to service worker with port
+            activeWorker.postMessage({
+                type: 'SHOW_TEST_NOTIFICATION'
+            }, [messageChannel.port2]);
+            
+            console.log('[TEST] Message sent to service worker');
         }
     } catch (error) {
-        console.log('[TEST] Error sending notification:', error);
+        console.error('[TEST] Error:', error);
         showAlert('danger', 'Fehler beim Senden der Test-Benachrichtigung');
     }
 }

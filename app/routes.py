@@ -179,11 +179,16 @@ def update_notification_preferences():
 @require_auth
 def send_test_notification():
     try:
-        # This endpoint will be used later for testing notifications
-        # Currently just returns success to validate permissions
-        return jsonify({'status': 'success'})
+        # Add actual notification logic
+        return jsonify({
+            'success': True,
+            'message': 'Test notification sent'
+        })
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({
+            'success': False, 
+            'error': str(e)
+        }), 500
 
 
 @bp.route('/api/notifications/participant-status/<int:participant_id>')
