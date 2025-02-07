@@ -96,25 +96,6 @@ async function initializeScheduleDB() {
 }
 
 
-// Handle notification scheduling
-async function scheduleNotification(participantData) {
-    const { participantId, scheduleTime, busTime } = participantData;
-    
-    // Create unique ID for this notification
-    const notificationId = `notification-${participantId}-${busTime}`;
-    
-    // Store schedule in IndexedDB
-    const db = await openDB(SCHEDULE_DB_NAME);
-    await db.put(SCHEDULE_STORE_NAME, {
-        id: notificationId,
-        participantId,
-        scheduleTime,
-        busTime,
-        processed: false
-    });
-}
-
-
 class NotificationStorageManager {
     constructor() {
         this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -188,10 +169,6 @@ class NotificationStorageManager {
 // Create instance
 const storageManager = new NotificationStorageManager();
 
-// Update existing functions to use storage manager
-async function scheduleNotification(participantData) {
-    await storageManager.storeSchedule(participantData);
-}
 
 async function cleanupNotificationSchedules(participantIds) {
     await storageManager.cleanupSchedules(participantIds);
@@ -200,27 +177,34 @@ async function cleanupNotificationSchedules(participantIds) {
 
 // Add this new scheduling system
 async function scheduleNotification(participantData) {
-    const { scheduleTime } = participantData;
+    const { participantId, scheduleTime, busTime } = participantData;
+    const notificationId = `notification-${participantId}-${busTime}`;
     
-    // Register background sync first
-    await registerBackgroundSync();
-    
-    // Store schedule data
-    await storageManager.storeSchedule({
-        ...participantData,
+    // Store in IndexedDB
+    const db = await openDB(SCHEDULE_DB_NAME);
+    await db.put(SCHEDULE_STORE_NAME, {
+        id: notificationId,
+        participantId,
+        scheduleTime,
+        busTime,
         processed: false
     });
+
+    // Schedule actual notification
+    const scheduleDate = new Date(scheduleTime);
+    const timeUntilNotification = scheduleDate.getTime() - Date.now();
     
-    // Schedule the actual notification
-    if ('showTrigger' in Notification.prototype) {
-        const trigger = new TimestampTrigger(new Date(scheduleTime).getTime());
-        await self.registration.showNotification('Walking Bus Reminder', {
-            tag: `notification-${participantData.participantId}`,
-            body: 'Checking participant status...',
-            showTrigger: trigger
-        });
+    if (timeUntilNotification > 0) {
+        setTimeout(() => {
+            showParticipantNotification({
+                id: notificationId,
+                participantId,
+                busTime
+            });
+        }, timeUntilNotification);
     }
 }
+
 
 // Add background sync registration
 async function registerBackgroundSync() {
@@ -259,6 +243,7 @@ async function showParticipantNotification(notificationData) {
             icon: '/static/icons/icon-192x192.png',
             badge: '/static/icons/icon-192x192.png',
             tag: notificationData.id,
+            requireInteraction: true, 
             data: {
                 participantId: notificationData.participantId,
                 url: '/notifications'
