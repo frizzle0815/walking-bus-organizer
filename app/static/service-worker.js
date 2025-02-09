@@ -179,10 +179,9 @@ async function cleanupNotificationSchedules(participantIds) {
 async function scheduleNotification(participantData) {
     const { participantId, scheduleTime, busTime } = participantData;
     const notificationId = `notification-${participantId}-${busTime}`;
-    
-    // Store in IndexedDB
-    const db = await openDB(SCHEDULE_DB_NAME);
-    await db.put(SCHEDULE_STORE_NAME, {
+
+    // Store schedule data
+    await storageManager.storeSchedule({
         id: notificationId,
         participantId,
         scheduleTime,
@@ -190,18 +189,38 @@ async function scheduleNotification(participantData) {
         processed: false
     });
 
-    // Schedule actual notification
-    const scheduleDate = new Date(scheduleTime);
-    const timeUntilNotification = scheduleDate.getTime() - Date.now();
+    // Create timestamp trigger
+    const scheduledTime = new Date(scheduleTime).getTime();
     
-    if (timeUntilNotification > 0) {
-        setTimeout(() => {
-            showParticipantNotification({
-                id: notificationId,
+    try {
+        await self.registration.showNotification('Walking Bus Erinnerung', {
+            body: `Erinnerung für ${busTime}`,
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/icon-192x192.png',
+            tag: notificationId,
+            showTrigger: new TimestampTrigger(scheduledTime),
+            data: {
                 participantId,
-                busTime
-            });
-        }, timeUntilNotification);
+                busTime,
+                url: '/notifications'
+            },
+            actions: [
+                {
+                    action: 'toggle-status',
+                    title: 'Status ändern'
+                },
+                {
+                    action: 'okay',
+                    title: 'Okay'
+                }
+            ]
+        });
+        
+        console.log('[SW][NOTIFY] Notification scheduled for:', new Date(scheduledTime));
+        return true;
+    } catch (error) {
+        console.error('[SW][NOTIFY] Scheduling failed:', error);
+        return false;
     }
 }
 
@@ -287,35 +306,31 @@ async function showParticipantNotification(notificationData) {
 async function syncNotificationSchedules() {
     console.log('[SW] Starting notification schedule sync');
     try {
-        // Get auth token from cache for authenticated request
-        const cache = await caches.open(AUTH_CACHE);
-        const tokenResponse = await cache.match(AUTH_TOKEN_CACHE_KEY);
-        if (!tokenResponse) {
-            console.log('[SW] No auth token found, skipping sync');
-            return;
-        }
-        const tokenData = await tokenResponse.json();
-        
-        // Fetch new schedules
         const response = await fetchWithAuth('/api/notifications/schedules');
         const data = await response.json();
         
-        // Update IndexedDB
-        const db = await openDB(SCHEDULE_DB_NAME);
-        const tx = db.transaction(SCHEDULE_STORE_NAME, 'readwrite');
-        const store = tx.objectStore(SCHEDULE_STORE_NAME);
-        
-        // Clear old unprocessed schedules
-        await store.clear();
-        
-        // Store new schedules
-        for (const schedule of data.schedules) {
-            await scheduleNotification(schedule);
+        // Clear existing schedules
+        const existingSchedules = await storageManager.getAllSchedules();
+        for (const schedule of existingSchedules) {
+            if (!schedule.processed) {
+                // Cancel existing notification
+                const notifications = await self.registration.getNotifications({
+                    tag: schedule.id
+                });
+                notifications.forEach(n => n.close());
+            }
         }
         
-        console.log('[SW] Notification schedules synchronized successfully');
+        // Schedule new notifications
+        const results = await Promise.all(
+            data.schedules.map(schedule => scheduleNotification(schedule))
+        );
+        
+        console.log('[SW] Scheduled notifications:', results.filter(r => r).length);
+        return true;
     } catch (error) {
         console.error('[SW] Schedule sync error:', error);
+        return false;
     }
 }
 
