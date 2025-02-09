@@ -1277,7 +1277,6 @@ def test_notification():
     vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
     vapid_claims = {
         "sub": current_app.config['VAPID_CLAIMS']['sub'],
-        "aud": "https://fcm.googleapis.com",
         "exp": int(time.time()) + 12 * 3600
     }
 
