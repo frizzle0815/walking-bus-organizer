@@ -1216,20 +1216,30 @@ def create_push_subscription():
 @bp.route('/api/notifications/subscription', methods=['GET'])
 @require_auth
 def get_subscription_details():
+    # Get current context
     walking_bus_id = get_current_walking_bus_id()
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
-    
+
+    # Find user-specific subscription
     subscription = PushSubscription.query.filter_by(
         token_identifier=auth_token.token_identifier,
         walking_bus_id=walking_bus_id
-    ).first()
-    
+    ).order_by(PushSubscription.created_at.desc()).first()
+
     if subscription:
         return jsonify({
+            'subscription': {
+                'endpoint': subscription.endpoint,
+                'keys': {
+                    'p256dh': subscription.p256dh,
+                    'auth': subscription.auth
+                }
+            },
             'participantIds': subscription.participant_ids
         })
-    return jsonify(None)
+    
+    return jsonify({'participantIds': []})
 
 
 @bp.route('/api/notifications/subscription', methods=['DELETE'])

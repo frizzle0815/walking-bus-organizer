@@ -116,9 +116,18 @@ class NotificationManager {
     }
 
     async getVapidKey() {
-        const response = await fetchWithAuth('/api/notifications/vapid-key');
-        // Store the raw base64url string directly
-        this.vapidPublicKey = await response.text();
+        try {
+            const response = await fetchWithAuth('/api/notifications/vapid-key');
+            if (!response.ok) {
+                throw new Error('Failed to fetch VAPID key');
+            }
+            this.vapidPublicKey = await response.text();
+            console.log('[NOTI.HTML] Successfully retrieved VAPID key');
+            return this.vapidPublicKey;
+        } catch (error) {
+            console.error('[NOTI.HTML] Error fetching VAPID key:', error);
+            throw error;
+        }
     }
 
 
@@ -249,12 +258,15 @@ class NotificationManager {
 
     async validateAndCleanupSubscriptions() {
         console.log('[NOTI.HTML] Validating existing subscriptions');
+        
+        if (!this.vapidPublicKey) {
+            await this.getVapidKey();
+        }
+        
         if ('serviceWorker' in navigator) {
             try {
-                // Initialize service worker first
                 const registration = await navigator.serviceWorker.register('/static/service-worker.js');
                 
-                // Wait for activation
                 if (registration.installing) {
                     await new Promise(resolve => {
                         registration.installing.addEventListener('statechange', e => {
@@ -267,25 +279,21 @@ class NotificationManager {
                 const subscription = await registration.pushManager.getSubscription();
                 
                 if (subscription) {
-                    // Log keys for debugging
-                    const currentKey = this.arrayBufferToBase64(subscription.options.applicationServerKey);
-                    const newKey = this.arrayBufferToBase64(this.vapidPublicKey);
+                    // Convert current key to URL-safe base64
+                    const currentKey = this.arrayBufferToBase64(subscription.options.applicationServerKey)
+                        .replace(/=/g, '')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_');
                     
                     console.log('[NOTI.HTML] Current key:', currentKey);
-                    console.log('[NOTI.HTML] New key:', newKey);
+                    console.log('[NOTI.HTML] New key:', this.vapidPublicKey);
                     
-                    // Compare normalized keys
-                    const currentKeyNormalized = currentKey.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-                    const newKeyNormalized = newKey.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-                    
-                    if (currentKeyNormalized !== newKeyNormalized) {
-                        console.log('[NOTI.HTML] VAPID key mismatch detected');
+                    if (currentKey !== this.vapidPublicKey) {
+                        console.log('[NOTI.HTML] VAPID key mismatch - cleaning up');
                         await this.cleanupSubscription(subscription);
                     } else {
                         console.log('[NOTI.HTML] VAPID keys match');
                     }
-                } else {
-                    console.log('[NOTI.HTML] No existing subscription found');
                 }
             } catch (error) {
                 console.error('[NOTI.HTML] Validation error:', error);
@@ -294,8 +302,6 @@ class NotificationManager {
         }
     }
 
-
-    // Helper method to convert ArrayBuffer to Base64
     arrayBufferToBase64(buffer) {
         const bytes = new Uint8Array(buffer);
         return btoa(String.fromCharCode.apply(null, bytes));
