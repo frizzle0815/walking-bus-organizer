@@ -117,33 +117,10 @@ class NotificationManager {
 
     async getVapidKey() {
         const response = await fetchWithAuth('/api/notifications/vapid-key');
-        const rawKey = await response.text();
-        this.vapidPublicKey = this.urlBase64ToUint8Array(rawKey);
+        // Store the raw base64url string directly
+        this.vapidPublicKey = await response.text();
     }
 
-    urlBase64ToUint8Array(base64String) {
-        // Add padding if needed
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding)
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
-
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-
-        for (let i = 0; i < rawData.length; ++i) {
-            outputArray[i] = rawData.charCodeAt(i);
-        }
-        return outputArray;
-    }
-
-    hexStringToUint8Array(hexString) {
-        const bytes = new Uint8Array(hexString.length / 2);
-        for (let i = 0; i < hexString.length; i += 2) {
-            bytes[i/2] = parseInt(hexString.substr(i, 2), 16);
-        }
-        return bytes;
-    }
 
     async subscribeUserToPush(participantIds) {
         try {

@@ -1334,6 +1334,39 @@ def test_notification():
     return jsonify({'status': 'success'})
 
 
+@bp.route('/send_push', methods=['POST'])
+def send_push():
+    """Sends a test push notification"""
+    try:
+        # Get VAPID configuration from app config
+        vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
+        vapid_claims = current_app.config['VAPID_CLAIMS']
+        
+        # Get subscription data from request
+        data = request.json
+        subscription_info = data.get("subscription")
+        message = data.get("message", "Test Push Notification!")
+
+        if not subscription_info:
+            return jsonify({"error": "Missing subscription data"}), 400
+
+        # Send push notification
+        webpush(
+            subscription_info=subscription_info,
+            data=json.dumps({
+                "title": "Walking Bus",
+                "body": message
+            }),
+            vapid_private_key=vapid_private_key,
+            vapid_claims=vapid_claims,
+            content_encoding='aes128gcm'
+        )
+
+        return jsonify({"success": True, "message": "Push sent successfully!"})
+    
+    except WebPushException as ex:
+        current_app.logger.error(f"[PUSH] Error: {str(ex)}")
+        return jsonify({"error": "Push failed", "details": str(ex)}), 500
 
 
 #####################################################

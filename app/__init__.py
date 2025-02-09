@@ -47,34 +47,44 @@ WEEKDAY_MAPPING = {
 
 
 def generate_vapid_keys():
-    """Generiert gültige VAPID-Schlüssel im richtigen Format für Web-Push"""
+    """Generates VAPID keys using py-vapid library"""
+    vapid = Vapid()
+    vapid.generate_keys()
     
-    # Private Key mit der richtigen Kurve SECP256R1 erzeugen
-    private_key = ec.generate_private_key(ec.SECP256R1())
-
-    # Private Key in PEM Format exportieren
-    private_pem = private_key.private_bytes(
+    # Private Key als PEM-String exportieren
+    vapid_private = vapid.private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption()
-    )
+    ).decode('utf-8')
 
-    # Öffentlichen Schlüssel generieren
-    public_key = private_key.public_key()
-    public_bytes = public_key.public_bytes(
-        encoding=serialization.Encoding.X962,
+    # Public Key als roher Byte-Array (EC Point) exportieren
+    vapid_public_bytes = vapid.public_key.public_bytes(
+        encoding=serialization.Encoding.X962,  # Rohformat für EC Public Key
         format=serialization.PublicFormat.UncompressedPoint
     )
 
-    # Base64 URL-Safe Kodierung (ohne Padding)
-    private_b64 = base64.urlsafe_b64encode(private_pem).decode('utf-8').rstrip("=")
-    public_b64 = base64.urlsafe_b64encode(public_bytes).decode('utf-8').rstrip("=")
+    # Public Key in Base64 URL-Safe Format umwandeln
+    vapid_public_base64 = base64.urlsafe_b64encode(vapid_public_bytes).decode('utf-8').rstrip("=")
 
     return {
-        "private_key": private_b64,
-        "public_key": public_b64
+        "private_key": vapid_private,
+        "public_key": vapid_public_base64  # Korrektes Web Push Format
     }
 
+
+def verify_vapid_keys(keys):
+    try:
+        vapid = Vapid()
+        # Convert private key to proper PEM format if needed
+        private_key = keys['private_key']
+        if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+            private_key = f"-----BEGIN PRIVATE KEY-----\n{private_key}\n-----END PRIVATE KEY-----"
+        vapid.from_pem(private_key.encode('utf-8'))
+        return True
+    except Exception as e:
+        print(f"[VAPID] Key verification failed: {str(e)}")
+        return False
 
 def get_or_generate_vapid_keys():
     key_path = os.getenv('VAPID_KEY_STORAGE', './data/vapid_keys.json')
@@ -94,17 +104,6 @@ def get_or_generate_vapid_keys():
         json.dump(keys, f)
     
     return keys
-
-
-def verify_vapid_keys(keys):
-    try:
-        from py_vapid import Vapid
-        vapid = Vapid()
-        vapid.from_pem(keys['private_key'].encode('utf-8'))
-        return True
-    except Exception as e:
-        print(f"[VAPID] Key verification failed: {str(e)}")
-        return False
 
 def get_git_revision():
     # First check for build-time revision file
