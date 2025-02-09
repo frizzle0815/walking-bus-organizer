@@ -1261,33 +1261,36 @@ def test_notification():
     data = request.json
     participant_ids = data['participantIds']
     
-    # Get all subscriptions for this walking bus
+    # Get relevant subscriptions
     subscriptions = PushSubscription.query.filter_by(
         walking_bus_id=walking_bus_id
     ).all()
     
-    # Filter subscriptions that contain any of the selected participant IDs
-    relevant_subscriptions = []
-    for sub in subscriptions:
-        sub_participant_ids = set(sub.participant_ids)
-        if any(pid in sub_participant_ids for pid in participant_ids):
-            relevant_subscriptions.append(sub)
+    # Filter subscriptions for selected participants
+    relevant_subscriptions = [
+        sub for sub in subscriptions 
+        if any(pid in set(sub.participant_ids) for pid in participant_ids)
+    ]
     
-    # Get participant names for notifications
+    # Get participant details
     participants = Participant.query.filter(
         Participant.id.in_(participant_ids),
         Participant.walking_bus_id == walking_bus_id
     ).all()
     
-    # Get VAPID configuration from app config
+    # Get VAPID configuration
     vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
-    vapid_claims = current_app.config['VAPID_CLAIMS']  # Uses email from env
+    vapid_claims = {
+        "sub": current_app.config['VAPID_CLAIMS']['sub'],
+        "aud": "https://fcm.googleapis.com",  # Add this line
+        "exp": int(time.time()) + 12 * 3600   # Add expiration
+    }
     
-    # Send notifications for each subscription
     for subscription in relevant_subscriptions:
-        # Filter participants for this specific subscription
-        sub_participant_ids = set(subscription.participant_ids)
-        matching_participants = [p for p in participants if p.id in sub_participant_ids]
+        matching_participants = [
+            p for p in participants 
+            if p.id in set(subscription.participant_ids)
+        ]
         
         if matching_participants:
             participant_names = ', '.join(p.name for p in matching_participants)
@@ -1301,20 +1304,25 @@ def test_notification():
                 }
             }
             
+            # Ensure subscription info is correctly formatted
+            subscription_info = {
+                "endpoint": subscription.endpoint,
+                "keys": {
+                    "p256dh": subscription.p256dh,
+                    "auth": subscription.auth
+                }
+            }
+            
             try:
                 webpush(
-                    subscription_info={
-                        "endpoint": subscription.endpoint,
-                        "keys": {
-                            "p256dh": subscription.p256dh,
-                            "auth": subscription.auth
-                        }
-                    },
+                    subscription_info=subscription_info,
                     data=json.dumps(notification_data),
                     vapid_private_key=vapid_private_key,
-                    vapid_claims=vapid_claims
+                    vapid_claims=vapid_claims,
+                    content_encoding='aes128gcm'  # Add this line
                 )
                 current_app.logger.info(f"[NOTI] Sent test notification to {participant_names}")
+                
             except WebPushException as e:
                 if e.response and e.response.status_code == 410:
                     db.session.delete(subscription)
@@ -1324,6 +1332,7 @@ def test_notification():
                     current_app.logger.error(f"[NOTI] Push failed: {str(e)}")
     
     return jsonify({'status': 'success'})
+
 
 
 

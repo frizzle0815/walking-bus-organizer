@@ -12,9 +12,10 @@ from zoneinfo import ZoneInfo
 from redis import Redis
 from pywebpush import webpush, WebPushException
 import json
-from base64 import urlsafe_b64encode
+import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from py_vapid import Vapid
 
 
 db = SQLAlchemy()
@@ -46,35 +47,46 @@ WEEKDAY_MAPPING = {
 
 
 def generate_vapid_keys():
-    from py_vapid import Vapid
-    vapid = Vapid()
-    vapid.generate_keys()
+    """Generiert gültige VAPID-Schlüssel im richtigen Format für Web-Push"""
     
-    # Convert public key to URL-safe base64
-    public_key = urlsafe_b64encode(
-        vapid.public_key.public_bytes(
-            encoding=serialization.Encoding.X962,
-            format=serialization.PublicFormat.UncompressedPoint
-        )
-    ).decode('utf-8').rstrip('=')
-    
+    # Private Key mit der richtigen Kurve SECP256R1 erzeugen
+    private_key = ec.generate_private_key(ec.SECP256R1())
+
+    # Private Key in PEM Format exportieren
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    # Öffentlichen Schlüssel generieren
+    public_key = private_key.public_key()
+    public_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.X962,
+        format=serialization.PublicFormat.UncompressedPoint
+    )
+
+    # Base64 URL-Safe Kodierung (ohne Padding)
+    private_b64 = base64.urlsafe_b64encode(private_pem).decode('utf-8').rstrip("=")
+    public_b64 = base64.urlsafe_b64encode(public_bytes).decode('utf-8').rstrip("=")
+
     return {
-        "private_key": vapid.private_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ).hex(),
-        "public_key": public_key
+        "private_key": private_b64,
+        "public_key": public_b64
     }
 
 
 def get_or_generate_vapid_keys():
     key_path = os.getenv('VAPID_KEY_STORAGE', './data/vapid_keys.json')
     
+    # Try to load existing keys
     if os.path.exists(key_path):
         with open(key_path, 'r') as f:
-            return json.load(f)
+            keys = json.load(f)
+            if verify_vapid_keys(keys):
+                return keys
     
+    # Generate new keys if loading fails or verification fails
     keys = generate_vapid_keys()
     os.makedirs(os.path.dirname(key_path), exist_ok=True)
     
@@ -82,6 +94,17 @@ def get_or_generate_vapid_keys():
         json.dump(keys, f)
     
     return keys
+
+
+def verify_vapid_keys(keys):
+    try:
+        from py_vapid import Vapid
+        vapid = Vapid()
+        vapid.from_pem(keys['private_key'].encode('utf-8'))
+        return True
+    except Exception as e:
+        print(f"[VAPID] Key verification failed: {str(e)}")
+        return False
 
 def get_git_revision():
     # First check for build-time revision file
