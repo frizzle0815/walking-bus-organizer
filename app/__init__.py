@@ -51,12 +51,12 @@ def generate_vapid_keys():
     vapid = Vapid()
     vapid.generate_keys()
     
-    # Private Key als PEM-String exportieren
+    # Private Key als DER (rohe Bytes für EC Private Key) exportieren
     vapid_private = vapid.private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
+        encoding=serialization.Encoding.DER,  # Ändern zu DER-Format
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption()
-    ).decode('utf-8')
+    )
 
     # Public Key als roher Byte-Array (EC Point) exportieren
     vapid_public_bytes = vapid.public_key.public_bytes(
@@ -67,21 +67,26 @@ def generate_vapid_keys():
     # Public Key in Base64 URL-Safe Format umwandeln
     vapid_public_base64 = base64.urlsafe_b64encode(vapid_public_bytes).decode('utf-8').rstrip("=")
 
+    # Private Key auch in Base64 URL-Safe Format umwandeln
+    vapid_private_base64 = base64.urlsafe_b64encode(vapid_private).decode('utf-8').rstrip("=")
+
     return {
-        "private_key": vapid_private,
+        "private_key": vapid_private_base64,  # Base64 URL-safe kodiert
         "public_key": vapid_public_base64  # Korrektes Web Push Format
     }
 
-
 def verify_vapid_keys(keys):
     try:
-        vapid = Vapid()
-        # Convert private key to proper PEM format if needed
-        private_key = keys['private_key']
-        if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
-            private_key = f"-----BEGIN PRIVATE KEY-----\n{private_key}\n-----END PRIVATE KEY-----"
-        vapid.from_pem(private_key.encode('utf-8'))
-        return True
+        # Stelle sicher, dass der private Schlüssel in Base64 decodiert und als Bytes verarbeitet wird
+        private_key = base64.urlsafe_b64decode(keys['private_key'] + '==')
+        
+        # Überprüfen, ob der private Schlüssel ein EC-Schlüssel ist
+        private_key_obj = ec.derive_private_key(int.from_bytes(private_key, byteorder='big'), ec.SECP256R1())
+        
+        # Wenn es ein EC-Schlüssel ist, dann funktioniert alles
+        if isinstance(private_key_obj, ec.EllipticCurvePrivateKey):
+            return True
+        return False
     except Exception as e:
         print(f"[VAPID] Key verification failed: {str(e)}")
         return False
@@ -89,14 +94,14 @@ def verify_vapid_keys(keys):
 def get_or_generate_vapid_keys():
     key_path = os.getenv('VAPID_KEY_STORAGE', './data/vapid_keys.json')
     
-    # Try to load existing keys
+    # Versuche, bestehende Schlüssel zu laden
     if os.path.exists(key_path):
         with open(key_path, 'r') as f:
             keys = json.load(f)
             if verify_vapid_keys(keys):
                 return keys
     
-    # Generate new keys if loading fails or verification fails
+    # Generiere neue Schlüssel, wenn das Laden oder Verifizieren fehlschlägt
     keys = generate_vapid_keys()
     os.makedirs(os.path.dirname(key_path), exist_ok=True)
     
