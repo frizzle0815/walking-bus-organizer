@@ -396,8 +396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             { pwaCheck: !!pwaCheckElement, notificationCheck: !!notificationCheckElement });
 
         // Check PWA status
-        const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                     window.navigator.standalone;
+        const isPWA = checkPWAStatus();
         console.log('[NOTI.HTML] PWA Status:', isPWA);
         updateStatusElement(pwaCheckElement, isPWA,
             'App ist installiert',
@@ -441,18 +440,74 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 
-function updateStatusElement(element, isSuccess, successText, failureText) {
+// Check PWA status with iOS support
+function checkPWAStatus() {
+    // Standard PWA check
+    const isStandardPWA = window.matchMedia('(display-mode: standalone)').matches;
+    
+    // iOS specific check
+    const isIOSPWA = window.navigator.standalone;
+    
+    // iOS Safari detection
+    const isIOSSafari = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) 
+                       && !window.MSStream;
+    
+    console.log('[NOTI.HTML] PWA Status Check:', {
+        isStandardPWA,
+        isIOSPWA,
+        isIOSSafari
+    });
+
+    // Return true if either condition is met
+    return isStandardPWA || isIOSPWA;
+}
+
+
+function updateStatusElement(element, status, successText, failureText) {
     const iconSpan = element.querySelector('.status-icon');
+    const textSpan = element.querySelector('.flex-grow-1');
+
+    if (status === 'needsInstall') {
+        iconSpan.innerHTML = '<i class="fas fa-exclamation-circle text-warning"></i>';
+        textSpan.textContent = 'App muss dem Home-Bildschirm hinzugefügt werden';
+        return;
+    }
+
+    if (status === 'unsupported') {
+        iconSpan.innerHTML = '<i class="fas fa-times-circle text-danger"></i>';
+        textSpan.textContent = 'Benachrichtigungen werden nicht unterstützt';
+        return;
+    }
+
+    const isSuccess = status === 'granted';
     iconSpan.innerHTML = isSuccess ? 
         '<i class="fas fa-check-circle text-success"></i>' : 
         '<i class="fas fa-exclamation-circle text-warning"></i>';
-    
-    const textSpan = element.querySelector('.flex-grow-1');
     textSpan.textContent = isSuccess ? successText : failureText;
 }
 
 async function checkNotificationPermission() {
-    if (!('Notification' in window)) return 'denied';
+    // First check if we're in iOS standalone mode
+    const isIOSPWA = window.navigator.standalone;
+    const isIOSSafari = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) 
+                       && !window.MSStream;
+
+    console.log('[NOTI.HTML] Permission Check Environment:', {
+        isIOSPWA,
+        isIOSSafari,
+        hasNotificationAPI: 'Notification' in window
+    });
+
+    // If on iOS but not installed as PWA, return 'needsInstall'
+    if (isIOSSafari && !isIOSPWA) {
+        return 'needsInstall';
+    }
+
+    // Standard permission check
+    if (!('Notification' in window)) {
+        return 'unsupported';
+    }
+
     return Notification.permission;
 }
 
