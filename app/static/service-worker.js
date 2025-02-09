@@ -143,9 +143,9 @@ self.addEventListener('push', (event) => {
         badge: '/static/icons/icon-192x192.png',
         data: payload.data || {},
         tag: payload.tag,
-        renotify: true,
+        renotify: true,  // Important for iOS
         requireInteraction: payload.requireInteraction,
-        actions: payload.actions // Include actions from payload
+        actions: payload.actions  // Include actions from payload
     };
 
     event.waitUntil(

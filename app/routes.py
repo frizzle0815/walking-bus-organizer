@@ -1379,9 +1379,15 @@ def broadcast_notification():
             'body': message,
             'data': {
                 'type': 'broadcast',
+                'messageId': int(time.time())  # Add unique ID
             },
             'tag': f'broadcast-{int(time.time())}',
-            'requireInteraction': True
+            'actions': [{  # Add actions like in test notifications
+                'action': 'okay', 
+                'title': 'OK'
+            }],
+            'requireInteraction': True,
+            'renotify': True  # Ensure notification triggers on iOS
         }
 
         try:
