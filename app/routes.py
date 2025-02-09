@@ -1261,55 +1261,70 @@ def test_notification():
     data = request.json
     participant_ids = data['participantIds']
     
-    # Get participants info
+    # Get all subscriptions for this walking bus
+    subscriptions = PushSubscription.query.filter_by(
+        walking_bus_id=walking_bus_id
+    ).all()
+    
+    # Filter subscriptions that contain any of the selected participant IDs
+    relevant_subscriptions = []
+    for sub in subscriptions:
+        sub_participant_ids = set(sub.participant_ids)
+        if any(pid in sub_participant_ids for pid in participant_ids):
+            relevant_subscriptions.append(sub)
+    
+    # Get participant names for notifications
     participants = Participant.query.filter(
         Participant.id.in_(participant_ids),
         Participant.walking_bus_id == walking_bus_id
     ).all()
     
-    # Modified query to correctly handle JSON array containment
-    subscriptions = PushSubscription.query.filter(
-        PushSubscription.walking_bus_id == walking_bus_id,
-        # Use PostgreSQL's @> operator for JSON array containment
-        PushSubscription.participant_ids.cast(db.JSON).contains(participant_ids)
-    ).all()
+    # Get VAPID configuration from app config
+    vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
+    vapid_claims = current_app.config['VAPID_CLAIMS']  # Uses email from env
     
-    participant_names = ', '.join(p.name for p in participants)
-    
-    # Prepare notification data
-    notification_data = {
-        'title': 'Walking Bus Test',
-        'body': f'Test Benachrichtigung für: {participant_names}',
-        'data': {
-            'type': 'test',
-            'participantIds': participant_ids
-        }
-    }
-    
-    # Send to all relevant subscriptions
-    for subscription in subscriptions:
-        try:
-            webpush(
-                subscription_info={
-                    "endpoint": subscription.endpoint,
-                    "keys": {
-                        "p256dh": subscription.p256dh,
-                        "auth": subscription.auth
-                    }
-                },
-                data=json.dumps(notification_data),
-                vapid_private_key=current_app.config['VAPID_PRIVATE_KEY'],
-                vapid_claims=current_app.config['VAPID_CLAIMS']
-            )
-        except WebPushException as e:
-            if e.response and e.response.status_code == 410:
-                # Subscription expired
-                db.session.delete(subscription)
-                db.session.commit()
-            else:
-                current_app.logger.error(f"Push notification failed: {str(e)}")
+    # Send notifications for each subscription
+    for subscription in relevant_subscriptions:
+        # Filter participants for this specific subscription
+        sub_participant_ids = set(subscription.participant_ids)
+        matching_participants = [p for p in participants if p.id in sub_participant_ids]
+        
+        if matching_participants:
+            participant_names = ', '.join(p.name for p in matching_participants)
+            
+            notification_data = {
+                'title': 'Walking Bus Test',
+                'body': f'Test Benachrichtigung für: {participant_names}',
+                'data': {
+                    'type': 'test',
+                    'participantIds': [p.id for p in matching_participants]
+                }
+            }
+            
+            try:
+                webpush(
+                    subscription_info={
+                        "endpoint": subscription.endpoint,
+                        "keys": {
+                            "p256dh": subscription.p256dh,
+                            "auth": subscription.auth
+                        }
+                    },
+                    data=json.dumps(notification_data),
+                    vapid_private_key=vapid_private_key,
+                    vapid_claims=vapid_claims
+                )
+                current_app.logger.info(f"[NOTI] Sent test notification to {participant_names}")
+            except WebPushException as e:
+                if e.response and e.response.status_code == 410:
+                    db.session.delete(subscription)
+                    db.session.commit()
+                    current_app.logger.info(f"[NOTI] Removed expired subscription")
+                else:
+                    current_app.logger.error(f"[NOTI] Push failed: {str(e)}")
     
     return jsonify({'status': 'success'})
+
 
 
 #####################################################

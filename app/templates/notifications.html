@@ -83,9 +83,6 @@
                 </div>
             {% endif %}
             
-            <button id="saveSubscriptions" class="btn btn-primary mt-3">
-                Einstellungen speichern
-            </button>
         </div>
     </div>
 
@@ -176,8 +173,15 @@ class NotificationManager {
                 }
                 console.log('[NOTI.HTML] Service Worker activated');
                 
-                // Create subscription
-                const subscription = await registration.pushManager.subscribe({
+                // Check for existing subscription and unsubscribe if needed
+                let subscription = await registration.pushManager.getSubscription();
+                if (subscription) {
+                    console.log('[NOTI.HTML] Found existing subscription, unsubscribing');
+                    await subscription.unsubscribe();
+                }
+                
+                // Create new subscription
+                subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: this.vapidPublicKey
                 });
@@ -201,6 +205,7 @@ class NotificationManager {
         }
     }
 
+
     async loadExistingSubscriptions() {
         console.log('[NOTI.HTML] Loading existing subscriptions');
         const response = await fetchWithAuth('/api/notifications/subscription');
@@ -215,6 +220,25 @@ class NotificationManager {
                     checkbox.checked = true;
                 }
             });
+        }
+    }
+
+    async handleParticipantChange() {
+        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+        
+        console.log('[NOTI.HTML] Selected participants changed:', selectedIds);
+        
+        if (selectedIds.length === 0) {
+            // No participants selected - unsubscribe completely
+            console.log('[NOTI.HTML] No participants selected, unsubscribing');
+            await this.unsubscribeFromPush();
+            showToast('Benachrichtigungen deaktiviert', 'info');
+        } else {
+            // Update subscription with new participant selection
+            console.log('[NOTI.HTML] Updating subscription with new participants');
+            await this.subscribeUserToPush(selectedIds);
+            showToast('Einstellungen aktualisiert', 'success');
         }
     }
 
@@ -301,33 +325,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             'Benachrichtigungen sind aktiviert',
             'Benachrichtigungen müssen noch aktiviert werden');
 
-        // Set up save button handler
-        const saveButton = document.getElementById('saveSubscriptions');
-        if (!saveButton) {
-            throw new Error('Save button not found');
-        }
-        console.log('[NOTI.HTML] Save button found');
-
-        saveButton.addEventListener('click', async () => {
-            console.log('[NOTI.HTML] Save button clicked');
-            const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
-                .map(cb => parseInt(cb.value));
-            console.log('[NOTI.HTML] Selected IDs:', selectedIds);
-            
-            try {
-                if (selectedIds.length > 0) {
-                    console.log('[NOTI.HTML] Attempting to subscribe');
-                    await notificationManager.subscribeUserToPush(selectedIds);
-                    showToast('Einstellungen gespeichert', 'success');
-                } else {
-                    console.log('[NOTI.HTML] Attempting to unsubscribe');
-                    await notificationManager.unsubscribeFromPush();
-                    showToast('Benachrichtigungen deaktiviert', 'info');
+        // Add change listeners to all participant checkboxes
+        document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', async () => {
+                console.log('[NOTI.HTML] Checkbox changed');
+                const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+                    .map(cb => parseInt(cb.value));
+                
+                try {
+                    if (selectedIds.length > 0) {
+                        console.log('[NOTI.HTML] Updating subscription with:', selectedIds);
+                        await notificationManager.subscribeUserToPush(selectedIds);
+                        showToast('Einstellungen aktualisiert', 'success');
+                    } else {
+                        console.log('[NOTI.HTML] Unsubscribing - no participants selected');
+                        await notificationManager.unsubscribeFromPush();
+                        showToast('Benachrichtigungen deaktiviert', 'info');
+                    }
+                } catch (error) {
+                    console.error('[NOTI.HTML] Error updating subscription:', error);
+                    showToast('Fehler beim Aktualisieren', 'error');
                 }
-            } catch (error) {
-                console.error('[NOTI.HTML] Error during save:', error);
-                showToast('Fehler beim Speichern', 'error');
-            }
+            });
         });
 
     } catch (error) {
@@ -380,32 +399,33 @@ function showToast(message, type) {
 }
 
 document.getElementById('testNotification').addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
-            .map(cb => parseInt(cb.value));
-            
-        if (selectedIds.length === 0) {
-            showToast('Bitte wählen Sie mindestens einen Teilnehmer aus', 'info');
-            return;
-        }
+    const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+        .map(cb => parseInt(cb.value));
+        
+    if (selectedIds.length === 0) {
+        showToast('Bitte wählen Sie mindestens einen Teilnehmer aus', 'info');
+        return;
+    }
 
-        try {
-            const response = await fetchWithAuth('/api/notifications/test', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ participantIds: selectedIds })
-            });
+    try {
+        const response = await fetchWithAuth('/api/notifications/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ participantIds: selectedIds })
+        });
 
-            if (response.ok) {
-                showToast('Test-Benachrichtigung wurde gesendet', 'success');
-            } else {
-                throw new Error('Fehler beim Senden der Test-Benachrichtigung');
-            }
-        } catch (error) {
-            showToast('Fehler beim Senden der Test-Benachrichtigung', 'error');
-            console.error(error);
+        if (response.ok) {
+            showToast('Test-Benachrichtigung wurde gesendet', 'success');
+        } else {
+            throw new Error('Fehler beim Senden der Test-Benachrichtigung');
         }
-    });
+    } catch (error) {
+        showToast('Fehler beim Senden der Test-Benachrichtigung', 'error');
+        console.error(error);
+    }
+});
+
 </script>
 {% endblock %}
