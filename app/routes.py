@@ -11,7 +11,8 @@ from .models import (
     CalendarStatus, WalkingBusSchedule, 
     SchoolHoliday, WalkingBusOverride, 
     DailyNote, TempToken, AuthToken,
-    Weather, WeatherCalculation
+    Weather, WeatherCalculation,
+    PushSubscription
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -1140,6 +1141,59 @@ def weather_debug():
     
     return jsonify(response)
 
+
+@bp.route('/api/notifications/vapid-key')
+@require_auth
+def get_vapid_public_key():
+    return current_app.config['VAPID_PUBLIC_KEY']
+
+@bp.route('/api/notifications/subscription', methods=['POST'])
+@require_auth
+def create_push_subscription():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.json
+    subscription = data['subscription']
+    participant_ids = data['participantIds']
+    
+    # Get current auth token from request
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+    
+    push_subscription = PushSubscription(
+        token_identifier=auth_token.token_identifier,
+        endpoint=subscription['endpoint'],
+        p256dh=subscription['keys']['p256dh'],
+        auth=subscription['keys']['auth'],
+        walking_bus_id=walking_bus_id,
+        participant_ids=participant_ids
+    )
+    
+    db.session.add(push_subscription)
+    db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+@bp.route('/api/notifications/subscription', methods=['DELETE'])
+@require_auth
+def delete_push_subscription():
+    walking_bus_id = get_current_walking_bus_id()
+    endpoint = request.json['endpoint']
+    
+    # Get current auth token from request
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+    
+    subscription = PushSubscription.query.filter_by(
+        endpoint=endpoint,
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if subscription:
+        db.session.delete(subscription)
+        db.session.commit()
+    
+    return jsonify({'status': 'success'})
 
 
 #####################################################
