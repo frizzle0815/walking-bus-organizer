@@ -201,6 +201,23 @@ class NotificationManager {
         }
     }
 
+    async loadExistingSubscriptions() {
+        console.log('[NOTI.HTML] Loading existing subscriptions');
+        const response = await fetchWithAuth('/api/notifications/subscription');
+        const data = await response.json();
+        
+        if (data && data.participantIds) {
+            console.log('[NOTI.HTML] Found subscriptions for:', data.participantIds);
+            // Check the corresponding checkboxes
+            data.participantIds.forEach(id => {
+                const checkbox = document.querySelector(`#participant${id}`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        }
+    }
+
 
     async unsubscribeFromPush() {
         if ('serviceWorker' in navigator) {
@@ -258,6 +275,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize notification manager first
         await notificationManager.init();
         console.log('[NOTI.HTML] NotificationManager initialized');
+        
+        // Load existing subscriptions
+        await notificationManager.loadExistingSubscriptions();
+        console.log('[NOTI.HTML] Loaded existing subscriptions');
 
         // Initialize status checks
         const pwaCheckElement = document.getElementById('pwaCheck');
