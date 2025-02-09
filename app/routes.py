@@ -1354,6 +1354,71 @@ def test_notification():
     })
 
 
+@bp.route('/api/notifications/broadcast', methods=['POST'])
+@require_auth
+def broadcast_notification():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.json
+    message = data.get('message')
+    to_delete = set()
+    
+    vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
+    vapid_claims = {
+        "sub": current_app.config['VAPID_CLAIMS']['sub'],
+        "exp": int(time.time()) + 12 * 3600
+    }
+
+    # Get all subscriptions for this walking bus
+    subscriptions = PushSubscription.query.filter_by(
+        walking_bus_id=walking_bus_id
+    ).all()
+
+    for subscription in subscriptions:
+        notification_data = {
+            'title': 'Walking Bus Nachricht',
+            'body': message,
+            'data': {
+                'type': 'broadcast',
+            },
+            'tag': f'broadcast-{int(time.time())}',
+            'requireInteraction': True
+        }
+
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": subscription.endpoint,
+                    "keys": {
+                        "p256dh": subscription.p256dh,
+                        "auth": subscription.auth
+                    }
+                },
+                data=json.dumps(notification_data),
+                vapid_private_key=vapid_private_key,
+                vapid_claims=vapid_claims
+            )
+            
+        except WebPushException as e:
+            if e.response and e.response.status_code == 410:
+                to_delete.add(subscription.id)
+
+    # Clean up expired subscriptions
+    if to_delete:
+        try:
+            deleted_count = PushSubscription.query.filter(
+                PushSubscription.id.in_(to_delete)
+            ).delete(synchronize_session=False)
+            db.session.commit()
+            current_app.logger.info(f"[BROADCAST] Deleted {deleted_count} expired subscriptions")
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            current_app.logger.error(f"[BROADCAST] Cleanup failed: {str(e)}")
+
+    return jsonify({
+        'status': 'success',
+        'cleaned_subscriptions': len(to_delete)
+    })
+
 
 
 #####################################################
