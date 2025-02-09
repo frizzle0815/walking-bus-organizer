@@ -1164,6 +1164,7 @@ def weather_debug():
 @require_auth
 def get_vapid_public_key():
     return current_app.config['VAPID_PUBLIC_KEY']
+    
 
 @bp.route('/api/notifications/subscription', methods=['POST'])
 @require_auth

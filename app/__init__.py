@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from redis import Redis
 from pywebpush import webpush, WebPushException
 import json
+import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -45,24 +46,20 @@ WEEKDAY_MAPPING = {
 
 
 def generate_vapid_keys():
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    public_key = private_key.public_key()
+    from py_vapid import Vapid
+    
+    vapid = Vapid()
+    vapid.generate_keys()
     
     return {
-        "private_key": private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ).decode('utf-8'),
-        "public_key": public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode('utf-8')
+        "private_key": vapid.private_key.private_numbers().private_value,
+        "public_key": vapid.public_key.public_numbers().x.to_bytes(32, byteorder="big").hex() + 
+                     vapid.public_key.public_numbers().y.to_bytes(32, byteorder="big").hex()
     }
 
 
 def get_or_generate_vapid_keys():
-    key_path = os.getenv('VAPID_KEY_STORAGE', '/app/data/vapid_keys.json')
+    key_path = os.getenv('VAPID_KEY_STORAGE', './data/vapid_keys.json')
     
     if os.path.exists(key_path):
         with open(key_path, 'r') as f:
