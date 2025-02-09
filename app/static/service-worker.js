@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v4'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v5'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',

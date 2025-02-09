@@ -48,25 +48,40 @@
         <div class="card-header">
             <h5 class="mb-0">Teilnehmer auswählen</h5>
         </div>
-        <div class="card-body">
-            {% for station in stations %}
-            <div class="station-group mb-4">
-                <h6 class="station-name mb-3">{{ station.name }}</h6>
-                <div class="participant-list">
-                    {% for participant in station.participants %}
-                    <div class="form-check mb-2">
-                        <input class="form-check-input participant-checkbox" 
-                               type="checkbox" 
-                               value="{{ participant.id }}" 
-                               id="participant{{ participant.id }}">
-                        <label class="form-check-label" for="participant{{ participant.id }}">
-                            {{ participant.name }}
-                        </label>
-                    </div>
+            <div class="card-body">
+                {% if stations %}
+                <!-- Debug info -->
+                <div class="d-none">
+                    Found {{ stations|length }} stations:
+                    {% for station in stations %}
+                        Station: {{ station.name }} ({{ station.participants|length }} participants)
                     {% endfor %}
                 </div>
-            </div>
-            {% endfor %}
+            
+                <!-- Existing participant section -->
+                {% for station in stations %}
+                <div class="station-group mb-4">
+                    <h6 class="station-name mb-3">{{ station.name }}</h6>
+                    <div class="participant-list">
+                        {% for participant in station.participants %}
+                        <div class="form-check mb-2">
+                            <input class="form-check-input participant-checkbox" 
+                                type="checkbox" 
+                                value="{{ participant.id }}" 
+                                id="participant{{ participant.id }}">
+                            <label class="form-check-label" for="participant{{ participant.id }}">
+                                {{ participant.name }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    Keine Stationen oder Teilnehmer gefunden.
+                </div>
+            {% endif %}
             
             <button id="saveSubscriptions" class="btn btn-primary mt-3">
                 Einstellungen speichern
@@ -91,54 +106,69 @@
 <script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
-    // Initialize status checks
-    const pwaCheckElement = document.getElementById('pwaCheck');
-    const notificationCheckElement = document.getElementById('notificationCheck');
-    
-    // Check PWA status
-    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                 window.navigator.standalone;
-    updateStatusElement(pwaCheckElement, isPWA, 
-        'App ist installiert', 
-        'App muss noch installiert werden');
+    try {
+        console.log('[NOTI.HTML] DOM Content Loaded');
 
-    // Check notification permission
-    const notificationPermission = await checkNotificationPermission();
-    updateStatusElement(notificationCheckElement, notificationPermission === 'granted',
-        'Benachrichtigungen sind aktiviert',
-        'Benachrichtigungen müssen noch aktiviert werden');
+        // Initialize notification manager first
+        await notificationManager.init();
+        console.log('[NOTI.HTML] NotificationManager initialized');
 
-    // Initialize notification manager
-    await notificationManager.init();
-    
-    // Load existing subscriptions
-    const currentSubs = await notificationManager.getCurrentSubscriptionDetails();
-    if (currentSubs?.participantIds) {
-        currentSubs.participantIds.forEach(id => {
-            const checkbox = document.getElementById(`participant${id}`);
-            if (checkbox) checkbox.checked = true;
-        });
-    }
+        // Initialize status checks
+        const pwaCheckElement = document.getElementById('pwaCheck');
+        const notificationCheckElement = document.getElementById('notificationCheck');
+        console.log('[NOTI.HTML] Status elements found:', 
+            { pwaCheck: !!pwaCheckElement, notificationCheck: !!notificationCheckElement });
 
-    // Save button handler
-    document.getElementById('saveSubscriptions').addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
-            .map(cb => parseInt(cb.value));
-        
-        try {
-            if (selectedIds.length > 0) {
-                await notificationManager.subscribeUserToPush(selectedIds);
-                showToast('Einstellungen gespeichert', 'success');
-            } else {
-                await notificationManager.unsubscribeFromPush();
-                showToast('Benachrichtigungen deaktiviert', 'info');
-            }
-        } catch (error) {
-            showToast('Fehler beim Speichern', 'error');
-            console.error(error);
+        // Check PWA status
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                     window.navigator.standalone;
+        console.log('[NOTI.HTML] PWA Status:', isPWA);
+        updateStatusElement(pwaCheckElement, isPWA,
+            'App ist installiert',
+            'App muss noch installiert werden');
+
+        // Check notification permission
+        const notificationPermission = await checkNotificationPermission();
+        console.log('[NOTI.HTML] Notification Permission:', notificationPermission);
+        updateStatusElement(notificationCheckElement, notificationPermission === 'granted',
+            'Benachrichtigungen sind aktiviert',
+            'Benachrichtigungen müssen noch aktiviert werden');
+
+        // Set up save button handler
+        const saveButton = document.getElementById('saveSubscriptions');
+        if (!saveButton) {
+            throw new Error('Save button not found');
         }
-    });
+        console.log('[NOTI.HTML] Save button found');
+
+        saveButton.addEventListener('click', async () => {
+            console.log('[NOTI.HTML] Save button clicked');
+            const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+                .map(cb => parseInt(cb.value));
+            console.log('[NOTI.HTML] Selected IDs:', selectedIds);
+            
+            try {
+                if (selectedIds.length > 0) {
+                    console.log('[NOTI.HTML] Attempting to subscribe');
+                    await notificationManager.subscribeUserToPush(selectedIds);
+                    showToast('Einstellungen gespeichert', 'success');
+                } else {
+                    console.log('[NOTI.HTML] Attempting to unsubscribe');
+                    await notificationManager.unsubscribeFromPush();
+                    showToast('Benachrichtigungen deaktiviert', 'info');
+                }
+            } catch (error) {
+                console.error('[NOTI.HTML] Error during save:', error);
+                showToast('Fehler beim Speichern', 'error');
+            }
+        });
+
+    } catch (error) {
+        console.error('[NOTI.HTML] Initialization error:', error);
+        showToast('Fehler bei der Initialisierung', 'error');
+    }
 });
+
 
 function updateStatusElement(element, isSuccess, successText, failureText) {
     const iconSpan = element.querySelector('.status-icon');

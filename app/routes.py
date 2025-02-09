@@ -32,6 +32,7 @@ import time
 from os import environ
 from .init_buses import init_walking_buses
 from . import redis_client
+from pywebpush import webpush, WebPushException
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -70,6 +71,12 @@ def weather_database():
 def notifications_view():
     walking_bus_id = get_current_walking_bus_id()
     stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
+    
+    # Add logging to verify data
+    current_app.logger.info(f"[NOTIFICATIONS] Loading data for walking_bus_id: {walking_bus_id}")
+    current_app.logger.info(f"[NOTIFICATIONS] Found stations: {[s.name for s in stations]}")
+    for station in stations:
+        current_app.logger.info(f"[NOTIFICATIONS] Station {station.name} has {len(station.participants)} participants")
     
     return render_template(
         "notifications.html",
@@ -1184,6 +1191,26 @@ def create_push_subscription():
     
     return jsonify({'status': 'success'})
 
+
+@bp.route('/api/notifications/subscription', methods=['GET'])
+@require_auth
+def get_subscription_details():
+    walking_bus_id = get_current_walking_bus_id()
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+    
+    subscription = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if subscription:
+        return jsonify({
+            'participantIds': subscription.participant_ids
+        })
+    return jsonify(None)
+
+
 @bp.route('/api/notifications/subscription', methods=['DELETE'])
 @require_auth
 def delete_push_subscription():
@@ -1220,10 +1247,11 @@ def test_notification():
         Participant.walking_bus_id == walking_bus_id
     ).all()
     
-    # Get subscriptions for these participants
+    # Modified query to correctly handle JSON array containment
     subscriptions = PushSubscription.query.filter(
         PushSubscription.walking_bus_id == walking_bus_id,
-        PushSubscription.participant_ids.contains(participant_ids)
+        # Use PostgreSQL's @> operator for JSON array containment
+        PushSubscription.participant_ids.cast(db.JSON).contains(participant_ids)
     ).all()
     
     participant_names = ', '.join(p.name for p in participants)
