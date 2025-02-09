@@ -125,6 +125,45 @@ self.addEventListener('message', (event) => {
     }
 });
 
+// Push message handler
+self.addEventListener('push', (event) => {
+    if (event.data) {
+        const data = event.data.json();
+        const options = {
+            body: data.body,
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/icon-192x192.png',
+            data: data.data || {},
+            actions: data.actions || [],
+            tag: data.tag || 'walking-bus-notification',
+            renotify: true
+        };
+
+        event.waitUntil(
+            self.registration.showNotification(data.title, options)
+        );
+    }
+});
+
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    
+    if (event.action) {
+        // Handle specific actions
+        console.log('Action clicked:', event.action);
+    } else {
+        // Default click behavior
+        event.waitUntil(
+            clients.matchAll({type: 'window'}).then(windowClients => {
+                if (windowClients.length > 0) {
+                    windowClients[0].focus();
+                } else {
+                    clients.openWindow('/');
+                }
+            })
+        );
+    }
+});
 
 // Modern static asset handling
 async function handleStaticAsset(request) {
