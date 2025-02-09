@@ -1161,8 +1161,7 @@ def weather_debug():
 
 
 @bp.route('/api/notifications/vapid-key')
-@require_auth
-def get_vapid_public_key():
+def get_vapid_key():
     return current_app.config['VAPID_PUBLIC_KEY']
     
 

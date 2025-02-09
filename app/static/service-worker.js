@@ -127,22 +127,28 @@ self.addEventListener('message', (event) => {
 
 // Push message handler
 self.addEventListener('push', (event) => {
-    if (event.data) {
-        const data = event.data.json();
-        const options = {
-            body: data.body,
-            icon: '/static/icons/icon-192x192.png',
-            badge: '/static/icons/icon-192x192.png',
-            data: data.data || {},
-            actions: data.actions || [],
-            tag: data.tag || 'walking-bus-notification',
-            renotify: true
+    let payload;
+    try {
+        payload = event.data.json();
+    } catch (e) {
+        payload = {
+            title: 'Walking Bus',
+            body: event.data.text()
         };
-
-        event.waitUntil(
-            self.registration.showNotification(data.title, options)
-        );
     }
+    
+    const options = {
+        body: payload.body,
+        icon: '/static/icons/icon-192x192.png',
+        badge: '/static/icons/icon-192x192.png',
+        data: payload.data || {},
+        tag: 'walking-bus-notification',
+        renotify: true
+    };
+
+    event.waitUntil(
+        self.registration.showNotification(payload.title, options)
+    );
 });
 
 self.addEventListener('notificationclick', (event) => {

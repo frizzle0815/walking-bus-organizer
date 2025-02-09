@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from redis import Redis
 from pywebpush import webpush, WebPushException
 import json
-import base64
+from base64 import urlsafe_b64encode
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -47,14 +47,24 @@ WEEKDAY_MAPPING = {
 
 def generate_vapid_keys():
     from py_vapid import Vapid
-    
     vapid = Vapid()
     vapid.generate_keys()
     
+    # Convert public key to URL-safe base64
+    public_key = urlsafe_b64encode(
+        vapid.public_key.public_bytes(
+            encoding=serialization.Encoding.X962,
+            format=serialization.PublicFormat.UncompressedPoint
+        )
+    ).decode('utf-8').rstrip('=')
+    
     return {
-        "private_key": vapid.private_key.private_numbers().private_value,
-        "public_key": vapid.public_key.public_numbers().x.to_bytes(32, byteorder="big").hex() + 
-                     vapid.public_key.public_numbers().y.to_bytes(32, byteorder="big").hex()
+        "private_key": vapid.private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).hex(),
+        "public_key": public_key
     }
 
 
