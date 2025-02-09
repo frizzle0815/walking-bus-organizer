@@ -66,6 +66,17 @@ def weather_database():
     return render_template('weather_database.html')
 
 
+@bp.route("/notifications")
+def notifications_view():
+    walking_bus_id = get_current_walking_bus_id()
+    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
+    
+    return render_template(
+        "notifications.html",
+        stations=stations
+    )
+
+
 @bp.route("/share")
 @require_auth
 def share():

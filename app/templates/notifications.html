@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- Toast -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="notificationToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i id="toastIcon" class="fas me-2"></i>
+                <strong class="me-auto">Walking Bus</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body"></div>
+        </div>
+    </div>
+    
+    <!-- Info Box -->
+    <div class="alert alert-info" role="alert">
+        <i class="fas fa-info-circle me-2"></i>
+        Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest. Du wirst automatisch eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.
+    </div>
+
+    <!-- Requirements Check -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Systemvoraussetzungen</h5>
+        </div>
+        <div class="card-body">
+            <ul class="list-group">
+                <li class="list-group-item d-flex align-items-center" id="pwaCheck">
+                    <span class="status-icon me-2">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                    <span class="flex-grow-1">App Installation Status</span>
+                </li>
+                <li class="list-group-item d-flex align-items-center" id="notificationCheck">
+                    <span class="status-icon me-2">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                    <span class="flex-grow-1">Benachrichtigungen</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Participant Selection -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Teilnehmer auswählen</h5>
+        </div>
+        <div class="card-body">
+            {% for station in stations %}
+            <div class="station-group mb-4">
+                <h6 class="station-name mb-3">{{ station.name }}</h6>
+                <div class="participant-list">
+                    {% for participant in station.participants %}
+                    <div class="form-check mb-2">
+                        <input class="form-check-input participant-checkbox" 
+                               type="checkbox" 
+                               value="{{ participant.id }}" 
+                               id="participant{{ participant.id }}">
+                        <label class="form-check-label" for="participant{{ participant.id }}">
+                            {{ participant.name }}
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+            
+            <button id="saveSubscriptions" class="btn btn-primary mt-3">
+                Einstellungen speichern
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize status checks
+    const pwaCheckElement = document.getElementById('pwaCheck');
+    const notificationCheckElement = document.getElementById('notificationCheck');
+    
+    // Check PWA status
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                 window.navigator.standalone;
+    updateStatusElement(pwaCheckElement, isPWA, 
+        'App ist installiert', 
+        'App muss noch installiert werden');
+
+    // Check notification permission
+    const notificationPermission = await checkNotificationPermission();
+    updateStatusElement(notificationCheckElement, notificationPermission === 'granted',
+        'Benachrichtigungen sind aktiviert',
+        'Benachrichtigungen müssen noch aktiviert werden');
+
+    // Initialize notification manager
+    await notificationManager.init();
+    
+    // Load existing subscriptions
+    const currentSubs = await notificationManager.getCurrentSubscriptionDetails();
+    if (currentSubs?.participantIds) {
+        currentSubs.participantIds.forEach(id => {
+            const checkbox = document.getElementById(`participant${id}`);
+            if (checkbox) checkbox.checked = true;
+        });
+    }
+
+    // Save button handler
+    document.getElementById('saveSubscriptions').addEventListener('click', async () => {
+        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+        
+        try {
+            if (selectedIds.length > 0) {
+                await notificationManager.subscribeUserToPush(selectedIds);
+                showToast('Einstellungen gespeichert', 'success');
+            } else {
+                await notificationManager.unsubscribeFromPush();
+                showToast('Benachrichtigungen deaktiviert', 'info');
+            }
+        } catch (error) {
+            showToast('Fehler beim Speichern', 'error');
+            console.error(error);
+        }
+    });
+});
+
+function updateStatusElement(element, isSuccess, successText, failureText) {
+    const iconSpan = element.querySelector('.status-icon');
+    iconSpan.innerHTML = isSuccess ? 
+        '<i class="fas fa-check-circle text-success"></i>' : 
+        '<i class="fas fa-exclamation-circle text-warning"></i>';
+    
+    const textSpan = element.querySelector('.flex-grow-1');
+    textSpan.textContent = isSuccess ? successText : failureText;
+}
+
+async function checkNotificationPermission() {
+    if (!('Notification' in window)) return 'denied';
+    return Notification.permission;
+}
+
+function showToast(message, type) {
+    const toast = document.getElementById('notificationToast');
+    const toastIcon = document.getElementById('toastIcon');
+    const bsToast = new bootstrap.Toast(toast);
+    
+    // Set icon and color based on type
+    switch(type) {
+        case 'success':
+            toastIcon.className = 'fas fa-check-circle text-success me-2';
+            break;
+        case 'error':
+            toastIcon.className = 'fas fa-exclamation-circle text-danger me-2';
+            break;
+        case 'info':
+            toastIcon.className = 'fas fa-info-circle text-info me-2';
+            break;
+        default:
+            toastIcon.className = 'fas fa-bell me-2';
+    }
+    
+    // Set message
+    toast.querySelector('.toast-body').textContent = message;
+    
+    // Show toast
+    bsToast.show();
+}
+</script>
+{% endblock %}
