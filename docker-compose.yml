@@ -18,7 +18,9 @@ services:
       - OPENWEATHER_API_KEY={your_api_key_here}
       - WEATHER_LAT=50.6612
       - WEATHER_LON=6.7871
-
+      - VAPID_EMAIL=your@email.com
+    volumes:
+      - vapid_keys:/app/data
 
   db:
     image: postgres:15
@@ -48,3 +50,4 @@ services:
 
 volumes:
   postgres_data:
+  vapid_keys:

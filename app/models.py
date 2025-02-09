@@ -182,3 +182,23 @@ class WeatherCalculation(db.Model):
     last_updated = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (db.UniqueConstraint('walking_bus_id', 'date'),)
+
+
+class PushSubscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    token_identifier = db.Column(db.String(64), db.ForeignKey('auth_tokens.token_identifier'), nullable=False)
+    endpoint = db.Column(db.String(500), nullable=False)
+    p256dh = db.Column(db.String(200), nullable=False)
+    auth = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    participant_ids = db.Column(db.JSON, nullable=False, default=list)  # Store list of participant IDs
+    
+    # Relationships
+    auth_token = db.relationship('AuthToken', backref=db.backref('push_subscriptions', lazy=True))
+    walking_bus = db.relationship('WalkingBus', backref=db.backref('push_subscriptions', lazy=True))
+
+    __table_args__ = (
+        db.UniqueConstraint('token_identifier', 'endpoint', name='uq_subscription_token_endpoint'),
+    )
+

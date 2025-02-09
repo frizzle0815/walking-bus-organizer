@@ -10,6 +10,10 @@ import subprocess
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 from redis import Redis
+from pywebpush import webpush, WebPushException
+import json
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 
 db = SQLAlchemy()
@@ -39,6 +43,38 @@ WEEKDAY_MAPPING = {
     6: 'sunday'
 }
 
+
+def generate_vapid_keys():
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    
+    return {
+        "private_key": private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8'),
+        "public_key": public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode('utf-8')
+    }
+
+
+def get_or_generate_vapid_keys():
+    key_path = os.getenv('VAPID_KEY_STORAGE', '/app/data/vapid_keys.json')
+    
+    if os.path.exists(key_path):
+        with open(key_path, 'r') as f:
+            return json.load(f)
+    
+    keys = generate_vapid_keys()
+    os.makedirs(os.path.dirname(key_path), exist_ok=True)
+    
+    with open(key_path, 'w') as f:
+        json.dump(keys, f)
+    
+    return keys
 
 def get_git_revision():
     # First check for build-time revision file
@@ -143,5 +179,12 @@ def create_app():
     # Register blueprints
     from .routes import bp
     app.register_blueprint(bp)
+
+    vapid_keys = get_or_generate_vapid_keys()
+    app.config['VAPID_PRIVATE_KEY'] = vapid_keys['private_key']
+    app.config['VAPID_PUBLIC_KEY'] = vapid_keys['public_key']
+    app.config['VAPID_CLAIMS'] = {
+        "sub": f"mailto:{os.getenv('VAPID_EMAIL')}"
+    }
 
     return app
