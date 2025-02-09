@@ -1292,43 +1292,49 @@ def test_notification():
 
     # 3. Process each subscription
     for subscription in subscriptions:
-        # Create notification data for current subscription
+        # Get matching participants for this subscription
         matching_participants = [p for p in participants 
                                if p.id in set(subscription.participant_ids)]
         
         if not matching_participants:
             continue
             
-        participant_names = ', '.join(p.name for p in matching_participants)
-        
-        notification_data = {
-            'title': 'Walking Bus Test',
-            'body': f'Test Benachrichtigung für: {participant_names}',
-            'data': {
-                'type': 'test',
-                'participantIds': [p.id for p in matching_participants]
-            }
-        }
-
-        try:
-            webpush(
-                subscription_info={
-                    "endpoint": subscription.endpoint,
-                    "keys": {
-                        "p256dh": subscription.p256dh,
-                        "auth": subscription.auth
-                    }
+        # Send individual notification for each participant
+        for participant in matching_participants:
+            notification_data = {
+                'title': 'Walking Bus Test',
+                'body': f'Test Benachrichtigung für: {participant.name}',
+                'data': {
+                    'type': 'test',
+                    'participantIds': [participant.id]
                 },
-                data=json.dumps(notification_data),
-                vapid_private_key=vapid_private_key,
-                vapid_claims=vapid_claims
-            )
-            current_app.logger.info(f"[NOTI] Sent test notification to {participant_names}")
-            
-        except WebPushException as e:
-            if e.response and e.response.status_code == 410:
-                to_delete.add(subscription.id)
-                current_app.logger.info(f"[NOTI] Marked subscription {subscription.id} for deletion")
+                'tag': f'test-notification-{participant.id}-{int(time.time())}',
+                'actions': [{
+                    'action': 'okay',
+                    'title': 'OK'
+                }],
+                'requireInteraction': True
+            }
+
+            try:
+                webpush(
+                    subscription_info={
+                        "endpoint": subscription.endpoint,
+                        "keys": {
+                            "p256dh": subscription.p256dh,
+                            "auth": subscription.auth
+                        }
+                    },
+                    data=json.dumps(notification_data),
+                    vapid_private_key=vapid_private_key,
+                    vapid_claims=vapid_claims
+                )
+                current_app.logger.info(f"[NOTI] Sent test notification for {participant.name}")
+                
+            except WebPushException as e:
+                if e.response and e.response.status_code == 410:
+                    to_delete.add(subscription.id)
+                    current_app.logger.info(f"[NOTI] Marked subscription {subscription.id} for deletion")
 
     # 4. Clean up expired subscriptions
     if to_delete:
@@ -1343,9 +1349,10 @@ def test_notification():
             current_app.logger.error(f"[NOTI] Cleanup failed: {str(e)}")
 
     return jsonify({
-        'status': 'success',
+        'status': 'success', 
         'cleaned_subscriptions': len(to_delete)
     })
+
 
 
 

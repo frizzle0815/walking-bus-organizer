@@ -142,8 +142,10 @@ self.addEventListener('push', (event) => {
         icon: '/static/icons/icon-192x192.png',
         badge: '/static/icons/icon-192x192.png',
         data: payload.data || {},
-        tag: 'walking-bus-notification',
-        renotify: true
+        tag: payload.tag,
+        renotify: true,
+        requireInteraction: payload.requireInteraction,
+        actions: payload.actions // Include actions from payload
     };
 
     event.waitUntil(
