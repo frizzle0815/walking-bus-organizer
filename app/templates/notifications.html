@@ -242,6 +242,87 @@ class NotificationManager {
         }
     }
 
+    async cleanupSubscription(subscription) {
+        try {
+            // 1. Unsubscribe from browser
+            await subscription.unsubscribe();
+            console.log('[NOTI.HTML] Unsubscribed from push service');
+            
+            // 2. Delete from backend BEFORE loading subscriptions
+            await fetchWithAuth('/api/notifications/subscription', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endpoint: subscription.endpoint })
+            });
+            console.log('[NOTI.HTML] Removed server subscription');
+            
+            // 3. Clear checkboxes
+            document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            
+            // 4. Wait for backend cleanup to complete before proceeding
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            showToast('Benachrichtigungen wurden zurückgesetzt', 'info');
+        } catch (error) {
+            console.error('[NOTI.HTML] Cleanup error:', error);
+        }
+    }
+
+    async validateAndCleanupSubscriptions() {
+        console.log('[NOTI.HTML] Validating existing subscriptions');
+        if ('serviceWorker' in navigator) {
+            try {
+                // Initialize service worker first
+                const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+                
+                // Wait for activation
+                if (registration.installing) {
+                    await new Promise(resolve => {
+                        registration.installing.addEventListener('statechange', e => {
+                            if (e.target.state === 'activated') resolve();
+                        });
+                    });
+                }
+                console.log('[NOTI.HTML] Service Worker activated');
+                
+                const subscription = await registration.pushManager.getSubscription();
+                
+                if (subscription) {
+                    // Log keys for debugging
+                    const currentKey = this.arrayBufferToBase64(subscription.options.applicationServerKey);
+                    const newKey = this.arrayBufferToBase64(this.vapidPublicKey);
+                    
+                    console.log('[NOTI.HTML] Current key:', currentKey);
+                    console.log('[NOTI.HTML] New key:', newKey);
+                    
+                    // Compare normalized keys
+                    const currentKeyNormalized = currentKey.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+                    const newKeyNormalized = newKey.replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+                    
+                    if (currentKeyNormalized !== newKeyNormalized) {
+                        console.log('[NOTI.HTML] VAPID key mismatch detected');
+                        await this.cleanupSubscription(subscription);
+                    } else {
+                        console.log('[NOTI.HTML] VAPID keys match');
+                    }
+                } else {
+                    console.log('[NOTI.HTML] No existing subscription found');
+                }
+            } catch (error) {
+                console.error('[NOTI.HTML] Validation error:', error);
+                showToast('Fehler bei der Überprüfung der Benachrichtigungen', 'error');
+            }
+        }
+    }
+
+
+    // Helper method to convert ArrayBuffer to Base64
+    arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        return btoa(String.fromCharCode.apply(null, bytes));
+    }
 
     async unsubscribeFromPush() {
         if ('serviceWorker' in navigator) {
@@ -299,6 +380,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize notification manager first
         await notificationManager.init();
         console.log('[NOTI.HTML] NotificationManager initialized');
+
+        // Validate and cleanup subscriptions if needed
+        await notificationManager.validateAndCleanupSubscriptions();
+        console.log('[NOTI.HTML] Validate existing subscriptions');
         
         // Load existing subscriptions
         await notificationManager.loadExistingSubscriptions();
