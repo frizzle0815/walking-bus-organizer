@@ -1177,19 +1177,39 @@ def create_push_subscription():
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
     
-    push_subscription = PushSubscription(
+    # Check for existing subscription and update if found
+    existing_subscription = PushSubscription.query.filter_by(
         token_identifier=auth_token.token_identifier,
-        endpoint=subscription['endpoint'],
-        p256dh=subscription['keys']['p256dh'],
-        auth=subscription['keys']['auth'],
-        walking_bus_id=walking_bus_id,
-        participant_ids=participant_ids
-    )
+        endpoint=subscription['endpoint']
+    ).first()
     
-    db.session.add(push_subscription)
-    db.session.commit()
+    if existing_subscription:
+        # Update existing subscription
+        existing_subscription.p256dh = subscription['keys']['p256dh']
+        existing_subscription.auth = subscription['keys']['auth']
+        existing_subscription.participant_ids = participant_ids
+        current_app.logger.info(f'[NOTI] Updated existing subscription for token {auth_token.token_identifier}')
+    else:
+        # Create new subscription
+        push_subscription = PushSubscription(
+            token_identifier=auth_token.token_identifier,
+            endpoint=subscription['endpoint'],
+            p256dh=subscription['keys']['p256dh'],
+            auth=subscription['keys']['auth'],
+            walking_bus_id=walking_bus_id,
+            participant_ids=participant_ids
+        )
+        db.session.add(push_subscription)
+        current_app.logger.info(f'[NOTI] Created new subscription for token {auth_token.token_identifier}')
     
-    return jsonify({'status': 'success'})
+    try:
+        db.session.commit()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'[NOTI] Error saving subscription: {str(e)}')
+        return jsonify({'error': 'Failed to save subscription'}), 500
+
 
 
 @bp.route('/api/notifications/subscription', methods=['GET'])
