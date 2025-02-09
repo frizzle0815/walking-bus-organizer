@@ -73,6 +73,19 @@
             </button>
         </div>
     </div>
+
+    <!-- Test Notification -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Test Benachrichtigungen</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Hier können Sie die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
+            <button id="testNotification" class="btn btn-secondary">
+                <i class="fas fa-bell me-2"></i>Test-Benachrichtigung senden
+            </button>
+        </div>
+    </div>
 </div>
 
 <script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
@@ -168,5 +181,34 @@ function showToast(message, type) {
     // Show toast
     bsToast.show();
 }
+
+document.getElementById('testNotification').addEventListener('click', async () => {
+        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+            
+        if (selectedIds.length === 0) {
+            showToast('Bitte wählen Sie mindestens einen Teilnehmer aus', 'info');
+            return;
+        }
+
+        try {
+            const response = await fetchWithAuth('/api/notifications/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ participantIds: selectedIds })
+            });
+
+            if (response.ok) {
+                showToast('Test-Benachrichtigung wurde gesendet', 'success');
+            } else {
+                throw new Error('Fehler beim Senden der Test-Benachrichtigung');
+            }
+        } catch (error) {
+            showToast('Fehler beim Senden der Test-Benachrichtigung', 'error');
+            console.error(error);
+        }
+    });
 </script>
 {% endblock %}

@@ -1207,6 +1207,63 @@ def delete_push_subscription():
     return jsonify({'status': 'success'})
 
 
+@bp.route('/api/notifications/test', methods=['POST'])
+@require_auth
+def test_notification():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.json
+    participant_ids = data['participantIds']
+    
+    # Get participants info
+    participants = Participant.query.filter(
+        Participant.id.in_(participant_ids),
+        Participant.walking_bus_id == walking_bus_id
+    ).all()
+    
+    # Get subscriptions for these participants
+    subscriptions = PushSubscription.query.filter(
+        PushSubscription.walking_bus_id == walking_bus_id,
+        PushSubscription.participant_ids.contains(participant_ids)
+    ).all()
+    
+    participant_names = ', '.join(p.name for p in participants)
+    
+    # Prepare notification data
+    notification_data = {
+        'title': 'Walking Bus Test',
+        'body': f'Test Benachrichtigung für: {participant_names}',
+        'data': {
+            'type': 'test',
+            'participantIds': participant_ids
+        }
+    }
+    
+    # Send to all relevant subscriptions
+    for subscription in subscriptions:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": subscription.endpoint,
+                    "keys": {
+                        "p256dh": subscription.p256dh,
+                        "auth": subscription.auth
+                    }
+                },
+                data=json.dumps(notification_data),
+                vapid_private_key=current_app.config['VAPID_PRIVATE_KEY'],
+                vapid_claims=current_app.config['VAPID_CLAIMS']
+            )
+        except WebPushException as e:
+            if e.response and e.response.status_code == 410:
+                # Subscription expired
+                db.session.delete(subscription)
+                db.session.commit()
+            else:
+                current_app.logger.error(f"Push notification failed: {str(e)}")
+    
+    return jsonify({'status': 'success'})
+
+
 #####################################################
 ######################################################
 

@@ -11,11 +11,7 @@ class NotificationManager {
     }
 
     async getVapidKey() {
-        const response = await fetch('/api/notifications/vapid-key', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-            }
-        });
+        const response = await fetchWithAuth('/api/notifications/vapid-key');
         this.vapidPublicKey = await response.text();
     }
 
@@ -38,11 +34,10 @@ class NotificationManager {
                 applicationServerKey: this.vapidPublicKey
             });
 
-            await fetch('/api/notifications/subscription', {
+            await fetchWithAuth('/api/notifications/subscription', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     subscription: subscription,
@@ -64,11 +59,10 @@ class NotificationManager {
         if (subscription) {
             await subscription.unsubscribe();
             
-            await fetch('/api/notifications/subscription', {
+            await fetchWithAuth('/api/notifications/subscription', {
                 method: 'DELETE',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     endpoint: subscription.endpoint
@@ -85,16 +79,11 @@ class NotificationManager {
         const subscription = await registration.pushManager.getSubscription();
         
         if (subscription) {
-            const response = await fetch('/api/notifications/subscription', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                }
-            });
+            const response = await fetchWithAuth('/api/notifications/subscription');
             return await response.json();
         }
         return null;
     }
 }
 
-// Create global instance
 const notificationManager = new NotificationManager();
