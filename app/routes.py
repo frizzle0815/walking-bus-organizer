@@ -16,6 +16,7 @@ from .models import (
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
+from .services.push_service import PushService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from . import get_git_revision
 from sqlalchemy.exc import SQLAlchemyError
@@ -1355,45 +1356,28 @@ def delete_push_subscription():
     
     return jsonify({'status': 'success'})
 
-# For correct AUD in Web Push
-def get_endpoint_origin(endpoint):
-    parsed = urlparse(endpoint)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
 
 @bp.route('/api/notifications/test', methods=['POST'])
 @require_auth
 def test_notification():
     walking_bus_id = get_current_walking_bus_id()
+    push_service = PushService(walking_bus_id)
+    
     data = request.json
     participant_ids = data['participantIds']
-    to_delete = set()
     
-    current_app.logger.info(f"[PUSH][START] Sending test notifications for participants: {participant_ids}")
-    
-    # Get VAPID configuration
-    vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
-
-    # Get subscriptions and participants
-    subscriptions = PushSubscription.query.filter_by(walking_bus_id=walking_bus_id).all()
-    current_app.logger.info(f"[PUSH][SUBS] Found {len(subscriptions)} total subscriptions")
-    
+    # Get participants
     participants = Participant.query.filter(
         Participant.id.in_(participant_ids),
         Participant.walking_bus_id == walking_bus_id
     ).all()
-    current_app.logger.info(f"[PUSH][PARTS] Found {len(participants)} matching participants")
 
-    # Process each subscription
-    for subscription in subscriptions:
-        current_app.logger.info(f"[PUSH][SUB] Processing subscription: {subscription.endpoint}")
-        
+    results = []
+    for subscription in push_service.get_subscriptions():
         matching_participants = [p for p in participants 
                                if p.id in set(subscription.participant_ids)]
-        current_app.logger.info(f"[PUSH][MATCH] Found {len(matching_participants)} matching participants for this subscription")
-        
+                               
         if not matching_participants:
-            current_app.logger.info("[PUSH][SKIP] No matching participants, skipping subscription")
             continue
             
         for participant in matching_participants:
@@ -1411,178 +1395,65 @@ def test_notification():
                 }],
                 'requireInteraction': True
             }
-            current_app.logger.info(f"[PUSH][DATA] Notification data prepared: {notification_data}")
-
-            vapid_claims = {
-                "sub": current_app.config['VAPID_CLAIMS']['sub'],
-                "exp": int(time.time()) + 12 * 3600,
-                "aud": get_endpoint_origin(subscription.endpoint)
-            }
-            current_app.logger.info(f"[PUSH][CONFIG] VAPID claims configured: {vapid_claims}")
-
-            try:
-                current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
-                webpush(
-                    subscription_info={
-                        "endpoint": subscription.endpoint,
-                        "keys": {
-                            "p256dh": subscription.p256dh,
-                            "auth": subscription.auth
-                        }
-                    },
-                    data=json.dumps(notification_data),
-                    vapid_private_key=vapid_private_key,
-                    vapid_claims=vapid_claims
-                )
-                current_app.logger.info(f"[PUSH][SUCCESS] Sent notification for {participant.name}")
-                
-            except WebPushException as e:
-                error_str = str(e)
-                current_app.logger.error(f"[PUSH][ERROR] Full error details: {error_str}")
-                
-                # Parse the error string to get the status code and message
-                if "410" in error_str:
-                    status_code = 410
-                    error_body = error_str.split("Response body:", 1)[1].strip() if "Response body:" in error_str else "Unknown"
-                    current_app.logger.error(f"[PUSH][ERROR] Parsed status code: {status_code}")
-                    current_app.logger.error(f"[PUSH][ERROR] Parsed error body: {error_body}")
-                    
-                    to_delete.add(subscription.id)
-                    current_app.logger.info(f"[PUSH][DELETE] Marked subscription {subscription.id} for deletion")
-
-    # Clean up expired subscriptions
-    if to_delete:
-        try:
-            deleted_count = PushSubscription.query.filter(
-                PushSubscription.id.in_(to_delete)
-            ).delete(synchronize_session=False)
-            db.session.commit()
-            current_app.logger.info(f"[PUSH][CLEANUP] Deleted {deleted_count} expired subscriptions")
             
-            # Verify deletion
-            remaining_count = PushSubscription.query.count()
-            current_app.logger.info(f"[PUSH][VERIFY] Remaining subscriptions in database: {remaining_count}")
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            current_app.logger.error(f"[PUSH][CLEANUP_ERROR] Failed to delete: {str(e)}")
+            success, error = push_service.send_notification(subscription, notification_data)
+            results.append({
+                'participant': participant.name,
+                'success': success,
+                'error': error
+            })
 
+    cleanup_result = push_service.cleanup_expired_subscriptions()
+    
     return jsonify({
-        'status': 'success', 
-        'cleaned_subscriptions': len(to_delete)
+        'status': 'success',
+        'results': results,
+        'cleanup': cleanup_result
     })
 
 
-
 @bp.route('/api/notifications/broadcast', methods=['POST'])
-@require_auth
+@require_auth 
 def broadcast_notification():
     walking_bus_id = get_current_walking_bus_id()
-    data = request.json
-    message = data.get('message', '').strip()
-
+    push_service = PushService(walking_bus_id)
+    
+    message = request.json.get('message', '').strip()
     if not message:
         return jsonify({'error': 'Message cannot be empty'}), 400
 
-    current_app.logger.info(f"[PUSH][START] Starting broadcast with message: {message}")
-
-    to_delete = set()
     unique_id = str(uuid4())
-    
-    vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
-
-    # Get all subscriptions
-    subscriptions = PushSubscription.query.filter_by(
-        walking_bus_id=walking_bus_id
-    ).all()
-    current_app.logger.info(f"[PUSH][SUBS] Found {len(subscriptions)} total subscriptions")
-
     results = []
 
-    for subscription in subscriptions:
-        current_app.logger.info(f"[PUSH][SUB] Processing subscription: {subscription.endpoint}")
-        
-        notification_data = {
-            'title': 'Walking Bus Nachricht',
-            'body': message,
-            'data': {
-                'type': 'broadcast',
-                'messageId': unique_id
-            },
-            'tag': f'broadcast-{unique_id}',
-            'actions': [{
-                'action': 'okay',
-                'title': 'OK'
-            }],
-            'requireInteraction': True
-        }
-        current_app.logger.info(f"[PUSH][DATA] Notification data prepared: {notification_data}")
+    notification_data = {
+        'title': 'Walking Bus Nachricht',
+        'body': message,
+        'data': {
+            'type': 'broadcast',
+            'messageId': unique_id
+        },
+        'tag': f'broadcast-{unique_id}',
+        'actions': [{
+            'action': 'okay',
+            'title': 'OK'
+        }],
+        'requireInteraction': True
+    }
 
-        vapid_claims = {
-            "sub": current_app.config['VAPID_CLAIMS']['sub'],
-            "exp": int(time.time()) + 12 * 3600,
-            "aud": get_endpoint_origin(subscription.endpoint)
-        }
-        current_app.logger.info(f"[PUSH][CONFIG] VAPID claims configured: {vapid_claims}")
+    for subscription in push_service.get_subscriptions():
+        success, error = push_service.send_notification(subscription, notification_data)
+        results.append({
+            'endpoint': subscription.endpoint,
+            'success': success,
+            'error': error
+        })
 
-        try:
-            current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
-            webpush(
-                subscription_info={
-                    "endpoint": subscription.endpoint,
-                    "keys": {
-                        "p256dh": subscription.p256dh,
-                        "auth": subscription.auth
-                    }
-                },
-                data=json.dumps(notification_data),
-                vapid_private_key=vapid_private_key,
-                vapid_claims=vapid_claims
-            )
-            current_app.logger.info(f"[PUSH][SUCCESS] Sent broadcast notification")
-            results.append({
-                'endpoint': subscription.endpoint,
-                'status': 'success'
-            })
-            
-        except WebPushException as e:
-            error_str = str(e)
-            current_app.logger.error(f"[PUSH][ERROR] Full error details: {error_str}")
-            
-            if "410" in error_str:
-                status_code = 410
-                error_body = error_str.split("Response body:", 1)[1].strip() if "Response body:" in error_str else "Unknown"
-                current_app.logger.error(f"[PUSH][ERROR] Parsed status code: {status_code}")
-                current_app.logger.error(f"[PUSH][ERROR] Parsed error body: {error_body}")
-                
-                to_delete.add(subscription.id)
-                current_app.logger.info(f"[PUSH][DELETE] Marked subscription {subscription.id} for deletion")
-            
-            results.append({
-                'endpoint': subscription.endpoint,
-                'status': 'error',
-                'error': str(e)
-            })
-
-    # Clean up expired subscriptions
-    if to_delete:
-        try:
-            deleted_count = PushSubscription.query.filter(
-                PushSubscription.id.in_(to_delete)
-            ).delete(synchronize_session=False)
-            db.session.commit()
-            current_app.logger.info(f"[PUSH][CLEANUP] Deleted {deleted_count} expired subscriptions")
-            
-            # Verify deletion
-            remaining_count = PushSubscription.query.count()
-            current_app.logger.info(f"[PUSH][VERIFY] Remaining subscriptions in database: {remaining_count}")
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            current_app.logger.error(f"[PUSH][CLEANUP_ERROR] Failed to delete: {str(e)}")
+    cleanup_result = push_service.cleanup_expired_subscriptions()
 
     return jsonify({
         'status': 'success',
-        'cleaned_subscriptions': len(to_delete),
-        'results': results
+        'results': results,
+        'cleanup': cleanup_result
     })
 
 
