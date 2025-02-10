@@ -127,10 +127,14 @@ self.addEventListener('message', (event) => {
 
 // Push message handler
 self.addEventListener('push', (event) => {
+    console.log('[PUSH][START] Received push event', event);
+    
     let payload;
     try {
         payload = event.data.json();
+        console.log('[PUSH][PAYLOAD] Successfully parsed payload:', payload);
     } catch (e) {
+        console.log('[PUSH][PARSE_ERROR] Failed to parse JSON, using text:', event.data.text());
         payload = {
             title: 'Walking Bus',
             body: event.data.text()
@@ -143,13 +147,17 @@ self.addEventListener('push', (event) => {
         badge: '/static/icons/icon-192x192.png',
         data: payload.data || {},
         tag: payload.tag,
-        renotify: true,  // Important for iOS
+        renotify: true,
         requireInteraction: payload.requireInteraction,
-        actions: payload.actions  // Include actions from payload
+        actions: payload.actions
     };
+    
+    console.log('[PUSH][OPTIONS] Notification options:', options);
 
     event.waitUntil(
         self.registration.showNotification(payload.title, options)
+            .then(() => console.log('[PUSH][SUCCESS] Notification shown successfully'))
+            .catch(error => console.error('[PUSH][ERROR] Failed to show notification:', error))
     );
 });
 
