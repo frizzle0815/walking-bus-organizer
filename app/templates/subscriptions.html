@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    {% for bus_id, bus_data in grouped_subscriptions.items() %}
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                {{ bus_data.bus_name }}
+                <small class="text-muted">(Bus ID: {{ bus_id }})</small>
+            </h5>
+            <span class="badge bg-primary">{{ bus_data.subscriptions|length }} Geräte</span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Gerät/Browser</th>
+                            <th>Status</th>
+                            <th>Teilnehmer</th>
+                            <th>Erstellt</th>
+                            <th>Zuletzt aktiv</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sub in bus_data.subscriptions %}
+                        <tr>
+                            <td>
+                                <i class="fas fa-mobile-alt me-2"></i>
+                                {{ sub.client_info }}
+                            </td>
+                            <td>
+                                {% if sub.is_active %}
+                                    <span class="badge bg-success">Aktiv</span>
+                                {% else %}
+                                    <span class="badge bg-danger">Inaktiv</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% for participant in sub.participants %}
+                                    <span class="badge bg-info me-1">{{ participant }}</span>
+                                {% endfor %}
+                            </td>
+                            <td>{{ sub.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                {% if sub.last_used %}
+                                    {{ sub.last_used.strftime('%d.%m.%Y %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" 
+                                        data-bs-toggle="collapse" 
+                                        data-bs-target="#details-{{ sub.id }}">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <tr class="collapse" id="details-{{ sub.id }}">
+                            <td colspan="6">
+                                <div class="card card-body bg-light">
+                                    <small>
+                                        <strong>Token ID:</strong> {{ sub.token_identifier }}<br>
+                                        <strong>Endpoint:</strong> {{ sub.endpoint }}
+                                    </small>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

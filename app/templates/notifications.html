@@ -41,6 +41,15 @@
                 </li>
             </ul>
         </div>
+        <div class="card-body">
+            <div class="d-flex align-items-center mb-4">
+                <button id="toggleNotifications" class="btn btn-primary me-3">
+                    <i class="fas fa-bell me-2"></i>
+                    <span class="status-text">Benachrichtigungen aktivieren</span>
+                </button>
+                <div id="subscriptionStatus" class="text-muted"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Participant Selection -->
@@ -147,6 +156,59 @@ class NotificationManager {
         }
     }
 
+    async checkSubscriptionStatus() {
+        console.log('[NOTI] Checking subscription status');
+        
+        // Erst Service Worker registrieren und aktivieren
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        
+        // Auf Aktivierung warten
+        if (registration.installing) {
+            await new Promise(resolve => {
+                registration.installing.addEventListener('statechange', e => {
+                    if (e.target.state === 'activated') resolve();
+                });
+            });
+        }
+        console.log('[NOTI] Service Worker activated');
+        
+        // Jetzt erst Subscription prüfen
+        const subscription = await registration.pushManager.getSubscription();
+        this.subscriptionStatus = !!subscription;
+        return this.subscriptionStatus;
+    }
+
+
+    async createNewSubscription() {
+        console.log('[NOTI] Creating new subscription');
+        
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        
+        if (registration.installing) {
+            await new Promise(resolve => {
+                registration.installing.addEventListener('statechange', e => {
+                    if (e.target.state === 'activated') resolve();
+                });
+            });
+        }
+    
+    const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: this.vapidPublicKey
+    });
+    
+    await this.saveSubscriptionToServer(subscription);
+}
+
+
+    async updateParticipantPreferences(participantIds) {
+        await fetchWithAuth('/api/notifications/preferences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantIds })
+        });
+    }
+
 
     async subscribeUserToPush(participantIds) {
         try {
@@ -213,6 +275,8 @@ class NotificationManager {
         console.log('[NOTI.HTML] Loading existing subscriptions');
         const response = await fetchWithAuth('/api/notifications/subscription');
         const data = await response.json();
+
+        await this.checkSubscriptionStatus();
         
         if (data && data.participantIds) {
             console.log('[NOTI.HTML] Found subscriptions for:', data.participantIds);

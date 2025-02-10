@@ -34,6 +34,7 @@ from os import environ
 from .init_buses import init_walking_buses
 from . import redis_client
 from pywebpush import webpush, WebPushException
+from uuid import uuid4
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -83,6 +84,70 @@ def notifications_view():
         "notifications.html",
         stations=stations
     )
+
+
+@bp.route("/subscriptions")
+@require_auth
+def subscription_overview():
+    # Get all walking buses
+    walking_buses = WalkingBus.query.all()
+    
+    grouped_subscriptions = {}
+    all_participants = {}
+    all_auth_tokens = {}
+    
+    for bus in walking_buses:
+        # Get subscriptions for this bus
+        subscriptions = PushSubscription.query\
+            .filter_by(walking_bus_id=bus.id)\
+            .order_by(PushSubscription.created_at.desc())\
+            .all()
+            
+        # Get participants for this bus
+        participants = {
+            p.id: p.name 
+            for p in Participant.query.filter_by(walking_bus_id=bus.id)
+        }
+        all_participants.update(participants)
+        
+        # Get auth tokens for this bus
+        auth_tokens = {
+            t.token_identifier: t 
+            for t in AuthToken.query.filter_by(walking_bus_id=bus.id)
+        }
+        all_auth_tokens.update(auth_tokens)
+        
+        # Process subscriptions
+        subscription_data = []
+        for sub in subscriptions:
+            token = all_auth_tokens.get(sub.token_identifier)
+            participant_names = [
+                all_participants.get(pid) 
+                for pid in sub.participant_ids
+            ]
+            
+            subscription_data.append({
+                'id': sub.id,
+                'token_identifier': sub.token_identifier,
+                'endpoint': sub.endpoint,
+                'created_at': sub.created_at,
+                'last_used': token.last_used if token else None,
+                'client_info': token.client_info if token else 'Unknown',
+                'participants': participant_names,
+                'is_active': token.is_active if token else False
+            })
+            
+        grouped_subscriptions[bus.id] = {
+            'bus_name': bus.name,
+            'subscriptions': subscription_data
+        }
+        
+    return render_template(
+        'subscriptions.html', 
+        grouped_subscriptions=grouped_subscriptions
+    )
+
+
 
 
 @bp.route("/share")
@@ -1174,34 +1239,28 @@ def create_push_subscription():
     subscription = data['subscription']
     participant_ids = data['participantIds']
     
-    # Get current auth token from request
+    # Get current auth token
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
     
-    # Check for existing subscription and update if found
-    existing_subscription = PushSubscription.query.filter_by(
-        token_identifier=auth_token.token_identifier,
-        endpoint=subscription['endpoint']
-    ).first()
+    # Deactivate all existing subscriptions for this token_identifier
+    existing_subscriptions = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier
+    ).all()
     
-    if existing_subscription:
-        # Update existing subscription
-        existing_subscription.p256dh = subscription['keys']['p256dh']
-        existing_subscription.auth = subscription['keys']['auth']
-        existing_subscription.participant_ids = participant_ids
-        current_app.logger.info(f'[NOTI] Updated existing subscription for token {auth_token.token_identifier}')
-    else:
-        # Create new subscription
-        push_subscription = PushSubscription(
-            token_identifier=auth_token.token_identifier,
-            endpoint=subscription['endpoint'],
-            p256dh=subscription['keys']['p256dh'],
-            auth=subscription['keys']['auth'],
-            walking_bus_id=walking_bus_id,
-            participant_ids=participant_ids
-        )
-        db.session.add(push_subscription)
-        current_app.logger.info(f'[NOTI] Created new subscription for token {auth_token.token_identifier}')
+    for old_sub in existing_subscriptions:
+        db.session.delete(old_sub)
+    
+    # Create new subscription
+    push_subscription = PushSubscription(
+        token_identifier=auth_token.token_identifier,
+        endpoint=subscription['endpoint'],
+        p256dh=subscription['keys']['p256dh'],
+        auth=subscription['keys']['auth'],
+        walking_bus_id=walking_bus_id,
+        participant_ids=participant_ids
+    )
+    db.session.add(push_subscription)
     
     try:
         db.session.commit()
@@ -1210,6 +1269,35 @@ def create_push_subscription():
         db.session.rollback()
         current_app.logger.error(f'[NOTI] Error saving subscription: {str(e)}')
         return jsonify({'error': 'Failed to save subscription'}), 500
+
+
+def cleanup_duplicate_subscriptions():
+    """Remove duplicate subscriptions keeping only the latest per token_identifier"""
+    try:
+        # Get all token_identifiers that have multiple subscriptions
+        query = db.session.query(PushSubscription.token_identifier)\
+            .group_by(PushSubscription.token_identifier)\
+            .having(db.func.count() > 1)
+        
+        duplicate_tokens = [row[0] for row in query.all()]
+        
+        for token_id in duplicate_tokens:
+            # Get all subscriptions for this token ordered by creation date
+            subs = PushSubscription.query\
+                .filter_by(token_identifier=token_id)\
+                .order_by(PushSubscription.created_at.desc())\
+                .all()
+            
+            # Keep the newest, delete the rest
+            for sub in subs[1:]:
+                db.session.delete(sub)
+        
+        db.session.commit()
+        current_app.logger.info(f"Cleaned up {len(duplicate_tokens)} duplicate subscriptions")
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error cleaning up duplicates: {str(e)}")
 
 
 
@@ -1359,8 +1447,13 @@ def test_notification():
 def broadcast_notification():
     walking_bus_id = get_current_walking_bus_id()
     data = request.json
-    message = data.get('message')
+    message = data.get('message', '').strip()
+
+    if not message:
+        return jsonify({'error': 'Message cannot be empty'}), 400
+
     to_delete = set()
+    unique_id = str(uuid4()) 
     
     vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
     vapid_claims = {
@@ -1373,21 +1466,22 @@ def broadcast_notification():
         walking_bus_id=walking_bus_id
     ).all()
 
+    results = []
+
     for subscription in subscriptions:
         notification_data = {
             'title': 'Walking Bus Nachricht',
             'body': message,
             'data': {
                 'type': 'broadcast',
-                'messageId': int(time.time())  # Add unique ID
+                'messageId': unique_id
             },
-            'tag': f'broadcast-{int(time.time())}',
+            'tag': f'broadcast-{unique_id}',
             'actions': [{  # Add actions like in test notifications
-                'action': 'okay', 
+                'action': 'okay',
                 'title': 'OK'
             }],
-            'requireInteraction': True,
-            'renotify': True  # Ensure notification triggers on iOS
+            'requireInteraction': True
         }
 
         try:
@@ -1403,10 +1497,25 @@ def broadcast_notification():
                 vapid_private_key=vapid_private_key,
                 vapid_claims=vapid_claims
             )
+            results.append({
+                'endpoint': subscription.endpoint,
+                'status': 'success'
+            })
             
         except WebPushException as e:
             if e.response and e.response.status_code == 410:
                 to_delete.add(subscription.id)
+            
+            current_app.logger.error(
+                f"[BROADCAST] Push failed for endpoint {subscription.endpoint}: "
+                f"Status: {e.response.status_code if e.response else 'No response'}, "
+                f"Error: {str(e)}"
+            )
+            results.append({
+                'endpoint': subscription.endpoint,
+                'status': 'error',
+                'error': str(e)
+            })
 
     # Clean up expired subscriptions
     if to_delete:
@@ -1422,7 +1531,8 @@ def broadcast_notification():
 
     return jsonify({
         'status': 'success',
-        'cleaned_subscriptions': len(to_delete)
+        'cleaned_subscriptions': len(to_delete),
+        'results': results
     })
 
 
