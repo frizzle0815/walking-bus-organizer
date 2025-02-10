@@ -35,6 +35,7 @@ from .init_buses import init_walking_buses
 from . import redis_client
 from pywebpush import webpush, WebPushException
 from uuid import uuid4
+from urllib.parse import urlparse
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -1354,6 +1355,11 @@ def delete_push_subscription():
     
     return jsonify({'status': 'success'})
 
+# For correct AUD in Web Push
+def get_endpoint_origin(endpoint):
+    parsed = urlparse(endpoint)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
 
 @bp.route('/api/notifications/test', methods=['POST'])
 @require_auth
@@ -1367,11 +1373,6 @@ def test_notification():
     
     # Get VAPID configuration
     vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
-    vapid_claims = {
-        "sub": current_app.config['VAPID_CLAIMS']['sub'],
-        "exp": int(time.time()) + 12 * 3600
-    }
-    current_app.logger.info(f"[PUSH][CONFIG] VAPID claims configured: {vapid_claims}")
 
     # Get subscriptions and participants
     subscriptions = PushSubscription.query.filter_by(walking_bus_id=walking_bus_id).all()
@@ -1411,6 +1412,13 @@ def test_notification():
                 'requireInteraction': True
             }
             current_app.logger.info(f"[PUSH][DATA] Notification data prepared: {notification_data}")
+
+            vapid_claims = {
+                "sub": current_app.config['VAPID_CLAIMS']['sub'],
+                "exp": int(time.time()) + 12 * 3600,
+                "aud": get_endpoint_origin(subscription.endpoint)
+            }
+            current_app.logger.info(f"[PUSH][CONFIG] VAPID claims configured: {vapid_claims}")
 
             try:
                 current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
@@ -1481,11 +1489,6 @@ def broadcast_notification():
     unique_id = str(uuid4())
     
     vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
-    vapid_claims = {
-        "sub": current_app.config['VAPID_CLAIMS']['sub'],
-        "exp": int(time.time()) + 12 * 3600
-    }
-    current_app.logger.info(f"[PUSH][CONFIG] VAPID claims configured: {vapid_claims}")
 
     # Get all subscriptions
     subscriptions = PushSubscription.query.filter_by(
@@ -1513,6 +1516,13 @@ def broadcast_notification():
             'requireInteraction': True
         }
         current_app.logger.info(f"[PUSH][DATA] Notification data prepared: {notification_data}")
+
+        vapid_claims = {
+            "sub": current_app.config['VAPID_CLAIMS']['sub'],
+            "exp": int(time.time()) + 12 * 3600,
+            "aud": get_endpoint_origin(subscription.endpoint)
+        }
+        current_app.logger.info(f"[PUSH][CONFIG] VAPID claims configured: {vapid_claims}")
 
         try:
             current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
