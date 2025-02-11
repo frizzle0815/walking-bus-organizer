@@ -202,3 +202,14 @@ class PushSubscription(db.Model):
         db.UniqueConstraint('token_identifier', 'endpoint', name='uq_subscription_token_endpoint'),
     )
 
+
+class SchedulerJob(db.Model):
+    __tablename__ = 'scheduler_jobs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    job_id = db.Column(db.String(191), unique=True, nullable=False)
+    next_run_time = db.Column(db.DateTime)
+    job_type = db.Column(db.String(50))  # e.g., 'notification'
+    
+    walking_bus = db.relationship('WalkingBus', backref='scheduler_jobs')

@@ -152,39 +152,6 @@ def subscription_overview():
     )
 
 
-@bp.route("/scheduler")
-@require_auth
-def scheduler_view():
-    scheduler = current_app.scheduler
-    jobs = scheduler.get_jobs()
-    
-    job_details = []
-    for job in jobs:
-        # Extract walking bus info from job args
-        walking_bus_id = job.args[0] if job.args else None
-        walking_bus = WalkingBus.query.get(walking_bus_id) if walking_bus_id else None
-        
-        job_details.append({
-            'bus_name': walking_bus.name if walking_bus else 'Unknown',
-            'weekday': job.trigger.fields[5],  # day_of_week field
-            'reminder_time': job.trigger.fields[2].render(),  # hour field
-            'next_run': job.next_run_time,
-            'active': job.next_run_time is not None
-        })
-    
-    scheduler_info = {
-        'running': scheduler.running,
-        'next_wakeup': scheduler.next_wakeup,
-        'job_count': len(jobs)
-    }
-    
-    return render_template(
-        'scheduler.html',
-        scheduler=scheduler_info,
-        jobs=job_details
-    )
-
-
 @bp.route("/share")
 @require_auth
 def share():
