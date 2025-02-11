@@ -5,14 +5,26 @@ from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from ..models import db, PushSubscription, Participant
 from urllib.parse import urlparse
+from .. import get_or_generate_vapid_keys
+import os
+
+# Static configuration at module level
+vapid_keys = get_or_generate_vapid_keys()
+VAPID_CONFIG = {
+    'private_key': vapid_keys['private_key'],
+    'public_key': vapid_keys['public_key'],
+    'claims': {
+        "sub": f"mailto:{os.getenv('VAPID_EMAIL')}"
+    }
+}
 
 
 class PushService:
     def __init__(self, walking_bus_id):
         self.walking_bus_id = walking_bus_id
         self.to_delete = set()
-        self.vapid_private_key = current_app.config['VAPID_PRIVATE_KEY']
-        self.vapid_claims_sub = current_app.config['VAPID_CLAIMS']['sub']
+        self.vapid_private_key = VAPID_CONFIG['private_key']
+        self.vapid_claims_sub = VAPID_CONFIG['claims']['sub']
 
     def get_subscriptions(self):
         """Get all subscriptions for current walking bus"""

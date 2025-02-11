@@ -14,18 +14,34 @@
                 <thead>
                     <tr>
                         <th>Day</th>
-                        <th>Job Type</th>
+                        <th>Function</th>
+                        <th>Arguments</th>
                         <th>Next Run</th>
-                        <th>Job ID</th>
+                        <th>Technical Details</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for job in bus_data.jobs %}
                     <tr>
                         <td>{{ job.day }}</td>
-                        <td>{{ job.type }}</td>
+                        <td>
+                            <code>send_walking_bus_notifications()</code>
+                            <small class="d-block text-muted">Sends push notifications 1h before bus start</small>
+                        </td>
+                        <td>
+                            <code>bus_id={{ bus_data.bus_id }}</code>
+                        </td>
                         <td>{{ job.next_run.strftime('%d.%m.%Y %H:%M') if job.next_run else 'Not scheduled' }}</td>
-                        <td><small class="text-muted">{{ job.id }}</small></td>
+                        <td>
+                            <details>
+                                <summary>Show Details</summary>
+                                <small>
+                                    <div>Job ID: {{ job.id }}</div>
+                                    <div>Type: {{ job.type }}</div>
+                                    <div>File: scheduler_worker.py</div>
+                                </small>
+                            </details>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

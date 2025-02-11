@@ -1,6 +1,6 @@
 from app import create_app, db
 from app.models import WalkingBus, WalkingBusSchedule, SchedulerJob
-from app.services.push_service import PushService
+from app.services.push_service import PushService, VAPID_CONFIG
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ProcessPoolExecutor

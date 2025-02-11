@@ -174,6 +174,7 @@ def scheduler_view():
         if job.walking_bus_id not in grouped_jobs:
             grouped_jobs[job.walking_bus_id] = {
                 'bus_name': job.walking_bus.name,
+                'bus_id': job.walking_bus_id,  # Add bus_id for template
                 'jobs': []
             }
         
@@ -184,10 +185,13 @@ def scheduler_view():
             'id': job.job_id,
             'day': day,
             'next_run': job.next_run_time,
-            'type': job.job_type
+            'type': job.job_type,
+            'function_name': 'send_walking_bus_notifications',  # Add function name
+            'function_description': 'Sends push notifications 1h before bus start'  # Add description
         })
     
     return render_template('scheduler.html', grouped_jobs=grouped_jobs)
+
 
 @bp.route("/api/temp-tokens")
 @require_auth

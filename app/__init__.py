@@ -214,11 +214,8 @@ def create_app():
     from .routes import bp
     app.register_blueprint(bp)
 
-    vapid_keys = get_or_generate_vapid_keys()
-    app.config['VAPID_PRIVATE_KEY'] = vapid_keys['private_key']
-    app.config['VAPID_PUBLIC_KEY'] = vapid_keys['public_key']
-    app.config['VAPID_CLAIMS'] = {
-        "sub": f"mailto:{os.getenv('VAPID_EMAIL')}"
-    }
+    # Add VAPID public key to app config for frontend access
+    from .services.push_service import VAPID_CONFIG
+    app.config['VAPID_PUBLIC_KEY'] = VAPID_CONFIG['public_key']
 
     return app
