@@ -14,7 +14,7 @@ VAPID_CONFIG = {
     'private_key': vapid_keys['private_key'],
     'public_key': vapid_keys['public_key'],
     'claims': {
-        "sub": f"mailto:{os.getenv('VAPID_EMAIL')}"
+        "sub": f"mailto:{os.getenv('VAPID_EMAIL', 'default@example.com')}"
     }
 }
 
@@ -23,8 +23,17 @@ class PushService:
     def __init__(self, walking_bus_id):
         self.walking_bus_id = walking_bus_id
         self.to_delete = set()
+        
+        # Debug logging for initialization
+        current_app.logger.info(f"[PUSH][INIT] VAPID_CONFIG: {VAPID_CONFIG}")
+        current_app.logger.info(f"[PUSH][INIT] Environment VAPID_EMAIL: {os.getenv('VAPID_EMAIL')}")
+        current_app.logger.info(f"[PUSH][INIT] App config VAPID_EMAIL: {current_app.config.get('VAPID_EMAIL')}")
+        
         self.vapid_private_key = VAPID_CONFIG['private_key']
         self.vapid_claims_sub = VAPID_CONFIG['claims']['sub']
+        
+        # Verify initialization
+        current_app.logger.info(f"[PUSH][INIT] Set claims_sub to: {self.vapid_claims_sub}")
 
     def get_subscriptions(self):
         """Get all subscriptions for current walking bus"""
@@ -40,6 +49,7 @@ class PushService:
             # Log attempt
             current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
             current_app.logger.info(f"[PUSH][DATA] Notification data prepared: {notification_data}")
+            current_app.logger.info(f"[PUSH][SEND] Using claims_sub: {self.vapid_claims_sub}")
             
             vapid_claims = {
                 "sub": self.vapid_claims_sub,

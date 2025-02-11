@@ -217,5 +217,6 @@ def create_app():
     # Add VAPID public key to app config for frontend access
     from .services.push_service import VAPID_CONFIG
     app.config['VAPID_PUBLIC_KEY'] = VAPID_CONFIG['public_key']
+    app.config['VAPID_EMAIL'] = os.getenv('VAPID_EMAIL', 'default@example.com')
 
     return app

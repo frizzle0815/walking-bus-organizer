@@ -162,6 +162,10 @@ def send_walking_bus_notifications(bus_id):
     
     # Create app context since this runs in a separate thread
     app = create_app()
+
+    if not os.getenv('VAPID_EMAIL'):
+        logger.info("[SCHEDULER] Setting VAPID_EMAIL from config")
+        os.environ['VAPID_EMAIL'] = app.config.get('VAPID_EMAIL', 'default@example.com')
     
     with app.app_context():
         try:
