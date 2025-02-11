@@ -62,6 +62,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY}
       - FLASK_ENV=production
+      - VAPID_EMAIL=your@email.com
+    volumes:
+      - vapid_keys:/app/data
 
 volumes:
   postgres_data:

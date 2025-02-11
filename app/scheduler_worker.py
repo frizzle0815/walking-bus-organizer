@@ -1,6 +1,6 @@
 from app import create_app, db
 from app.models import WalkingBus, WalkingBusSchedule, SchedulerJob
-from app.services.push_service import PushService, VAPID_CONFIG
+from app.services.push_service import PushService
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ProcessPoolExecutor
@@ -163,13 +163,25 @@ def send_walking_bus_notifications(bus_id):
     # Create app context since this runs in a separate thread
     app = create_app()
 
-    if not os.getenv('VAPID_EMAIL'):
-        logger.info("[SCHEDULER] Setting VAPID_EMAIL from config")
-        os.environ['VAPID_EMAIL'] = app.config.get('VAPID_EMAIL', 'default@example.com')
-    
     with app.app_context():
         try:
-            # Initialize push service
+            # Load VAPID keys before initializing push service
+            from app import get_or_generate_vapid_keys
+            vapid_keys = get_or_generate_vapid_keys()
+            
+            # Update VAPID config with fresh keys
+            from app.services.push_service import VAPID_CONFIG
+            VAPID_CONFIG.update({
+                'private_key': vapid_keys['private_key'],
+                'public_key': vapid_keys['public_key'],
+                'claims': {
+                    "sub": f"mailto:{app.config['VAPID_EMAIL']}"
+                }
+            })
+            
+            logger.info(f"[SCHEDULER] VAPID configuration loaded: {VAPID_CONFIG}")
+            
+            # Initialize push service with updated config
             push_service = PushService(bus_id)
             
             # Prepare and send notifications
