@@ -132,7 +132,7 @@ self.addEventListener('push', (event) => {
     const options = {
         body: payload.body,
         icon: '/static/icons/icon-192x192.png',
-        badge: '/static/icons/icon-192x192.png',
+        badge: '/static/icons/bus-simple-solid.png',
         data: payload.data || {},
         tag: payload.tag,
         renotify: true,
