@@ -3,9 +3,9 @@ import json
 import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
-from ..models import db, PushSubscription, Participant
+from ..models import db, PushSubscription, Participant, CalendarStatus
 from urllib.parse import urlparse
-from .. import get_or_generate_vapid_keys
+from .. import get_or_generate_vapid_keys, get_current_date, WEEKDAY_MAPPING
 import os
 
 # Static configuration at module level
@@ -91,6 +91,9 @@ class PushService:
 
     def prepare_schedule_notifications(self):
         """Prepare and send individual schedule notifications for each participant"""
+        target_date = get_current_date()
+        weekday = WEEKDAY_MAPPING[target_date.weekday()]
+        
         subscriptions = self.get_subscriptions()
         results = []
         
@@ -101,35 +104,49 @@ class PushService:
             ).all()
             
             for participant in participants:
-                status_message = (
-                    f"{participant.name} ist für heute angemeldet" 
-                    if participant.status_today 
-                    else f"{participant.name} ist für heute abgemeldet"
-                )
+                # Check if participant normally attends on this weekday
+                normally_attends = getattr(participant, weekday, True)
                 
-                notification_data = {
-                    'title': 'Walking Bus Status',
-                    'body': status_message,
-                    'data': {
-                        'type': 'schedule_reminder',
-                        'participantId': participant.id
-                    },
-                    'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
-                    'actions': [{
-                        'action': 'okay',
-                        'title': 'OK'
-                    }],
-                    'requireInteraction': True
-                }
-                
-                success, error = self.send_notification(subscription, notification_data)
-                results.append({
-                    'subscription_id': subscription.id,
-                    'participant': participant.name,
-                    'status': 'attending' if participant.status_today else 'not_attending',
-                    'success': success,
-                    'error': error
-                })
+                if normally_attends:
+                    # Get calendar entry for this date
+                    calendar_entry = CalendarStatus.query.filter_by(
+                        participant_id=participant.id,
+                        date=target_date,
+                        walking_bus_id=self.walking_bus_id
+                    ).first()
+                    
+                    # Determine actual status from calendar entry or default weekday setting
+                    is_attending = calendar_entry.status if calendar_entry else normally_attends
+                    
+                    status_message = (
+                        f"{participant.name} ist für heute ✅ angemeldet ✅"
+                        if is_attending
+                        else f"{participant.name} ist für heute ❌ abgemeldet ❌"
+                    )
+                    
+                    notification_data = {
+                        'title': 'Walking Bus Status',
+                        'body': status_message,
+                        'data': {
+                            'type': 'schedule_reminder',
+                            'participantId': participant.id
+                        },
+                        'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
+                        'actions': [{
+                            'action': 'okay',
+                            'title': 'OK'
+                        }],
+                        'requireInteraction': True
+                    }
+                    
+                    success, error = self.send_notification(subscription, notification_data)
+                    results.append({
+                        'subscription_id': subscription.id,
+                        'participant': participant.name,
+                        'status': 'attending' if is_attending else 'not_attending',
+                        'success': success,
+                        'error': error
+                    })
         
         cleanup_result = self.cleanup_expired_subscriptions()
         
@@ -137,6 +154,8 @@ class PushService:
             'notifications_sent': results,
             'cleanup': cleanup_result
         }
+
+
 
     def cleanup_expired_subscriptions(self):
         """Clean up expired subscriptions and return count"""
