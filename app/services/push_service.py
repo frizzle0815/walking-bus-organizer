@@ -129,13 +129,22 @@ class PushService:
                         'body': status_message,
                         'data': {
                             'type': 'schedule_reminder',
-                            'participantId': participant.id
+                            'participantId': participant.id,
+                            'participantName': participant.name,
+                            'currentStatus': is_attending,
+                            'date': target_date.isoformat()
                         },
                         'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
-                        'actions': [{
-                            'action': 'okay',
-                            'title': 'OK'
-                        }],
+                        'actions': [
+                            {
+                                'action': 'toggle_status',
+                                'title': 'Abmelden' if is_attending else 'Anmelden'
+                            },
+                            {
+                                'action': 'okay',
+                                'title': 'OK'
+                            }
+                        ],
                         'requireInteraction': True
                     }
                     

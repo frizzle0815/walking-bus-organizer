@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v6'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v8'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -33,23 +33,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
- event.waitUntil(
-     // Get all cache keys
-     caches.keys().then(cacheNames => {
-         return Promise.all(
-             cacheNames.map(cacheName => {
-                 // If cache name doesn't include current version, delete it
-                 if (!cacheName.includes(CACHE_VERSION)) {
-                     return caches.delete(cacheName);
-                 }
-             })
-         );
-     }).then(() => {
-         // Claim control immediately
-         return self.clients.claim();
-     })
- );
+    event.waitUntil(
+        self.clients.claim()
+    );
 });
+
 
 // Message handler for token storage and removal
 self.addEventListener('message', (event) => {
@@ -163,12 +151,13 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
+    const data = event.notification.data;
     
-    if (event.action) {
-        // Handle specific actions
-        console.log('Action clicked:', event.action);
-    } else {
-        // Default click behavior
+    // Handle only toggle_status action
+    if (event.action === 'toggle_status') {
+        handleStatusToggle(data);
+    } else if (!event.action) {
+        // Only open/focus app when main notification is clicked (no action)
         event.waitUntil(
             clients.matchAll({type: 'window'}).then(windowClients => {
                 if (windowClients.length > 0) {
@@ -179,7 +168,118 @@ self.addEventListener('notificationclick', (event) => {
             })
         );
     }
+    // Any other action (like 'okay') just closes the notification with no further action
 });
+
+// Separate function for status toggle logic
+async function handleStatusToggle(data) {
+    if (!data) return;
+   
+    const { participantId, currentStatus, date, participantName } = data;
+    try {
+        const response = await fetchWithAuth(`/api/participation/${participantId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                date: date,
+                status: !currentStatus
+            })
+        });
+
+        // Rest of notification logic remains the same
+        const title = response.ok ? 'Status geändert' : 'Fehler';
+        const message = response.ok ?
+            ((!currentStatus) ? `${participantName} erfolgreich angemeldet` : `${participantName} erfolgreich abgemeldet`) :
+            `Status für ${participantName} konnte nicht geändert werden`;
+           
+        self.registration.showNotification(title, {
+            body: message,
+            tag: `status-change-${participantId}-${Date.now()}`,
+            requireInteraction: false
+        });
+    } catch (error) {
+        self.registration.showNotification('Netzwerkfehler', {
+            body: `Verbindung zum Server fehlgeschlagen für ${participantName}`,
+            tag: `status-change-error-${participantId}-${Date.now()}`,
+            requireInteraction: false
+        });
+    }
+}
+
+
+async function fetchWithAuth(url, options = {}) {
+    console.log('[SW][FETCH] Starting authenticated request to:', url);
+    
+    try {
+        // First try to get token from active clients (which check localStorage)
+        const clients = await self.clients.matchAll({
+            includeUncontrolled: true,
+            type: 'window'
+        });
+        console.log('[SW][FETCH] Found clients:', clients.length);
+        
+        if (clients.length > 0) {
+            const client = clients[0];
+            console.log('[SW][FETCH] Using client:', client.id);
+            
+            const messageChannel = new MessageChannel();
+            console.log('[SW][FETCH] Created message channel');
+            
+            const tokenData = await new Promise((resolve) => {
+                messageChannel.port1.onmessage = (event) => {
+                    console.log('[SW][FETCH] Received response from client:', event.data);
+                    resolve(event.data);
+                };
+                
+                console.log('[SW][FETCH] Sending GET_AUTH_TOKEN message to client');
+                client.postMessage({ type: 'GET_AUTH_TOKEN' }, [messageChannel.port2]);
+            });
+            
+            if (tokenData?.token) {
+                console.log('[SW][FETCH] Successfully received token from client');
+                
+                // Store token in SW cache for future use
+                const cache = await caches.open(AUTH_CACHE);
+                await cache.put('auth-token', new Response(JSON.stringify(tokenData)));
+                console.log('[SW][FETCH] Stored new token in cache');
+                
+                options.headers = {
+                    ...options.headers,
+                    'Authorization': `Bearer ${tokenData.token}`
+                };
+                return fetch(url, options);
+            }
+        }
+        
+        // If no token from client/localStorage, try SW cache
+        const cache = await caches.open(AUTH_CACHE);
+        const tokenResponse = await cache.match('static/auth-token');
+        
+        if (tokenResponse) {
+            const tokenData = await tokenResponse.json();
+            console.log('[SW][FETCH] Retrieved token from cache');
+            
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${tokenData.token}`
+            };
+            
+            console.log('[SW][FETCH] Sending authenticated request');
+            return fetch(url, options);
+        }
+        
+        console.log('[SW][FETCH] No valid token source found');
+        throw new Error('No authentication token available');
+        
+    } catch (error) {
+        console.error('[SW][FETCH] Error during authenticated request:', error);
+        throw error;
+    }
+}
+
+
 
 // Modern static asset handling
 async function handleStaticAsset(request) {

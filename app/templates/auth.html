@@ -363,4 +363,11 @@ window.handleLogout = async function() {
     }
 }
 
+navigator.serviceWorker.addEventListener('message', async (event) => {
+    if (event.data.type === 'GET_AUTH_TOKEN') {
+        const token = await window.getAuthToken();
+        event.ports[0].postMessage({ token });
+    }
+});
+
 </script>
