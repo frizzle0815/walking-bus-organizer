@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v8'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v9'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -32,9 +32,13 @@ self.addEventListener('install', (event) => {
     );
 });
 
+
 self.addEventListener('activate', (event) => {
     event.waitUntil(
-        self.clients.claim()
+        Promise.all([
+            self.clients.claim(),
+            self.registration.navigationPreload?.enable()
+        ])
     );
 });
 
@@ -112,6 +116,21 @@ self.addEventListener('message', (event) => {
         console.log('[SW] Unknown message type received:', event.data?.type);
     }
 });
+
+
+self.addEventListener('periodicsync', (event) => {
+    console.log('[SW][SYNC] Received sync event', event);
+    if (event.tag === 'keep-alive') {
+        event.waitUntil(
+            // Dummy Response ohne echten Netzwerkaufruf
+            Promise.resolve(new Response('', {
+                status: 204,
+                statusText: 'No Content'
+            }))
+        );
+    }
+});
+
 
 // Push message handler
 self.addEventListener('push', (event) => {

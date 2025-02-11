@@ -378,6 +378,20 @@ let authInitialized = false;
          try {
              const registration = await navigator.serviceWorker.register('/static/service-worker.js');
              console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+
+            // Dummy request to keep service-worker alive for android
+            if ('periodicSync' in registration) {
+                const status = await navigator.permissions.query({
+                    name: 'periodic-background-sync'
+                });
+                
+                if (status.state === 'granted') {
+                    await registration.periodicSync.register('keep-alive', {
+                        minInterval: 15 * 60 * 1000 // 15 Minuten
+                    });
+                    console.log('[BASE.HTML][SYNC] Periodic sync registered');
+                }
+            }
              
              // Log current service worker state
              console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');

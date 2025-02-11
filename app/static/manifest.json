@@ -17,7 +17,7 @@
             "type": "image/png"
         }
     ],
-    "permissions": ["push", "background-sync"],
+    "permissions": ["push", "background-sync", "wake-lock"],
     "related_applications": [],
     "prefer_related_applications": false
 }
