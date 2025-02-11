@@ -16,5 +16,8 @@
             "sizes": "512x512",
             "type": "image/png"
         }
-    ]
+    ],
+    "permissions": ["push", "background-sync"],
+    "related_applications": [],
+    "prefer_related_applications": false
 }
