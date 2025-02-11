@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v9'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v10'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -37,7 +37,8 @@ self.addEventListener('activate', (event) => {
     event.waitUntil(
         Promise.all([
             self.clients.claim(),
-            self.registration.navigationPreload?.enable()
+            self.registration.navigationPreload?.enable(),
+            checkAndRestoreSubscription()
         ])
     );
 });
@@ -298,6 +299,45 @@ async function fetchWithAuth(url, options = {}) {
     }
 }
 
+
+async function checkAndRestoreSubscription() {
+    console.log('[SW] Checking for existing subscription in database');
+    
+    try {
+        // Check if user had subscriptions (only need participantIds)
+        const response = await fetchWithAuth('/api/notifications/subscription');
+        const data = await response.json();
+        
+        if (data && data.participantIds && data.participantIds.length > 0) {
+            console.log('[SW] Found existing subscription data:', data);
+            
+            // Get VAPID key and create completely new subscription
+            const vapidResponse = await fetchWithAuth('/api/notifications/vapid-key');
+            const vapidKey = await vapidResponse.text();
+            
+            const subscription = await self.registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: vapidKey
+            });
+            
+            // Store new subscription (will get new endpoint)
+            await fetchWithAuth('/api/notifications/subscription', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    subscription: subscription,
+                    participantIds: data.participantIds
+                })
+            });
+            
+            console.log('[SW] Successfully restored push subscription');
+        }
+    } catch (error) {
+        console.error('[SW] Error restoring subscription:', error);
+    }
+}
 
 
 // Modern static asset handling

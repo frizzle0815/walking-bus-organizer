@@ -5,7 +5,7 @@ from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog
 from urllib.parse import urlparse
-from .. import get_or_generate_vapid_keys, get_current_date, WEEKDAY_MAPPING
+from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
 import os
 import re
 from datetime import datetime, timedelta
@@ -75,12 +75,19 @@ class PushService:
                 vapid_claims=vapid_claims
             )
 
+            enhanced_notification_data = notification_data.copy()
+            enhanced_notification_data['subscription_info'] = {
+                'endpoint': subscription.endpoint,
+                'client_info': subscription.auth_token.client_info
+            }
+
+            # Rest of the method remains the same until log creation
             log_entry = PushNotificationLog(
                 walking_bus_id=self.walking_bus_id,
                 subscription_id=subscription.id,
-                status_code=201,  # Successful push status
-                notification_type=notification_data.get('data', {}).get('type'),
-                notification_data=notification_data,
+                status_code=201,
+                notification_type=enhanced_notification_data.get('data', {}).get('type'),
+                notification_data=enhanced_notification_data,
                 success=True
             )
             db.session.add(log_entry)
@@ -97,13 +104,20 @@ class PushService:
             current_app.logger.error(f"[PUSH][ERROR] Full error details: {error_str}")
             
             # Log the error
+            enhanced_notification_data = notification_data.copy()
+            enhanced_notification_data['subscription_info'] = {
+                'endpoint': subscription.endpoint,
+                'client_info': subscription.auth_token.client_info
+            }
+            
+            # Log the error with enhanced data
             log_entry = PushNotificationLog(
                 walking_bus_id=self.walking_bus_id,
                 subscription_id=subscription.id,
                 status_code=status_code,
                 error_message=error_str,
-                notification_type=notification_data.get('data', {}).get('type'),
-                notification_data=notification_data,
+                notification_type=enhanced_notification_data.get('data', {}).get('type'),
+                notification_data=enhanced_notification_data,
                 success=False
             )
             db.session.add(log_entry)
@@ -219,14 +233,22 @@ class PushService:
             'cleanup': cleanup_result
         }
 
-
-
     def cleanup_expired_subscriptions(self):
-        """Clean up expired subscriptions and return count"""
+        """Clean up expired subscriptions and maintain complete logging history"""
         if not self.to_delete:
             return 0
             
         try:
+            # Mark notification logs for deleted subscriptions with timestamp
+            current_time = get_current_time()
+            log_update_count = PushNotificationLog.query.filter(
+                PushNotificationLog.subscription_id.in_(self.to_delete)
+            ).update({
+                PushNotificationLog.subscription_deleted_at: current_time
+            }, synchronize_session=False)
+            
+            current_app.logger.info(f"[PUSH][CLEANUP] Marked {log_update_count} notification logs for deleted subscriptions")
+
             # Delete subscriptions with detailed error handling
             deleted_count = PushSubscription.query.filter(
                 PushSubscription.id.in_(self.to_delete)
@@ -256,6 +278,7 @@ class PushService:
             return {
                 'deleted_count': deleted_count,
                 'remaining_count': remaining_count,
+                'log_updates': log_update_count,
                 'verification': {
                     'marked_for_deletion': len(self.to_delete),
                     'still_exist': still_exist
@@ -269,6 +292,7 @@ class PushService:
                 'error': str(e),
                 'deleted_count': 0
             }
+
 
     @staticmethod
     def _get_endpoint_origin(endpoint):

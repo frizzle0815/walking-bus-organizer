@@ -1,8 +1,8 @@
-"""Add PushNotificationLog table
+"""Add PushNotificationLog Table
 
-Revision ID: 91c17da85811
+Revision ID: 189570fda189
 Revises: d4cdeaa1542a
-Create Date: 2025-02-11 21:36:01.323020
+Create Date: 2025-02-11 22:19:34.359960
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '91c17da85811'
+revision = '189570fda189'
 down_revision = 'd4cdeaa1542a'
 branch_labels = None
 depends_on = None
@@ -21,14 +21,15 @@ def upgrade():
     op.create_table('push_notification_log',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('walking_bus_id', sa.Integer(), nullable=False),
-    sa.Column('subscription_id', sa.Integer(), nullable=False),
+    sa.Column('subscription_id', sa.Integer(), nullable=True),
     sa.Column('timestamp', sa.DateTime(), nullable=True),
     sa.Column('status_code', sa.Integer(), nullable=True),
     sa.Column('error_message', sa.String(length=500), nullable=True),
     sa.Column('notification_type', sa.String(length=50), nullable=True),
     sa.Column('notification_data', sa.JSON(), nullable=True),
     sa.Column('success', sa.Boolean(), nullable=True),
-    sa.ForeignKeyConstraint(['subscription_id'], ['push_subscription.id'], ),
+    sa.Column('subscription_deleted_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['subscription_id'], ['push_subscription.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['walking_bus_id'], ['walking_bus.id'], ),
     sa.PrimaryKeyConstraint('id')
     )

@@ -29,7 +29,7 @@
                         <tr>
                             <td>
                                 <i class="fas fa-mobile-alt me-2"></i>
-                                {{ sub.client_info }}
+                                {{ sub['platform'] }}
                             </td>
                             <td>
                                 {% if sub.is_active %}
@@ -96,6 +96,7 @@
                             <th>Typ</th>
                             <th>Status</th>
                             <th>Gerät</th>
+                            <th>Subscription Status</th>
                             <th>Details</th>
                         </tr>
                     </thead>
@@ -113,7 +114,20 @@
                                     <span class="badge bg-danger">Fehler ({{ log.status_code }})</span>
                                 {% endif %}
                             </td>
-                            <td>{{ log.subscription.auth_token.client_info }}</td>
+                            <td>
+                                {{ log.platform }}
+                            </td>
+                            <td>
+                                {% if log.subscription %}
+                                    {% if log.subscription_deleted_at %}
+                                        <span class="badge bg-danger">Gelöscht am {{ log.subscription_deleted_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Aktiv</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-danger">Gelöscht</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 <button class="btn btn-sm btn-outline-info" 
                                         data-bs-toggle="collapse" 
@@ -123,14 +137,15 @@
                             </td>
                         </tr>
                         <tr class="collapse" id="log-details-{{ log.id }}">
-                            <td colspan="5">
+                            <td colspan="6">
                                 <div class="card card-body bg-light">
                                     <small>
                                         <strong>Nachricht:</strong> {{ log.notification_data.body }}<br>
                                         {% if log.error_message %}
                                             <strong>Fehler:</strong> {{ log.error_message }}<br>
                                         {% endif %}
-                                        <strong>Endpoint:</strong> {{ log.subscription.endpoint }}
+                                        <strong>Endpoint:</strong> {{ log.historical_endpoint }}<br>
+                                        <strong>Gerät:</strong> {{ log.historical_client_info }}
                                     </small>
                                 </div>
                             </td>
@@ -142,5 +157,6 @@
         </div>
     </div>
     {% endfor %}
+    
 </div>
 {% endblock %}

@@ -88,18 +88,34 @@ def notifications_view():
         stations=stations
     )
 
+def get_platform(user_agent):
+    if not user_agent:
+        return 'Unknown'
+        
+    platforms = {
+        'Windows': 'Windows',
+        'Android': 'Android',
+        'iPhone': 'iOS',
+        'iPad': 'iOS',
+        'Macintosh': 'macOS',
+        'Linux': 'Linux'
+    }
+    
+    for key, value in platforms.items():
+        if key in user_agent:
+            return value
+    return 'Unknown'
 
 @bp.route("/subscriptions")
-@require_auth
 def subscription_overview():
     total_subs = PushSubscription.query.count()
     current_app.logger.info(f"[SUBS][VIEW] Total subscriptions found: {total_subs}")
-    # Get all walking buses
-    walking_buses = WalkingBus.query.all()
     
+    walking_buses = WalkingBus.query.all()
     grouped_subscriptions = {}
     all_participants = {}
     all_auth_tokens = {}
+    grouped_logs = {}
     
     for bus in walking_buses:
         # Get subscriptions for this bus
@@ -137,7 +153,7 @@ def subscription_overview():
                 'endpoint': sub.endpoint,
                 'created_at': sub.created_at,
                 'last_used': token.last_used if token else None,
-                'client_info': token.client_info if token else 'Unknown',
+                'platform': get_platform(token.client_info) if token else 'Unknown',
                 'participants': participant_names,
                 'is_active': token.is_active if token else False
             })
@@ -146,22 +162,40 @@ def subscription_overview():
             'bus_name': bus.name,
             'subscriptions': subscription_data
         }
-
-        grouped_logs = {}
-        for bus in walking_buses:
-            # Get logs for this bus from the last 7 days
-            cutoff_date = datetime.now() - timedelta(days=7)
-            logs = PushNotificationLog.query\
-                .filter_by(walking_bus_id=bus.id)\
-                .filter(PushNotificationLog.timestamp >= cutoff_date)\
-                .order_by(PushNotificationLog.timestamp.desc())\
-                .all()
-                
-            grouped_logs[bus.id] = {
-                'bus_name': bus.name,
-                'logs': logs
-            }
         
+        # Get logs for this bus from the last 7 days
+        cutoff_date = datetime.now() - timedelta(days=7)
+        logs = PushNotificationLog.query\
+            .filter_by(walking_bus_id=bus.id)\
+            .filter(PushNotificationLog.timestamp >= cutoff_date)\
+            .order_by(PushNotificationLog.timestamp.desc())\
+            .all()
+
+        for log in logs:
+            if log.subscription and log.subscription.auth_token:
+                # For active subscriptions
+                client_info = log.subscription.auth_token.client_info
+                log.platform = get_platform(client_info)
+                log.historical_endpoint = log.subscription.endpoint
+                log.historical_client_info = get_platform(client_info)
+            elif log.notification_data and 'subscription_info' in log.notification_data:
+                # For deleted subscriptions
+                subscription_info = log.notification_data['subscription_info']
+                client_info = subscription_info['client_info']
+                log.platform = get_platform(client_info)
+                log.historical_endpoint = subscription_info['endpoint']
+                log.historical_client_info = get_platform(client_info)
+            else:
+                # Fallback
+                log.platform = 'Unknown'
+                log.historical_endpoint = 'Unknown'
+                log.historical_client_info = 'Unknown'
+
+        grouped_logs[bus.id] = {
+            'bus_name': bus.name,
+            'logs': logs
+        }
+    
     return render_template(
         'subscriptions.html',
         grouped_subscriptions=grouped_subscriptions,
@@ -256,25 +290,7 @@ def delete_temp_token(token):
 @require_auth
 def list_auth_tokens():
     tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
-    
-    def get_platform(user_agent):
-        if not user_agent:
-            return 'Unknown'
-            
-        platforms = {
-            'Windows': 'Windows',
-            'Android': 'Android',
-            'iPhone': 'iOS',
-            'iPad': 'iOS',
-            'Macintosh': 'macOS',
-            'Linux': 'Linux'
-        }
-        
-        for key, value in platforms.items():
-            if key in user_agent:
-                return value
-        return 'Unknown'
-    
+       
     # Create a new list with enhanced token objects
     enhanced_tokens = []
     for token in tokens:
