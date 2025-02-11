@@ -4,6 +4,7 @@ from app.services.push_service import PushService
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ProcessPoolExecutor
+from apscheduler.jobstores.base import JobLookupError
 from datetime import datetime, timedelta
 import pytz
 import logging
@@ -102,7 +103,10 @@ def update_walking_bus_notifications(app, walking_bus_id=None):
                 # Remove job if day is inactive
                 if not getattr(schedule, day):
                     logger.info(f"[SCHEDULER] Removing job for inactive day: {job_id}")
-                    scheduler.remove_job(job_id)
+                    try:
+                        scheduler.remove_job(job_id)
+                    except JobLookupError:
+                        logger.debug(f"Job {job_id} was not found - already removed or never existed")
                     SchedulerJob.query.filter_by(job_id=job_id).delete()
                     continue
                     

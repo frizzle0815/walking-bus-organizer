@@ -12,7 +12,7 @@ from .models import (
     SchoolHoliday, WalkingBusOverride, 
     DailyNote, TempToken, AuthToken,
     Weather, WeatherCalculation,
-    PushSubscription
+    PushSubscription, SchedulerJob
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -162,6 +162,32 @@ def share():
                          token_count=token_data['count'],
                          max_tokens=token_data['max'])
 
+@bp.route("/scheduler")
+@require_auth
+def scheduler_view():
+    # Get all scheduler jobs from database
+    jobs = SchedulerJob.query.order_by(SchedulerJob.next_run_time).all()
+    
+    # Group jobs by walking bus
+    grouped_jobs = {}
+    for job in jobs:
+        if job.walking_bus_id not in grouped_jobs:
+            grouped_jobs[job.walking_bus_id] = {
+                'bus_name': job.walking_bus.name,
+                'jobs': []
+            }
+        
+        # Parse job_id to get day info (format: notify_bus_1_monday)
+        day = job.job_id.split('_')[-1].capitalize()
+        
+        grouped_jobs[job.walking_bus_id]['jobs'].append({
+            'id': job.job_id,
+            'day': day,
+            'next_run': job.next_run_time,
+            'type': job.job_type
+        })
+    
+    return render_template('scheduler.html', grouped_jobs=grouped_jobs)
 
 @bp.route("/api/temp-tokens")
 @require_auth

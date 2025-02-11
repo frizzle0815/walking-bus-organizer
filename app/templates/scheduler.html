@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Active Scheduler Jobs</h2>
+    
+    {% for bus_id, bus_data in grouped_jobs.items() %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h3>{{ bus_data.bus_name }}</h3>
+        </div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Day</th>
+                        <th>Job Type</th>
+                        <th>Next Run</th>
+                        <th>Job ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for job in bus_data.jobs %}
+                    <tr>
+                        <td>{{ job.day }}</td>
+                        <td>{{ job.type }}</td>
+                        <td>{{ job.next_run.strftime('%d.%m.%Y %H:%M') if job.next_run else 'Not scheduled' }}</td>
+                        <td><small class="text-muted">{{ job.id }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        No active scheduler jobs found.
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
