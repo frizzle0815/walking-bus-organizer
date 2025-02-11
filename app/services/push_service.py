@@ -3,7 +3,7 @@ import json
 import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
-from ..models import db, PushSubscription
+from ..models import db, PushSubscription, Participant
 from urllib.parse import urlparse
 
 
@@ -66,6 +66,55 @@ class PushService:
                 current_app.logger.info(f"[PUSH][DELETE] Marked subscription {subscription.id} for deletion")
             
             return False, str(e)
+
+    def prepare_schedule_notifications(self):
+        """Prepare and send individual schedule notifications for each participant"""
+        subscriptions = self.get_subscriptions()
+        results = []
+        
+        for subscription in subscriptions:
+            participants = Participant.query.filter(
+                Participant.id.in_(subscription.participant_ids),
+                Participant.walking_bus_id == self.walking_bus_id
+            ).all()
+            
+            for participant in participants:
+                status_message = (
+                    f"{participant.name} ist für heute angemeldet" 
+                    if participant.status_today 
+                    else f"{participant.name} ist für heute abgemeldet"
+                )
+                
+                notification_data = {
+                    'title': 'Walking Bus Status',
+                    'body': status_message,
+                    'data': {
+                        'type': 'schedule_reminder',
+                        'participantId': participant.id
+                    },
+                    'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
+                    'actions': [{
+                        'action': 'okay',
+                        'title': 'OK'
+                    }],
+                    'requireInteraction': True
+                }
+                
+                success, error = self.send_notification(subscription, notification_data)
+                results.append({
+                    'subscription_id': subscription.id,
+                    'participant': participant.name,
+                    'status': 'attending' if participant.status_today else 'not_attending',
+                    'success': success,
+                    'error': error
+                })
+        
+        cleanup_result = self.cleanup_expired_subscriptions()
+        
+        return {
+            'notifications_sent': results,
+            'cleanup': cleanup_result
+        }
 
     def cleanup_expired_subscriptions(self):
         """Clean up expired subscriptions and return count"""

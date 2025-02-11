@@ -1782,7 +1782,7 @@ def update_schedule():
     walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     
-    current_app.logger.info("[SCHEDULE] Starting schedule update")
+    current_app.logger.info(f"[SCHEDULE] Starting schedule update for bus {walking_bus_id}")
     
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     if not schedule:
@@ -1810,10 +1810,14 @@ def update_schedule():
             setattr(schedule, f"{day}_end", end)
     
     db.session.commit()
-    current_app.logger.info("[SCHEDULE] Schedule update completed")
+    current_app.logger.info(f"[SCHEDULE] Schedule update completed for bus {walking_bus_id}")
+    
+    # Notify scheduler service via Redis
+    redis_client.publish('schedule_updates', json.dumps({
+        'bus_id': walking_bus_id
+    }))
     
     return jsonify({"success": True})
-
 
 
 @bp.route("/api/calendar-status", methods=["POST"])
