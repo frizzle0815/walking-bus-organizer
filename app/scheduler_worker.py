@@ -18,6 +18,7 @@ logger = logging.getLogger('scheduler')
 # Global scheduler instance
 scheduler = None
 
+
 def init_scheduler(app):
     """Initialize the APScheduler with database job store"""
     global scheduler
@@ -43,6 +44,7 @@ def init_scheduler(app):
     
     return scheduler
 
+
 def init_redis_listener(app):
     """Initialize Redis listener for schedule changes"""
     redis_url = os.environ.get('REDIS_URL')
@@ -52,6 +54,15 @@ def init_redis_listener(app):
     pubsub = redis_client.pubsub()
     pubsub.subscribe('schedule_updates')
     return pubsub
+
+
+def initialize_all_schedules():
+    """Load and initialize all existing schedules on startup"""
+    with app.app_context():
+        buses = WalkingBus.query.all()
+        for bus in buses:
+            update_walking_bus_notifications(app, bus.id)
+
 
 def handle_schedule_change(app, data):
     """Process schedule change notification"""
@@ -141,7 +152,6 @@ def update_walking_bus_notifications(app, walking_bus_id=None):
     logger.info("[SCHEDULER] Finished update_walking_bus_notifications")
 
 
-
 def send_walking_bus_notifications(bus_id):
     """Execute notifications for a specific walking bus"""
     logger.info(f"[SCHEDULER] Starting notifications for bus {bus_id}")
@@ -163,6 +173,7 @@ def send_walking_bus_notifications(bus_id):
             logger.error(f"[SCHEDULER] Error sending notifications for bus {bus_id}: {str(e)}")
             raise
 
+
 if __name__ == '__main__':
     # Create Flask app instance with enhanced configuration
     app = create_app()
@@ -173,6 +184,7 @@ if __name__ == '__main__':
             scheduler = init_scheduler(app)
             scheduler.start()
             logger.info('Scheduler started successfully')
+            initialize_all_schedules()
             
             # Initialize Redis listener
             pubsub = init_redis_listener(app)
