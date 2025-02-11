@@ -213,3 +213,18 @@ class SchedulerJob(db.Model):
     job_type = db.Column(db.String(50))  # e.g., 'notification'
     
     walking_bus = db.relationship('WalkingBus', backref='scheduler_jobs')
+
+
+class PushNotificationLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    subscription_id = db.Column(db.Integer, db.ForeignKey('push_subscription.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=get_current_time)
+    status_code = db.Column(db.Integer, nullable=True)
+    error_message = db.Column(db.String(500), nullable=True)
+    notification_type = db.Column(db.String(50))  # 'schedule', 'broadcast', etc.
+    notification_data = db.Column(db.JSON)
+    success = db.Column(db.Boolean, default=False)
+    
+    # Relationships
+    subscription = db.relationship('PushSubscription', backref='notification_logs')

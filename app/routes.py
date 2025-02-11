@@ -12,7 +12,8 @@ from .models import (
     SchoolHoliday, WalkingBusOverride, 
     DailyNote, TempToken, AuthToken,
     Weather, WeatherCalculation,
-    PushSubscription, SchedulerJob
+    PushSubscription, SchedulerJob,
+    PushNotificationLog
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -145,10 +146,26 @@ def subscription_overview():
             'bus_name': bus.name,
             'subscriptions': subscription_data
         }
+
+        grouped_logs = {}
+        for bus in walking_buses:
+            # Get logs for this bus from the last 7 days
+            cutoff_date = datetime.now() - timedelta(days=7)
+            logs = PushNotificationLog.query\
+                .filter_by(walking_bus_id=bus.id)\
+                .filter(PushNotificationLog.timestamp >= cutoff_date)\
+                .order_by(PushNotificationLog.timestamp.desc())\
+                .all()
+                
+            grouped_logs[bus.id] = {
+                'bus_name': bus.name,
+                'logs': logs
+            }
         
     return render_template(
-        'subscriptions.html', 
-        grouped_subscriptions=grouped_subscriptions
+        'subscriptions.html',
+        grouped_subscriptions=grouped_subscriptions,
+        grouped_logs=grouped_logs
     )
 
 

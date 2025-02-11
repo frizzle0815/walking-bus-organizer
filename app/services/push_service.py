@@ -3,10 +3,12 @@ import json
 import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
-from ..models import db, PushSubscription, Participant, CalendarStatus
+from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, WEEKDAY_MAPPING
 import os
+import re
+from datetime import datetime, timedelta
 
 # Static configuration at module level
 vapid_keys = get_or_generate_vapid_keys()
@@ -45,6 +47,8 @@ class PushService:
 
     def send_notification(self, subscription, notification_data):
         """Send single push notification with error handling"""
+        # First clean up old logs
+        self.cleanup_old_logs()
         try:
             # Log attempt
             current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
@@ -70,24 +74,75 @@ class PushService:
                 vapid_private_key=self.vapid_private_key,
                 vapid_claims=vapid_claims
             )
+
+            log_entry = PushNotificationLog(
+                walking_bus_id=self.walking_bus_id,
+                subscription_id=subscription.id,
+                status_code=201,  # Successful push status
+                notification_type=notification_data.get('data', {}).get('type'),
+                notification_data=notification_data,
+                success=True
+            )
+            db.session.add(log_entry)
+            db.session.commit()
             
             current_app.logger.info(f"[PUSH][SUCCESS] Sent notification to endpoint: {subscription.endpoint}")
             return True, None
 
         except WebPushException as e:
             error_str = str(e)
+            status_match = re.search(r'(\d{3})\s+', error_str)
+            status_code = int(status_match.group(1)) if status_match else None
+            
             current_app.logger.error(f"[PUSH][ERROR] Full error details: {error_str}")
             
-            if "410" in error_str:
-                status_code = 410
-                error_body = error_str.split("Response body:", 1)[1].strip() if "Response body:" in error_str else "Unknown"
-                current_app.logger.error(f"[PUSH][ERROR] Parsed status code: {status_code}")
-                current_app.logger.error(f"[PUSH][ERROR] Parsed error body: {error_body}")
-                
+            # Log the error
+            log_entry = PushNotificationLog(
+                walking_bus_id=self.walking_bus_id,
+                subscription_id=subscription.id,
+                status_code=status_code,
+                error_message=error_str,
+                notification_type=notification_data.get('data', {}).get('type'),
+                notification_data=notification_data,
+                success=False
+            )
+            db.session.add(log_entry)
+            db.session.commit()
+
+            # Handle specific status codes
+            if status_code in (404, 410):
+                # Subscription is expired or gone - mark for deletion
                 self.to_delete.add(subscription.id)
-                current_app.logger.info(f"[PUSH][DELETE] Marked subscription {subscription.id} for deletion")
-            
+                current_app.logger.info(f"[PUSH][DELETE] Marked subscription {subscription.id} for deletion - Status: {status_code}")
+                
+            elif status_code == 400:
+                # Invalid request - likely VAPID issue
+                self.to_delete.add(subscription.id)
+                current_app.logger.error(f"[PUSH][ERROR] Invalid request for subscription {subscription.id} - VAPID may be invalid")
+                
+            elif status_code == 429:
+                # Rate limit hit - extract retry after header
+                retry_after = e.response.headers.get('Retry-After', '60')
+                current_app.logger.warning(f"[PUSH][RATE_LIMIT] Rate limit hit. Retry after {retry_after} seconds")
+                
+            elif status_code == 413:
+                # Payload too large
+                current_app.logger.error(f"[PUSH][ERROR] Payload too large ({len(json.dumps(notification_data))} bytes)")
+
             return False, str(e)
+
+    def cleanup_old_logs(self):
+        """Delete push notification logs older than 7 days"""
+        cutoff_date = datetime.now() - timedelta(days=7)
+        
+        deleted_count = PushNotificationLog.query.filter(
+            PushNotificationLog.walking_bus_id == self.walking_bus_id,
+            PushNotificationLog.timestamp < cutoff_date
+        ).delete(synchronize_session=False)
+        
+        db.session.commit()
+        current_app.logger.info(f"[PUSH][CLEANUP] Deleted {deleted_count} old notification logs")
+        return deleted_count
 
     def prepare_schedule_notifications(self):
         """Prepare and send individual schedule notifications for each participant"""

@@ -76,5 +76,71 @@
         </div>
     </div>
     {% endfor %}
+
+    <!-- Push Notification Logs -->
+    {% for bus_id, bus_data in grouped_logs.items() %}
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                Push Benachrichtigungen für {{ bus_data.bus_name }}
+                <small class="text-muted">(Bus ID: {{ bus_id }})</small>
+            </h5>
+            <span class="badge bg-info">{{ bus_data.logs|length }} Einträge</span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Zeitpunkt</th>
+                            <th>Typ</th>
+                            <th>Status</th>
+                            <th>Gerät</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in bus_data.logs %}
+                        <tr>
+                            <td>{{ log.timestamp.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                <span class="badge bg-secondary">{{ log.notification_type }}</span>
+                            </td>
+                            <td>
+                                {% if log.success %}
+                                    <span class="badge bg-success">Erfolgreich (201)</span>
+                                {% else %}
+                                    <span class="badge bg-danger">Fehler ({{ log.status_code }})</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ log.subscription.auth_token.client_info }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" 
+                                        data-bs-toggle="collapse" 
+                                        data-bs-target="#log-details-{{ log.id }}">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <tr class="collapse" id="log-details-{{ log.id }}">
+                            <td colspan="5">
+                                <div class="card card-body bg-light">
+                                    <small>
+                                        <strong>Nachricht:</strong> {{ log.notification_data.body }}<br>
+                                        {% if log.error_message %}
+                                            <strong>Fehler:</strong> {{ log.error_message }}<br>
+                                        {% endif %}
+                                        <strong>Endpoint:</strong> {{ log.subscription.endpoint }}
+                                    </small>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 {% endblock %}
