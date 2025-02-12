@@ -195,7 +195,7 @@ class PushSubscription(db.Model):
     participant_ids = db.Column(db.JSON, nullable=False, default=list)  # Store list of participant IDs
     is_active = db.Column(db.Boolean, default=True)
     paused_at = db.Column(db.DateTime, nullable=True)
-    pause_reason = db.Column(db.String(100), nullable=True)
+    pause_reason = db.Column(db.String(500), nullable=True)
     last_error_code = db.Column(db.Integer, nullable=True)
     
     # Relationships

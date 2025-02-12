@@ -1310,25 +1310,25 @@ def create_push_subscription():
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
     
-    # Find existing subscriptions for this token_identifier
-    existing_subscriptions = PushSubscription.query.filter_by(
-        token_identifier=auth_token.token_identifier
-    ).all()
+    # Find existing subscriptions
+    existing_subscription = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id
+    ).first()
     
-    # Update existing subscriptions instead of deleting
-    for old_sub in existing_subscriptions:
-        old_sub.endpoint = subscription['endpoint']
-        old_sub.p256dh = subscription['keys']['p256dh']
-        old_sub.auth = subscription['keys']['auth']
-        old_sub.participant_ids = participant_ids
-        old_sub.is_active = True  # Reactivate if it was paused
-        old_sub.paused_at = None  # Clear pause timestamp
-        old_sub.pause_reason = None  # Clear pause reason
-        old_sub.last_error_code = None  # Clear error code
-    
-    # Only create new if none exist
-    if not existing_subscriptions:
-        push_subscription = PushSubscription(
+    if existing_subscription:
+        # Update existing subscription
+        existing_subscription.endpoint = subscription['endpoint']
+        existing_subscription.p256dh = subscription['keys']['p256dh']
+        existing_subscription.auth = subscription['keys']['auth']
+        existing_subscription.participant_ids = participant_ids
+        existing_subscription.is_active = True  # Reactivate
+        existing_subscription.paused_at = None  # Clear pause timestamp
+        existing_subscription.pause_reason = None  # Clear pause reason
+        existing_subscription.last_error_code = None  # Clear error code
+    else:
+        # Create new subscription
+        new_subscription = PushSubscription(
             token_identifier=auth_token.token_identifier,
             endpoint=subscription['endpoint'],
             p256dh=subscription['keys']['p256dh'],
@@ -1337,7 +1337,7 @@ def create_push_subscription():
             participant_ids=participant_ids,
             is_active=True
         )
-        db.session.add(push_subscription)
+        db.session.add(new_subscription)
     
     try:
         db.session.commit()
@@ -1381,12 +1381,10 @@ def cleanup_duplicate_subscriptions():
 @bp.route('/api/notifications/subscription', methods=['GET'])
 @require_auth
 def get_subscription_details():
-    # Get current context
     walking_bus_id = get_current_walking_bus_id()
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
 
-    # Find user-specific subscription
     subscription = PushSubscription.query.filter_by(
         token_identifier=auth_token.token_identifier,
         walking_bus_id=walking_bus_id
@@ -1399,7 +1397,8 @@ def get_subscription_details():
                 'keys': {
                     'p256dh': subscription.p256dh,
                     'auth': subscription.auth
-                }
+                },
+                'is_active': subscription.is_active
             },
             'participantIds': subscription.participant_ids
         })

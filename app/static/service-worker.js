@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v10'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v11'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -304,14 +304,15 @@ async function checkAndRestoreSubscription() {
     console.log('[SW] Checking for existing subscription in database');
     
     try {
-        // Check if user had subscriptions (only need participantIds)
+        // Check if user had subscriptions
         const response = await fetchWithAuth('/api/notifications/subscription');
         const data = await response.json();
         
-        if (data && data.participantIds && data.participantIds.length > 0) {
-            console.log('[SW] Found existing subscription data:', data);
+        // Add check for subscription status
+        if (data && data.subscription && !data.subscription.is_active) {
+            console.log('[SW] Found paused subscription, attempting to restore');
             
-            // Get VAPID key and create completely new subscription
+            // Get VAPID key and create new subscription
             const vapidResponse = await fetchWithAuth('/api/notifications/vapid-key');
             const vapidKey = await vapidResponse.text();
             
@@ -320,7 +321,7 @@ async function checkAndRestoreSubscription() {
                 applicationServerKey: vapidKey
             });
             
-            // Store new subscription (will get new endpoint)
+            // Store new subscription with existing participantIds
             await fetchWithAuth('/api/notifications/subscription', {
                 method: 'POST',
                 headers: {
@@ -333,6 +334,8 @@ async function checkAndRestoreSubscription() {
             });
             
             console.log('[SW] Successfully restored push subscription');
+        } else if (data && data.participantIds && data.participantIds.length > 0) {
+            console.log('[SW] Found active subscription, no restoration needed');
         }
     } catch (error) {
         console.error('[SW] Error restoring subscription:', error);

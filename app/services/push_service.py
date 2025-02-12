@@ -40,11 +40,16 @@ class PushService:
 
     def get_subscriptions(self):
         """Get all subscriptions for current walking bus"""
-        subscriptions = PushSubscription.query.filter_by(
+        all_subscriptions = PushSubscription.query.filter_by(
             walking_bus_id=self.walking_bus_id
         ).all()
-        current_app.logger.info(f"[PUSH][SUBS] Found {len(subscriptions)} total subscriptions")
-        return subscriptions
+        
+        active_subscriptions = [s for s in all_subscriptions if s.is_active]
+        
+        current_app.logger.info(f"[PUSH][SUBS] Found {len(all_subscriptions)} total subscriptions")
+        current_app.logger.info(f"[PUSH][SUBS] Active: {len(active_subscriptions)} | Paused: {len(all_subscriptions) - len(active_subscriptions)}")
+        
+        return all_subscriptions
 
     def send_notification(self, subscription, notification_data):
         """Send single push notification with error handling"""
@@ -135,6 +140,7 @@ class PushService:
                 subscription.paused_at = get_current_time()
                 subscription.pause_reason = error_str
                 subscription.last_error_code = status_code
+                db.session.commit()
                 current_app.logger.info(f"[PUSH][PAUSE] Subscription {subscription.id} paused - Status: {status_code}")
                 
             elif status_code == 400:
@@ -143,6 +149,7 @@ class PushService:
                 subscription.paused_at = get_current_time()
                 subscription.pause_reason = error_str
                 subscription.last_error_code = status_code
+                db.session.commit()
                 current_app.logger.error(f"[PUSH][PAUSE] Invalid request for subscription {subscription.id} - VAPID may be invalid - Subscription paused - Status: {status_code}")
                 
             elif status_code == 429:

@@ -41,16 +41,6 @@
                 </li>
             </ul>
         </div>
-        <div class="card-body">
-            <div class="d-flex align-items-center mb-4">
-                <button id="toggleNotifications" class="btn btn-primary me-3">
-                    <i class="fas fa-bell me-2"></i>
-                    <span class="status-text">Benachrichtigungen aktivieren</span>
-                </button>
-                <div id="subscriptionStatus" class="text-muted"></div>
-            </div>
-        </div>
-    </div>
 
     <!-- Participant Selection -->
     <div class="card">
@@ -482,8 +472,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateStatusElement(
             notificationCheckElement,
             notificationPermission,
-            'Benachrichtigungen sind aktiviert',
-            'Benachrichtigungen müssen noch erlaubt werden'
+            'Berechtigung für Benachrichtigungen wurde erteilt.',
+            'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
         );
 
         // Add change listeners to all participant checkboxes
@@ -516,7 +506,12 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
         const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
             .map(cb => parseInt(cb.value));
 
-        // New explicit handling for complete unsubscribe
+        // Check notification permission first
+        if (Notification.permission === 'denied') {
+            showToast('Benachrichtigungen sind blockiert. Bitte erlauben Sie Benachrichtigungen in Ihren Browser-Einstellungen.', 'error');
+            return;
+        }
+
         if (selectedIds.length === 0 && pendingChanges.size > 0) {
             console.log('[NOTI.HTML] Removing all subscriptions');
             await notificationManager.unsubscribeFromPush();
@@ -539,29 +534,17 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
 
 // Check PWA status with iOS support
 function checkPWAStatus() {
-    // iOS detection including iPad
-    const isIOSSafari = (/iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase())
-                         || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
-                         && /apple/i.test(navigator.vendor);
-
-    // iOS PWA detection
-    const isIOSPWA = isIOSSafari && window.navigator.standalone === true;
-
-    // Standard PWA detection
-    const isStandardPWA = window.matchMedia('(display-mode: standalone)').matches;
-
-    const status = {
-        isInstalled: isIOSPWA || isStandardPWA
-    };
-
-    console.log('[PWA Status]', {
-        isIOSSafari,
-        isIOSPWA,
-        isStandardPWA,
-        finalStatus: status.isInstalled
-    });
-
-    return status;
+    // Standard PWA detection (Android/Desktop)
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        return { isInstalled: true };
+    }
+    
+    // iOS "Add to Home Screen" detection
+    if (window.navigator.standalone) {
+        return { isInstalled: true };
+    }
+    
+    return { isInstalled: false };
 }
 
 
@@ -569,7 +552,15 @@ function updateStatusElement(element, status, successText, failureText) {
     const iconSpan = element.querySelector('.status-icon');
     const textSpan = element.querySelector('.flex-grow-1');
 
-    // Handle PWA installation status
+    // Log the incoming status for debugging
+    if (status === 'installed' || status === 'notInstalled') {
+        console.log('[PERMISSIONS] PWA status check:', status);
+    } else {
+        console.log('[PERMISSIONS] Notification status check:', status);
+        console.log('[PERMISSIONS] System notification permission:', Notification.permission);
+    }
+
+    // Handle PWA installation status first
     if (status === 'installed' || status === 'notInstalled') {
         iconSpan.innerHTML = status === 'installed' 
             ? '<i class="fas fa-check-circle text-success"></i>'
@@ -582,45 +573,61 @@ function updateStatusElement(element, status, successText, failureText) {
     switch(status) {
         case 'needsInstall':
             iconSpan.innerHTML = '<i class="fas fa-exclamation-circle text-warning"></i>';
-            textSpan.textContent = 'App muss dem Home-Bildschirm hinzugefügt werden';
+            textSpan.textContent = 'Bitte erst installieren.';
             break;
+            
         case 'unsupported':
             iconSpan.innerHTML = '<i class="fas fa-times-circle text-danger"></i>';
             textSpan.textContent = 'Benachrichtigungen werden nicht unterstützt';
             break;
+            
         case 'granted':
             iconSpan.innerHTML = '<i class="fas fa-check-circle text-success"></i>';
             textSpan.textContent = successText;
             break;
+            
+        case 'denied':
+            iconSpan.innerHTML = '<i class="fas fa-times-circle text-warning"></i>';
+            textSpan.innerHTML = `
+            <div class="text-danger mb-3">Benachrichtigungen wurden blockiert. Die Einstellung muss manuell wie folgt geändert werden:</div>
+            
+            <div class="platform-instructions">
+                <div class="platform mb-3">
+                    <h6 class="fw-bold">iOS</h6>
+                    <div class="ms-3">
+                        Einstellungen > Datenschutz & Sicherheit > WalkBus
+                    </div>
+                </div>
+                
+                <div class="platform">
+                    <h6 class="fw-bold">Android</h6>
+                    <div class="ms-3">
+                        Einstellungen > Apps > WalkBus > Berechtigungen
+                    </div>
+                </div>
+            </div>`;
+        break;
+            
         default:
             iconSpan.innerHTML = '<i class="fas fa-exclamation-circle text-warning"></i>';
-            textSpan.textContent = failureText;
+            textSpan.innerHTML = 'Berechtigung fehlt. Wähle unten einen Teilnehmer, klicke "Änderungen speichern" und erlaube in der folgenden Abfrage die Benachrichtigungen.';
     }
 }
 
-async function checkNotificationPermission() {
-    // First check if we're in iOS standalone mode
-    const isIOSPWA = window.navigator.standalone;
-    const isIOSSafari = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) 
-                       && !window.MSStream;
 
-    console.log('[NOTI.HTML] Permission Check Environment:', {
-        isIOSPWA,
-        isIOSSafari,
-        hasNotificationAPI: 'Notification' in window
-    });
-
-    // If on iOS but not installed as PWA, return 'needsInstall'
-    if (isIOSSafari && !isIOSPWA) {
+function checkNotificationPermission() {
+    // First check if PWA is installed
+    if (!checkPWAStatus().isInstalled) {
         return 'needsInstall';
     }
 
-    // Standard permission check
+    // Check if notifications are supported
     if (!('Notification' in window)) {
         return 'unsupported';
     }
 
-    return Notification.permission;
+    // Return actual permission status
+    return Notification.permission; // returns 'granted', 'denied' or 'default'
 }
 
 function showToast(message, type) {
