@@ -165,19 +165,8 @@ def send_walking_bus_notifications(bus_id):
 
     with app.app_context():
         try:
-            # Load VAPID keys before initializing push service
-            from app import get_or_generate_vapid_keys
-            vapid_keys = get_or_generate_vapid_keys()
-            
-            # Update VAPID config with fresh keys
-            from app.services.push_service import VAPID_CONFIG
-            VAPID_CONFIG.update({
-                'private_key': vapid_keys['private_key'],
-                'public_key': vapid_keys['public_key'],
-                'claims': {
-                    "sub": f"mailto:{app.config['VAPID_EMAIL']}"
-                }
-            })
+            from app.services.push_service import get_vapid_config
+            VAPID_CONFIG = get_vapid_config()
             
             logger.info(f"[SCHEDULER] VAPID configuration loaded: {VAPID_CONFIG}")
             

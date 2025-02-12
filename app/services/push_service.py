@@ -13,13 +13,19 @@ from datetime import datetime, timedelta
 
 # Static configuration at module level
 vapid_keys = get_or_generate_vapid_keys()
-VAPID_CONFIG = {
-    'private_key': vapid_keys['private_key'],
-    'public_key': vapid_keys['public_key'],
-    'claims': {
-        "sub": f"mailto:{os.getenv('VAPID_EMAIL', 'default@example.com')}"
+
+def get_vapid_config():
+    vapid_keys = get_or_generate_vapid_keys()
+    return {
+        'private_key': vapid_keys['private_key'],
+        'public_key': vapid_keys['public_key'],
+        'claims': {
+            "sub": f"mailto:{os.getenv('VAPID_EMAIL', 'default@example.com')}"
+        }
     }
-}
+
+
+VAPID_CONFIG = get_vapid_config()
 
 
 class PushService:
