@@ -155,7 +155,10 @@ def subscription_overview():
                 'last_used': token.last_used if token else None,
                 'platform': get_platform(token.client_info) if token else 'Unknown',
                 'participants': participant_names,
-                'is_active': token.is_active if token else False
+                'is_active': sub.is_active,
+                'paused_at': sub.paused_at,
+                'pause_reason': sub.pause_reason,
+                'last_error_code': sub.last_error_code
             })
             
         grouped_subscriptions[bus.id] = {
@@ -1304,28 +1307,37 @@ def create_push_subscription():
     subscription = data['subscription']
     participant_ids = data['participantIds']
     
-    # Get current auth token
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
     
-    # Deactivate all existing subscriptions for this token_identifier
+    # Find existing subscriptions for this token_identifier
     existing_subscriptions = PushSubscription.query.filter_by(
         token_identifier=auth_token.token_identifier
     ).all()
     
+    # Update existing subscriptions instead of deleting
     for old_sub in existing_subscriptions:
-        db.session.delete(old_sub)
+        old_sub.endpoint = subscription['endpoint']
+        old_sub.p256dh = subscription['keys']['p256dh']
+        old_sub.auth = subscription['keys']['auth']
+        old_sub.participant_ids = participant_ids
+        old_sub.is_active = True  # Reactivate if it was paused
+        old_sub.paused_at = None  # Clear pause timestamp
+        old_sub.pause_reason = None  # Clear pause reason
+        old_sub.last_error_code = None  # Clear error code
     
-    # Create new subscription
-    push_subscription = PushSubscription(
-        token_identifier=auth_token.token_identifier,
-        endpoint=subscription['endpoint'],
-        p256dh=subscription['keys']['p256dh'],
-        auth=subscription['keys']['auth'],
-        walking_bus_id=walking_bus_id,
-        participant_ids=participant_ids
-    )
-    db.session.add(push_subscription)
+    # Only create new if none exist
+    if not existing_subscriptions:
+        push_subscription = PushSubscription(
+            token_identifier=auth_token.token_identifier,
+            endpoint=subscription['endpoint'],
+            p256dh=subscription['keys']['p256dh'],
+            auth=subscription['keys']['auth'],
+            walking_bus_id=walking_bus_id,
+            participant_ids=participant_ids,
+            is_active=True
+        )
+        db.session.add(push_subscription)
     
     try:
         db.session.commit()
@@ -1399,11 +1411,28 @@ def get_subscription_details():
 @require_auth
 def delete_push_subscription():
     walking_bus_id = get_current_walking_bus_id()
-    endpoint = request.json['endpoint']
-    
-    # Get current auth token from request
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+
+    # Handle complete removal case
+    if request.json.get('complete_removal'):
+        current_app.logger.info(f"[NOTI] Processing complete subscription removal for token {auth_token.token_identifier}")
+        
+        subscriptions = PushSubscription.query.filter_by(
+            token_identifier=auth_token.token_identifier,
+            walking_bus_id=walking_bus_id
+        ).all()
+        
+        for subscription in subscriptions:
+            db.session.delete(subscription)
+        
+        db.session.commit()
+        current_app.logger.info(f"[NOTI] Removed {len(subscriptions)} subscriptions")
+        return jsonify({'status': 'success', 'removed_count': len(subscriptions)})
+
+    # Handle single subscription removal
+    endpoint = request.json['endpoint']
+    user_initiated = request.json.get('user_initiated', False)
     
     subscription = PushSubscription.query.filter_by(
         endpoint=endpoint,
@@ -1412,10 +1441,18 @@ def delete_push_subscription():
     ).first()
     
     if subscription:
-        db.session.delete(subscription)
+        if user_initiated:
+            db.session.delete(subscription)
+            current_app.logger.info(f"[NOTI] User initiated deletion of subscription {subscription.id}")
+        else:
+            subscription.is_active = False
+            subscription.paused_at = get_current_time()
+            current_app.logger.info(f"[NOTI] System paused subscription {subscription.id}")
+        
         db.session.commit()
     
     return jsonify({'status': 'success'})
+
 
 
 @bp.route('/api/notifications/test', methods=['POST'])

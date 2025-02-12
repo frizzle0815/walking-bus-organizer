@@ -33,9 +33,25 @@
                             </td>
                             <td>
                                 {% if sub.is_active %}
-                                    <span class="badge bg-success">Aktiv</span>
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-check-circle me-1"></i>
+                                        Aktiv
+                                    </span>
                                 {% else %}
-                                    <span class="badge bg-danger">Inaktiv</span>
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="fas fa-pause-circle me-1"></i>
+                                        Pausiert
+                                        {% if sub.last_error_code %}
+                                            <br>
+                                            <small>
+                                                Fehler {{ sub.last_error_code }}
+                                                {% if sub.paused_at %}
+                                                    <br>
+                                                    Seit: {{ sub.paused_at.strftime('%d.%m.%Y %H:%M') }}
+                                                {% endif %}
+                                            </small>
+                                        {% endif %}
+                                    </span>
                                 {% endif %}
                             </td>
                             <td>

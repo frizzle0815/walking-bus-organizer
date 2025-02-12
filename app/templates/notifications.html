@@ -91,6 +91,12 @@
                     Keine Stationen oder Teilnehmer gefunden.
                 </div>
             {% endif %}
+
+            <div class="d-grid gap-2 mt-3">
+                <button id="saveSubscriptions" class="btn btn-primary" disabled>
+                    <i class="fas fa-save me-2"></i>Änderungen speichern
+                </button>
+            </div>
             
         </div>
     </div>
@@ -128,6 +134,8 @@
 
 
 <script>
+let pendingChanges = new Set(); // Track changed participant IDs
+
 class NotificationManager {
     constructor() {
         this.vapidPublicKey = null;
@@ -389,26 +397,43 @@ class NotificationManager {
     }
 
     async unsubscribeFromPush() {
+        console.log('[NOTI.HTML] Starting complete unsubscription');
+        
         if ('serviceWorker' in navigator) {
-            const activeWorker = await initializeServiceWorker();
-            const registration = await navigator.serviceWorker.ready;
+            // Initialize service worker first
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            
+            // Wait for activation
+            if (registration.installing) {
+                await new Promise(resolve => {
+                    registration.installing.addEventListener('statechange', e => {
+                        if (e.target.state === 'activated') resolve();
+                    });
+                });
+            }
+            
+            // Get current subscription
             const subscription = await registration.pushManager.getSubscription();
             
             if (subscription) {
+                // Browser-side unsubscribe
                 await subscription.unsubscribe();
-                
-                await fetchWithAuth('/api/notifications/subscription', {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        endpoint: subscription.endpoint
-                    })
-                });
-                
-                return true;
+                console.log('[NOTI.HTML] Browser subscription removed');
             }
+            
+            // Server-side cleanup - now without requiring participant IDs
+            await fetchWithAuth('/api/notifications/subscription', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    complete_removal: true  // New flag to indicate complete removal
+                })
+            });
+            
+            console.log('[NOTI.HTML] Server-side subscriptions removed');
+            return true;
         }
         return false;
     }
@@ -479,31 +504,51 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Add change listeners to all participant checkboxes
         document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', async () => {
-                console.log('[NOTI.HTML] Checkbox changed');
-                const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
-                    .map(cb => parseInt(cb.value));
+            checkbox.addEventListener('change', () => {
+                console.log('[NOTI.HTML] Checkbox changed, tracking for save');
+                pendingChanges.add(parseInt(checkbox.value));
                 
-                try {
-                    if (selectedIds.length > 0) {
-                        console.log('[NOTI.HTML] Updating subscription with:', selectedIds);
-                        await notificationManager.subscribeUserToPush(selectedIds);
-                        showToast('Einstellungen aktualisiert', 'success');
-                    } else {
-                        console.log('[NOTI.HTML] Unsubscribing - no participants selected');
-                        await notificationManager.unsubscribeFromPush();
-                        showToast('Benachrichtigungen deaktiviert', 'info');
-                    }
-                } catch (error) {
-                    console.error('[NOTI.HTML] Error updating subscription:', error);
-                    showToast('Fehler beim Aktualisieren', 'error');
-                }
+                // Enable save button and show pending changes
+                const saveButton = document.getElementById('saveSubscriptions');
+                saveButton.disabled = false;
+                // showToast('Änderungen noch nicht gespeichert', 'info');
             });
         });
 
     } catch (error) {
         console.error('[NOTI.HTML] Initialization error:', error);
         showToast('Fehler bei der Initialisierung', 'error');
+    }
+});
+
+
+document.getElementById('saveSubscriptions').addEventListener('click', async () => {
+    if (pendingChanges.size === 0) {
+        showToast('Keine Änderungen vorhanden', 'info');
+        return;
+    }
+
+    try {
+        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+
+        // New explicit handling for complete unsubscribe
+        if (selectedIds.length === 0 && pendingChanges.size > 0) {
+            console.log('[NOTI.HTML] Removing all subscriptions');
+            await notificationManager.unsubscribeFromPush();
+            showToast('Alle Benachrichtigungen deaktiviert', 'info');
+        } else if (selectedIds.length > 0) {
+            console.log('[NOTI.HTML] Updating subscriptions with:', selectedIds);
+            await notificationManager.subscribeUserToPush(selectedIds);
+            showToast('Einstellungen gespeichert', 'success');
+        }
+
+        pendingChanges.clear();
+        document.getElementById('saveSubscriptions').disabled = true;
+
+    } catch (error) {
+        console.error('[NOTI.HTML] Error saving changes:', error);
+        showToast('Fehler beim Speichern', 'error');
     }
 });
 

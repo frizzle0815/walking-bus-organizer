@@ -3,6 +3,7 @@ import json
 import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import or_, and_
 from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
@@ -49,6 +50,10 @@ class PushService:
         """Send single push notification with error handling"""
         # First clean up old logs
         self.cleanup_old_logs()
+
+        if not subscription.is_active:
+            return False, "Subscription is paused"
+
         try:
             # Log attempt
             current_app.logger.info(f"[PUSH][ATTEMPT] Sending to endpoint: {subscription.endpoint}")
@@ -126,13 +131,19 @@ class PushService:
             # Handle specific status codes
             if status_code in (404, 410):
                 # Subscription is expired or gone - mark for deletion
-                self.to_delete.add(subscription.id)
-                current_app.logger.info(f"[PUSH][DELETE] Marked subscription {subscription.id} for deletion - Status: {status_code}")
+                subscription.is_active = False
+                subscription.paused_at = get_current_time()
+                subscription.pause_reason = error_str
+                subscription.last_error_code = status_code
+                current_app.logger.info(f"[PUSH][PAUSE] Subscription {subscription.id} paused - Status: {status_code}")
                 
             elif status_code == 400:
                 # Invalid request - likely VAPID issue
-                self.to_delete.add(subscription.id)
-                current_app.logger.error(f"[PUSH][ERROR] Invalid request for subscription {subscription.id} - VAPID may be invalid")
+                subscription.is_active = False
+                subscription.paused_at = get_current_time()
+                subscription.pause_reason = error_str
+                subscription.last_error_code = status_code
+                current_app.logger.error(f"[PUSH][PAUSE] Invalid request for subscription {subscription.id} - VAPID may be invalid - Subscription paused - Status: {status_code}")
                 
             elif status_code == 429:
                 # Rate limit hit - extract retry after header
@@ -234,57 +245,68 @@ class PushService:
         }
 
     def cleanup_expired_subscriptions(self):
-        """Clean up expired subscriptions and maintain complete logging history"""
-        if not self.to_delete:
-            return 0
-            
+        """Clean up subscriptions that are either user-deleted or paused for >30 days"""
         try:
-            # Mark notification logs for deleted subscriptions with timestamp
             current_time = get_current_time()
+            thirty_days_ago = current_time - timedelta(days=30)
+
+            # Find subscriptions to delete
+            expired_subscriptions = PushSubscription.query.filter(
+                or_(
+                    # User initiated deletions (from unsubscribeFromPush)
+                    PushSubscription.id.in_(self.to_delete),
+                    # Subscriptions paused more than 30 days ago
+                    and_(
+                        PushSubscription.is_active == False,
+                        PushSubscription.paused_at <= thirty_days_ago
+                    )
+                )
+            ).all()
+
+            subscription_ids = [sub.id for sub in expired_subscriptions]
+            
+            if not subscription_ids:
+                return {'deleted_count': 0, 'remaining_count': PushSubscription.query.count()}
+
+            # Update logs first
             log_update_count = PushNotificationLog.query.filter(
-                PushNotificationLog.subscription_id.in_(self.to_delete)
+                PushNotificationLog.subscription_id.in_(subscription_ids)
             ).update({
                 PushNotificationLog.subscription_deleted_at: current_time
             }, synchronize_session=False)
-            
+
             current_app.logger.info(f"[PUSH][CLEANUP] Marked {log_update_count} notification logs for deleted subscriptions")
 
-            # Delete subscriptions with detailed error handling
+            # Delete the subscriptions
             deleted_count = PushSubscription.query.filter(
-                PushSubscription.id.in_(self.to_delete)
+                PushSubscription.id.in_(subscription_ids)
             ).delete(synchronize_session=False)
+
+            current_app.logger.info(f"[PUSH][CLEANUP] Deleted {deleted_count} expired subscriptions")
             
-            # Log deletion details
-            current_app.logger.info(f"[PUSH][CLEANUP] Attempting to delete {len(self.to_delete)} subscriptions")
-            current_app.logger.info(f"[PUSH][CLEANUP] Actually deleted {deleted_count} subscriptions")
-            
-            # Commit changes
             db.session.commit()
-            
-            # Verify deletion with remaining count
+
+            # Verification
             remaining_count = PushSubscription.query.count()
-            current_app.logger.info(f"[PUSH][VERIFY] Remaining subscriptions in database: {remaining_count}")
-            
-            # Additional verification of deleted IDs
             still_exist = PushSubscription.query.filter(
-                PushSubscription.id.in_(self.to_delete)
+                PushSubscription.id.in_(subscription_ids)
             ).count()
-            
+
             if still_exist:
                 current_app.logger.warning(
                     f"[PUSH][CLEANUP] Warning: {still_exist} marked subscriptions still exist"
                 )
-            
+
             return {
                 'deleted_count': deleted_count,
                 'remaining_count': remaining_count,
                 'log_updates': log_update_count,
                 'verification': {
-                    'marked_for_deletion': len(self.to_delete),
+                    'marked_for_deletion': len(subscription_ids),
                     'still_exist': still_exist
                 }
             }
-                
+
         except SQLAlchemyError as e:
             db.session.rollback()
             current_app.logger.error(f"[PUSH][CLEANUP_ERROR] Failed to delete: {str(e)}")

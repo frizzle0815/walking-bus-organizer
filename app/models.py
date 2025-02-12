@@ -193,6 +193,10 @@ class PushSubscription(db.Model):
     created_at = db.Column(db.DateTime, default=get_current_time)
     walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
     participant_ids = db.Column(db.JSON, nullable=False, default=list)  # Store list of participant IDs
+    is_active = db.Column(db.Boolean, default=True)
+    paused_at = db.Column(db.DateTime, nullable=True)
+    pause_reason = db.Column(db.String(100), nullable=True)
+    last_error_code = db.Column(db.Integer, nullable=True)
     
     # Relationships
     auth_token = db.relationship('AuthToken', backref=db.backref('push_subscriptions', lazy=True))
