@@ -111,7 +111,7 @@ def subscription_overview():
     total_subs = PushSubscription.query.count()
     current_app.logger.info(f"[SUBS][VIEW] Total subscriptions found: {total_subs}")
     
-    walking_buses = WalkingBus.query.all()
+    walking_buses = WalkingBus.query.order_by(WalkingBus.id).all()
     grouped_subscriptions = {}
     all_participants = {}
     all_auth_tokens = {}
@@ -1516,7 +1516,10 @@ def broadcast_notification():
     walking_bus_id = get_current_walking_bus_id()
     push_service = PushService(walking_bus_id)
     
-    message = request.json.get('message', '').strip()
+    data = request.json
+    message = data.get('message', '').strip()
+    target_bus_id = data.get('target_bus_id')
+    
     if not message:
         return jsonify({'error': 'Message cannot be empty'}), 400
 
@@ -1538,7 +1541,12 @@ def broadcast_notification():
         'requireInteraction': True
     }
 
-    for subscription in push_service.get_subscriptions():
+    # Get subscriptions based on target
+    subscriptions = push_service.get_subscriptions()
+    if target_bus_id:
+        subscriptions = [s for s in subscriptions if s.walking_bus_id == target_bus_id]
+
+    for subscription in subscriptions:
         success, error = push_service.send_notification(subscription, notification_data)
         results.append({
             'endpoint': subscription.endpoint,
@@ -1553,8 +1561,6 @@ def broadcast_notification():
         'results': results,
         'cleanup': cleanup_result
     })
-
-
 
 
 #####################################################

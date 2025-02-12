@@ -2,6 +2,37 @@
 
 {% block content %}
 <div class="container-fluid mt-4">
+
+    <!-- Broadcast Message -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Broadcast Nachricht</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="broadcastTarget" class="form-label">Empfänger auswählen</label>
+                <select class="form-select mb-3" id="broadcastTarget">
+                    <option value="all">An Alle</option>
+                    {% for bus_id, bus_data in grouped_subscriptions.items() %}
+                        <option value="{{ bus_id }}">{{ bus_data.bus_name }} ({{ bus_data.subscriptions|length }} Geräte)</option>
+                    {% endfor %}
+                </select>
+                <label for="broadcastMessage" class="form-label">Nachricht an ausgewählte Geräte senden</label>
+                <textarea class="form-control" id="broadcastMessage" rows="3" placeholder="Geben Sie Ihre Nachricht ein..."></textarea>
+            </div>
+            <button id="sendBroadcast" class="btn btn-primary">
+                <i class="fas fa-broadcast-tower me-2"></i>Nachricht senden
+            </button>
+        </div>
+    </div>
+
+    <!-- Subscriptions -->
+
+    <h2 class="mt-5 mb-4">
+        <i class="fas fa-bell me-2"></i>
+        Aktive Geräte-Registrierungen
+    </h2>
+
     {% for bus_id, bus_data in grouped_subscriptions.items() %}
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -13,7 +44,7 @@
         </div>
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover table-sm">
                     <thead>
                         <tr>
                             <th>Gerät/Browser</th>
@@ -94,6 +125,12 @@
     {% endfor %}
 
     <!-- Push Notification Logs -->
+
+    <h2 class="mt-5 mb-4">
+        <i class="fas fa-history me-2"></i>
+        Benachrichtigungsverlauf
+    </h2>
+
     {% for bus_id, bus_data in grouped_logs.items() %}
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -105,7 +142,7 @@
         </div>
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover table-sm">
                     <thead>
                         <tr>
                             <th>Zeitpunkt</th>
@@ -175,4 +212,39 @@
     {% endfor %}
     
 </div>
+<script>
+document.getElementById('sendBroadcast').addEventListener('click', async () => {
+    const message = document.getElementById('broadcastMessage').value.trim();
+    const target = document.getElementById('broadcastTarget').value;
+    
+    if (!message) {
+        alert('Bitte geben Sie eine Nachricht ein');
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth('/api/notifications/broadcast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                message,
+                target_bus_id: target === 'all' ? null : parseInt(target)
+            })
+        });
+
+        if (response.ok) {
+            alert('Nachricht wurde gesendet');
+            document.getElementById('broadcastMessage').value = '';
+        } else {
+            throw new Error('Fehler beim Senden der Nachricht');
+        }
+    } catch (error) {
+        alert('Fehler beim Senden der Nachricht');
+        console.error(error);
+    }
+});
+</script>
 {% endblock %}
+

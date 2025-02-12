@@ -114,22 +114,6 @@
         </div>
     </div>
 
-    <!-- Broadcast Message -->
-    <div class="card mt-4">
-        <div class="card-header">
-            <h5 class="mb-0">Broadcast Nachricht</h5>
-        </div>
-        <div class="card-body">
-            <div class="mb-3">
-                <label for="broadcastMessage" class="form-label">Nachricht</label>
-                <textarea class="form-control" id="broadcastMessage" rows="3" placeholder="Geben Sie Ihre Nachricht ein..."></textarea>
-            </div>
-            <button id="sendBroadcast" class="btn btn-primary">
-                <i class="fas fa-broadcast-tower me-2"></i>Nachricht senden
-            </button>
-        </div>
-    </div>
-
 </div>
 
 
@@ -695,34 +679,6 @@ document.getElementById('testNotification').addEventListener('click', async () =
     }
 });
 
-document.getElementById('sendBroadcast').addEventListener('click', async () => {
-    const message = document.getElementById('broadcastMessage').value.trim();
-    
-    if (!message) {
-        showToast('Bitte geben Sie eine Nachricht ein', 'info');
-        return;
-    }
-
-    try {
-        const response = await fetchWithAuth('/api/notifications/broadcast', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ message })
-        });
-
-        if (response.ok) {
-            showToast('Nachricht wurde gesendet', 'success');
-            document.getElementById('broadcastMessage').value = '';
-        } else {
-            throw new Error('Fehler beim Senden der Nachricht');
-        }
-    } catch (error) {
-        showToast('Fehler beim Senden der Nachricht', 'error');
-        console.error(error);
-    }
-});
 
 </script>
 {% endblock %}
