@@ -233,3 +233,4 @@ class PushNotificationLog(db.Model):
     
     # Relationships
     subscription = db.relationship('PushSubscription', backref='notification_logs')
+

@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v11'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v16'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -48,7 +48,28 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('message', (event) => {
     console.log('[SW] Received message event:', event.data?.type);
 
-    if (event.data?.type === 'STORE_AUTH_TOKEN') {
+    if (event.data?.type === 'CHECK_SUBSCRIPTION') {
+        event.waitUntil(checkAndRestoreSubscription());
+
+    } else if (event.data?.type === 'GET_AUTH_TOKEN') {
+        console.log('[SW] Processing token retrieval request');
+        
+        // Only check the service worker cache
+        getTokenFromCache()
+            .then(token => {
+                console.log('[SW] Cache token retrieval completed:', token ? 'Found' : 'Not found');
+                if (event.ports?.[0]) {
+                    event.ports[0].postMessage({ token });
+                }
+            })
+            .catch(error => {
+                console.error('[SW] Cache token retrieval error:', error);
+                if (event.ports?.[0]) {
+                    event.ports[0].postMessage({ token: null, error: error.message });
+                }
+            });
+
+    } else if (event.data?.type === 'STORE_AUTH_TOKEN') {
         console.log('[SW] Processing token storage');
         
         caches.open(AUTH_CACHE)
@@ -229,74 +250,81 @@ async function handleStatusToggle(data) {
 }
 
 
-async function fetchWithAuth(url, options = {}) {
-    console.log('[SW][FETCH] Starting authenticated request to:', url);
+async function getTokenFromIndexedDB() {
+    console.log('[SW][AUTH][IndexedDB] Attempting to retrieve token');
+    const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('WalkingBusAuth', 1);
+        request.onerror = () => {
+            console.error('[SW][AUTH][IndexedDB] Error opening database:', request.error);
+            reject(request.error);
+        }
+        request.onsuccess = () => {
+            console.log('[SW][AUTH][IndexedDB] Database opened successfully');
+            resolve(request.result);
+        }
+    });
     
-    try {
-        // First try to get token from active clients (which check localStorage)
-        const clients = await self.clients.matchAll({
-            includeUncontrolled: true,
-            type: 'window'
-        });
-        console.log('[SW][FETCH] Found clients:', clients.length);
-        
-        if (clients.length > 0) {
-            const client = clients[0];
-            console.log('[SW][FETCH] Using client:', client.id);
-            
-            const messageChannel = new MessageChannel();
-            console.log('[SW][FETCH] Created message channel');
-            
-            const tokenData = await new Promise((resolve) => {
-                messageChannel.port1.onmessage = (event) => {
-                    console.log('[SW][FETCH] Received response from client:', event.data);
-                    resolve(event.data);
-                };
-                
-                console.log('[SW][FETCH] Sending GET_AUTH_TOKEN message to client');
-                client.postMessage({ type: 'GET_AUTH_TOKEN' }, [messageChannel.port2]);
-            });
-            
-            if (tokenData?.token) {
-                console.log('[SW][FETCH] Successfully received token from client');
-                
-                // Store token in SW cache for future use
-                const cache = await caches.open(AUTH_CACHE);
-                await cache.put('auth-token', new Response(JSON.stringify(tokenData)));
-                console.log('[SW][FETCH] Stored new token in cache');
-                
-                options.headers = {
-                    ...options.headers,
-                    'Authorization': `Bearer ${tokenData.token}`
-                };
-                return fetch(url, options);
-            }
-        }
-        
-        // If no token from client/localStorage, try SW cache
-        const cache = await caches.open(AUTH_CACHE);
-        const tokenResponse = await cache.match('static/auth-token');
-        
-        if (tokenResponse) {
-            const tokenData = await tokenResponse.json();
-            console.log('[SW][FETCH] Retrieved token from cache');
-            
-            options.headers = {
-                ...options.headers,
-                'Authorization': `Bearer ${tokenData.token}`
-            };
-            
-            console.log('[SW][FETCH] Sending authenticated request');
-            return fetch(url, options);
-        }
-        
-        console.log('[SW][FETCH] No valid token source found');
-        throw new Error('No authentication token available');
-        
-    } catch (error) {
-        console.error('[SW][FETCH] Error during authenticated request:', error);
-        throw error;
+    const tx = db.transaction('tokens', 'readonly');
+    const store = tx.objectStore('tokens');
+    const tokenData = await store.get('current-token');
+    console.log('[SW][AUTH][IndexedDB] Token retrieved:', tokenData ? 'Found' : 'Not found');
+    return tokenData?.token;
+}
+
+function getTokenFromLocalStorage() {
+    console.log('[SW][AUTH][LocalStorage] Attempting to retrieve token');
+    const token = self.localStorage?.getItem('auth_token');
+    console.log('[SW][AUTH][LocalStorage] Token retrieved:', token ? 'Found' : 'Not found');
+    return token;
+}
+
+async function getTokenFromCache() {
+    console.log('[SW][AUTH][Cache] Attempting to retrieve token');
+    const cache = await caches.open('walking-bus-auth-v1');
+    const response = await cache.match('auth-token');
+    if (response) {
+        const data = await response.json();
+        console.log('[SW][AUTH][Cache] Token found in cache');
+        return data.token;
     }
+    console.log('[SW][AUTH][Cache] No token found in cache');
+    return null;
+}
+
+
+async function fetchWithAuth(url, options = {}) {
+    console.log('[SW][AUTH][FETCH] Starting authenticated request');
+    
+    let token;
+    
+    // Try IndexedDB first
+    token = await getTokenFromIndexedDB();
+    if (!token) {
+        // If no token in IndexedDB, try localStorage
+        token = getTokenFromLocalStorage();
+        if (!token) {
+            // Last resort: check cache
+            token = await getTokenFromCache();
+        }
+    }
+
+    if (!token) {
+        throw new Error('[SW][AUTH][FETCH] No authentication token available');
+    }
+
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            ...options.headers,
+            'Authorization': `Bearer ${token}`
+        }
+    });
+
+    if (response.status === 401) {
+        throw new Error('[SW][AUTH][FETCH] Authentication failed');
+    }
+
+    return response;
 }
 
 
@@ -304,6 +332,17 @@ async function checkAndRestoreSubscription() {
     console.log('[SW] Checking for existing subscription in database');
     
     try {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check if we have a token before proceeding
+        const token = await getTokenFromIndexedDB() || 
+                     getTokenFromLocalStorage() || 
+                     await getTokenFromCache();
+                     
+        if (!token) {
+            console.log('[SW] No auth token available yet, skipping subscription check');
+            return;
+        }
         // Check if user had subscriptions
         const response = await fetchWithAuth('/api/notifications/subscription');
         const data = await response.json();

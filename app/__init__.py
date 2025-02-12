@@ -92,23 +92,39 @@ def verify_vapid_keys(keys):
         return False
 
 def get_or_generate_vapid_keys():
-    key_path = os.getenv('VAPID_KEY_STORAGE', './data/vapid_keys.json')
+    import logging
+    logger = logging.getLogger('vapid')
     
-    # Versuche, bestehende Schlüssel zu laden
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    key_path = os.getenv('VAPID_KEY_STORAGE', 
+                        os.path.join(base_dir, 'data', 'vapid_keys.json'))
+    
+    logger.info(f"[INIT.PY][VAPID] Looking for keys at: {key_path}")
+
+    # Try to load existing keys
     if os.path.exists(key_path):
+        logger.info(f"[INIT.PY][VAPID] Found existing key file")
         with open(key_path, 'r') as f:
             keys = json.load(f)
             if verify_vapid_keys(keys):
+                logger.info(f"[INIT.PY][VAPID] Successfully loaded and verified existing keys")
                 return keys
-    
-    # Generiere neue Schlüssel, wenn das Laden oder Verifizieren fehlschlägt
+            else:
+                logger.warning(f"[INIT.PY][VAPID] Key verification failed for existing keys")
+    else:
+        logger.warning(f"[INIT.PY][VAPID] No existing key file found at {key_path}")
+
+    # Generate new keys if loading or verification fails
+    logger.info(f"[INIT.PY][VAPID] Generating new keys")
     keys = generate_vapid_keys()
     os.makedirs(os.path.dirname(key_path), exist_ok=True)
-    
+
     with open(key_path, 'w') as f:
         json.dump(keys, f)
     
+    logger.info(f"[INIT.PY][VAPID] New keys generated and saved to {key_path}")
     return keys
+
 
 def get_git_revision():
     # First check for build-time revision file

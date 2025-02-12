@@ -53,6 +53,7 @@ class PushService:
 
     def send_notification(self, subscription, notification_data):
         """Send single push notification with error handling"""
+        vapid_keys = get_or_generate_vapid_keys()
         # First clean up old logs
         self.cleanup_old_logs()
 
@@ -81,7 +82,7 @@ class PushService:
                     }
                 },
                 data=json.dumps(notification_data),
-                vapid_private_key=self.vapid_private_key,
+                vapid_private_key=vapid_keys['private_key'],
                 vapid_claims=vapid_claims
             )
 
@@ -113,14 +114,14 @@ class PushService:
             
             current_app.logger.error(f"[PUSH][ERROR] Full error details: {error_str}")
             
-            # Log the error
+            # Log the error with enhanced data
             enhanced_notification_data = notification_data.copy()
             enhanced_notification_data['subscription_info'] = {
                 'endpoint': subscription.endpoint,
                 'client_info': subscription.auth_token.client_info
             }
             
-            # Log the error with enhanced data
+            # Create error log entry
             log_entry = PushNotificationLog(
                 walking_bus_id=self.walking_bus_id,
                 subscription_id=subscription.id,
@@ -133,32 +134,21 @@ class PushService:
             db.session.add(log_entry)
             db.session.commit()
 
-            # Handle specific status codes
-            if status_code in (404, 410):
-                # Subscription is expired or gone - mark for deletion
+            # Default behavior: Pause subscription for any error code
+            # except specific ones that need different handling
+            if status_code not in (429, 413):
                 subscription.is_active = False
                 subscription.paused_at = get_current_time()
                 subscription.pause_reason = error_str
                 subscription.last_error_code = status_code
                 db.session.commit()
                 current_app.logger.info(f"[PUSH][PAUSE] Subscription {subscription.id} paused - Status: {status_code}")
-                
-            elif status_code == 400:
-                # Invalid request - likely VAPID issue
-                subscription.is_active = False
-                subscription.paused_at = get_current_time()
-                subscription.pause_reason = error_str
-                subscription.last_error_code = status_code
-                db.session.commit()
-                current_app.logger.error(f"[PUSH][PAUSE] Invalid request for subscription {subscription.id} - VAPID may be invalid - Subscription paused - Status: {status_code}")
-                
-            elif status_code == 429:
-                # Rate limit hit - extract retry after header
+            
+            # Handle special cases
+            if status_code == 429:
                 retry_after = e.response.headers.get('Retry-After', '60')
                 current_app.logger.warning(f"[PUSH][RATE_LIMIT] Rate limit hit. Retry after {retry_after} seconds")
-                
             elif status_code == 413:
-                # Payload too large
                 current_app.logger.error(f"[PUSH][ERROR] Payload too large ({len(json.dumps(notification_data))} bytes)")
 
             return False, str(e)

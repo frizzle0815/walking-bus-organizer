@@ -1,29 +1,43 @@
 <!DOCTYPE html>
 <html lang="de">
-<head>
-    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <meta name="theme-color" content="#414141">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }}</title>
-    <!-- Open Graph Meta Tags -->
-    <meta property="og:title" content="{{ title }}">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="{{ request.url }}">
-    <meta property="og:image" content="{{ url_for('static', filename='icons/icon-og.png', _external=True) }}">
-    <meta property="og:description" content="Plane deinen Walking Bus">
-    <meta property="og:site_name" content="Walking Bus Organizer">
-
-    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/favicon.ico') }}">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-</head>
+    <head>
+        <!-- PWA and Meta Tags -->
+        <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+        <meta name="theme-color" content="#414141">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black">
+        <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ title }}</title>
+    
+        <!-- Open Graph Meta Tags -->
+        <meta property="og:title" content="{{ title }}">
+        <meta property="og:type" content="website">
+        <meta property="og:url" content="{{ request.url }}">
+        <meta property="og:image" content="{{ url_for('static', filename='icons/icon-og.png', _external=True) }}">
+        <meta property="og:description" content="Plane deinen Walking Bus">
+        <meta property="og:site_name" content="Walking Bus Organizer">
+    
+        <!-- Favicon -->
+        <link rel="shortcut icon" href="{{ url_for('static', filename='icons/favicon.ico') }}">
+    
+        <!-- Stylesheets -->
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+        <!-- Core Dependencies -->
+        <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+        <!-- Auth System - Must load before other scripts -->
+        {% include 'auth.html' %}
+    
+        <!-- Page Specific Scripts -->
+        {% block page_scripts %}{% endblock %}
+    </head>
 <body>
  {% if not hide_menu %}
  <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
@@ -368,7 +382,6 @@
 
 
   </style>
-{% include 'auth.html' %}
 <script>
 let authInitialized = false;
 
@@ -376,8 +389,26 @@ let authInitialized = false;
  async function registerServiceWorker() {
      if ('serviceWorker' in navigator) {
          try {
-             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
+
+            // Wait for activation if installing
+            if (registration.installing) {
+                await new Promise(resolve => {
+                    registration.installing.addEventListener('statechange', e => {
+                        if (e.target.state === 'activated') {
+                            console.log('[BASE.HTML][SW] Service Worker activated');
+                            resolve();
+                        }
+                    });
+                });
+            }
+
+            // Now safely send message to activated worker
+            const messageChannel = new MessageChannel();
+            registration.active.postMessage({
+                type: 'CHECK_SUBSCRIPTION'
+            }, [messageChannel.port2]);
 
             // Dummy request to keep service-worker alive for android
             if ('periodicSync' in registration) {
@@ -609,7 +640,5 @@ function SSE_updateTimeDisplay(time) {
      }
  });
 </script>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
