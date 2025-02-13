@@ -47,6 +47,7 @@
                 <table class="table table-hover table-sm">
                     <thead>
                         <tr>
+                            <th>ID</th>
                             <th>Gerät/Browser</th>
                             <th>Status</th>
                             <th>Teilnehmer</th>
@@ -58,6 +59,9 @@
                     <tbody>
                         {% for sub in bus_data.subscriptions %}
                         <tr>
+                            <td>
+                                <span class="badge bg-secondary">{{ sub.token_identifier[:4] }}</span>
+                            </td>
                             <td>
                                 <i class="fas fa-mobile-alt me-2"></i>
                                 {{ sub['platform'] }}
@@ -145,6 +149,7 @@
                 <table class="table table-hover table-sm">
                     <thead>
                         <tr>
+                            <th>ID</th>
                             <th>Zeitpunkt</th>
                             <th>Typ</th>
                             <th>Status</th>
@@ -156,6 +161,13 @@
                     <tbody>
                         {% for log in bus_data.logs %}
                         <tr>
+                            <td>
+                                {% if log.subscription %}
+                                    <span class="badge bg-secondary">{{ log.subscription.token_identifier[:4] }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">gelöscht</span>
+                                {% endif %}
+                            </td>
                             <td>{{ log.timestamp.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>
                                 <span class="badge bg-secondary">{{ log.notification_type }}</span>
