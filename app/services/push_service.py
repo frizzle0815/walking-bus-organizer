@@ -4,7 +4,7 @@ import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_
-from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken
+from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken, WeatherCalculation
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
 import os
@@ -201,10 +201,24 @@ class PushService:
                     # Determine actual status from calendar entry or default weekday setting
                     is_attending = calendar_entry.status if calendar_entry else normally_attends
                     
+                    # Get weather calculation for today
+                    weather_info = WeatherCalculation.query.filter_by(
+                        walking_bus_id=self.walking_bus_id,
+                        date=target_date
+                    ).first()
+
+                    # Prepare weather message
+                    weather_message = "Heute bleibt es trocken ☀️"
+                    if weather_info:
+                        if weather_info.precipitation > 0.5:
+                            weather_message = f"Heute wird starker Regen erwartet 🌧️ ({weather_info.precipitation:.1f}mm)"
+                        elif weather_info.precipitation > 0:
+                            weather_message = f"Heute wird leichter Regen erwartet 🌦️ ({weather_info.precipitation:.1f}mm)"
+
                     status_message = (
-                        f"{participant.name} ist für heute ✅ angemeldet ✅"
+                        f"{participant.name} ist für heute angemeldet ✅\n\n{weather_message}"
                         if is_attending
-                        else f"{participant.name} ist für heute ❌ abgemeldet ❌"
+                        else f"{participant.name} ist für heute abgemeldet ❌\n\n{weather_message}"
                     )
                     
                     notification_data = {
