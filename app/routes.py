@@ -2748,24 +2748,36 @@ def login():
 
 @bp.route("/logout")
 def logout():
-    # Get current token from header or session
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     if not token and 'auth_token' in session:
         token = session['auth_token']
     
     if token:
-        # Invalidate token in database
         token_record = AuthToken.query.get(token)
         if token_record:
             token_record.invalidate("User logout")
             db.session.commit()
     
     session.clear()
-    return jsonify({
+    
+    response = jsonify({
         "message": "Logged out successfully",
         "clear_cache": True
-    }), 200, {
+    })
+    
+    # Explicitly delete the auth_token cookie with matching parameters
+    response.delete_cookie(
+        'auth_token',
+        path='/',
+        secure=True,
+        httponly=True,
+        samesite='Lax'
+    )
+    
+    response.headers.update({
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',
         'Expires': '-1'
-    }
+    })
+    
+    return response
