@@ -4,7 +4,7 @@ import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_
-from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog
+from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
 import os
@@ -248,20 +248,23 @@ class PushService:
         }
 
     def cleanup_expired_subscriptions(self):
-        """Clean up subscriptions that are either user-deleted or paused for >30 days"""
         try:
             current_time = get_current_time()
             thirty_days_ago = current_time - timedelta(days=30)
 
-            # Find subscriptions to delete
+            # Find subscriptions to delete based on multiple conditions
             expired_subscriptions = PushSubscription.query.filter(
                 or_(
-                    # User initiated deletions (from unsubscribeFromPush)
+                    # User initiated deletions
                     PushSubscription.id.in_(self.to_delete),
                     # Subscriptions paused more than 30 days ago
                     and_(
                         PushSubscription.is_active == False,
                         PushSubscription.paused_at <= thirty_days_ago
+                    ),
+                    # Subscriptions with invalid token_identifiers
+                    ~PushSubscription.token_identifier.in_(
+                        db.session.query(AuthToken.token_identifier)
                     )
                 )
             ).all()
@@ -278,35 +281,22 @@ class PushService:
                 PushNotificationLog.subscription_deleted_at: current_time
             }, synchronize_session=False)
 
-            current_app.logger.info(f"[PUSH][CLEANUP] Marked {log_update_count} notification logs for deleted subscriptions")
-
             # Delete the subscriptions
             deleted_count = PushSubscription.query.filter(
                 PushSubscription.id.in_(subscription_ids)
             ).delete(synchronize_session=False)
 
-            current_app.logger.info(f"[PUSH][CLEANUP] Deleted {deleted_count} expired subscriptions")
-            
             db.session.commit()
-
-            # Verification
-            remaining_count = PushSubscription.query.count()
-            still_exist = PushSubscription.query.filter(
-                PushSubscription.id.in_(subscription_ids)
-            ).count()
-
-            if still_exist:
-                current_app.logger.warning(
-                    f"[PUSH][CLEANUP] Warning: {still_exist} marked subscriptions still exist"
-                )
 
             return {
                 'deleted_count': deleted_count,
-                'remaining_count': remaining_count,
+                'remaining_count': PushSubscription.query.count(),
                 'log_updates': log_update_count,
                 'verification': {
                     'marked_for_deletion': len(subscription_ids),
-                    'still_exist': still_exist
+                    'still_exist': PushSubscription.query.filter(
+                        PushSubscription.id.in_(subscription_ids)
+                    ).count()
                 }
             }
 
