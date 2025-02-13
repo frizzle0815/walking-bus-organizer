@@ -207,20 +207,24 @@ class PushService:
                         date=target_date
                     ).first()
 
-                    # Prepare weather message
-                    weather_message = "Heute bleibt es trocken ☀️"
-                    if weather_info:
-                        if weather_info.precipitation > 0.5:
-                            weather_message = f"Heute wird starker Regen erwartet 🌧️ ({weather_info.precipitation:.1f}mm)"
-                        elif weather_info.precipitation > 0:
-                            weather_message = f"Heute wird leichter Regen erwartet 🌦️ ({weather_info.precipitation:.1f}mm)"
-
-                    status_message = (
-                        f"{participant.name} ist für heute angemeldet ✅\n\n{weather_message}"
+                    # Base status message without weather
+                    base_message = (
+                        f"{participant.name} ist für heute angemeldet ✅" 
                         if is_attending
-                        else f"{participant.name} ist für heute abgemeldet ❌\n\n{weather_message}"
+                        else f"{participant.name} ist für heute abgemeldet ❌"
                     )
-                    
+
+                    # Only add weather info if calculations exist
+                    if weather_info:
+                        weather_message = "Heute bleibt es trocken ☀️"
+                        if weather_info.precipitation > 0.5:
+                            weather_message = f"Heute wird starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
+                        elif weather_info.precipitation > 0:
+                            weather_message = f"Heute wird leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
+                        status_message = f"{base_message}\n\n{weather_message}"
+                    else:
+                        status_message = base_message
+
                     notification_data = {
                         'title': 'Walking Bus Status',
                         'body': status_message,

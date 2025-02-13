@@ -6,6 +6,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ProcessPoolExecutor
 from apscheduler.jobstores.base import JobLookupError
 from datetime import datetime, timedelta
+from app.services.weather_service import WeatherService
 import pytz
 import logging
 from redis import Redis
@@ -121,10 +122,10 @@ def update_walking_bus_notifications(app, walking_bus_id=None):
                     logger.warning(f"[SCHEDULER] No start time for {day}, skipping")
                     continue
                     
-                # Calculate notification time
+                # Calculate notification time; 55 minutes instead of 1 hour to include more accurate weather data
                 notification_time = (
                     datetime.combine(datetime.today(), start_time) - 
-                    timedelta(hours=1)
+                    timedelta(minutes=55)
                 ).time()
                 
                 logger.info(f"[SCHEDULER] Setting up job {job_id} for {notification_time}")
@@ -171,6 +172,18 @@ def send_walking_bus_notifications(bus_id):
 
     with app.app_context():
         try:
+            # Try weather update but continue if it fails
+            try:
+                weather_service = WeatherService()
+                update_result = weather_service.update_weather()
+                if update_result["success"]:
+                    weather_service.update_weather_calculations()
+                logger.info("[SCHEDULER] Weather update completed successfully")
+            except Exception as e:
+                logger.error(f"[SCHEDULER] Weather update failed: {str(e)}")
+                # Continue with notifications despite weather error
+            
+            # Now send notifications with fresh weather data
             push_service = PushService(bus_id)
             result = push_service.prepare_schedule_notifications()
             logger.info(f"[SCHEDULER] Notification completed for bus {bus_id}: {result}")

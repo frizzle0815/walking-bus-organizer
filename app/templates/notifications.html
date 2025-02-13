@@ -17,7 +17,7 @@
     <!-- Info Box -->
     <div class="alert alert-info" role="alert">
         <i class="fas fa-info-circle me-2"></i>
-        Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest. Du wirst automatisch eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.
+        Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest. Du wirst automatisch etwa eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.
     </div>
 
     <!-- Requirements Check -->
@@ -47,6 +47,12 @@
         <div class="card-header">
             <h5 class="mb-0">Teilnehmer auswählen</h5>
         </div>
+            <div class="d-grid gap-2 mt-3">
+                <button id="saveSubscriptions" class="btn btn-primary" disabled>
+                    <i class="fas fa-save me-2"></i>Änderungen speichern
+                </button>
+            </div>
+
             <div class="card-body">
                 {% if stations %}
                 <!-- Debug info -->
@@ -81,13 +87,7 @@
                     Keine Stationen oder Teilnehmer gefunden.
                 </div>
             {% endif %}
-
-            <div class="d-grid gap-2 mt-3">
-                <button id="saveSubscriptions" class="btn btn-primary" disabled>
-                    <i class="fas fa-save me-2"></i>Änderungen speichern
-                </button>
-            </div>
-            
+           
         </div>
     </div>
 
@@ -440,60 +440,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         console.log('[NOTI.HTML] DOM Content Loaded');
 
-        // Initialize notification manager first
-        await notificationManager.init();
-        console.log('[NOTI.HTML] NotificationManager initialized');
-
-        // Validate and cleanup subscriptions if needed
-        await notificationManager.validateAndCleanupSubscriptions();
-        console.log('[NOTI.HTML] Validate existing subscriptions');
-        
-        // Load existing subscriptions
-        await notificationManager.loadExistingSubscriptions();
-        console.log('[NOTI.HTML] Loaded existing subscriptions');
-
-        // Initialize status checks
-        const pwaCheckElement = document.getElementById('pwaCheck');
-        const notificationCheckElement = document.getElementById('notificationCheck');
-        console.log('[NOTI.HTML] Status elements found:', 
-            { pwaCheck: !!pwaCheckElement, notificationCheck: !!notificationCheckElement });
-
-        // Check PWA status
+        // Check PWA status first
         const pwaStatus = checkPWAStatus();
+        const pwaCheckElement = document.getElementById('pwaCheck');
+        
+        // Update PWA status UI first
         updateStatusElement(
-            pwaCheckElement, 
+            pwaCheckElement,
             pwaStatus.isInstalled ? 'installed' : 'notInstalled',
             'App ist installiert',
             'App muss noch installiert werden (Android) bzw. dem Home Bildschirm hinzugefügt werden (iOS)'
         );
 
-        // Check notification permission
-        const notificationPermission = await checkNotificationPermission(pwaStatus);
-        updateStatusElement(
-            notificationCheckElement,
-            notificationPermission,
-            'Berechtigung für Benachrichtigungen wurde erteilt.',
-            'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
-        );
+        // Only proceed with notification setup if installed
+        if (pwaStatus.isInstalled) {
+            await notificationManager.init();
+            await notificationManager.validateAndCleanupSubscriptions();
+            await notificationManager.loadExistingSubscriptions();
 
-        // Add change listeners to all participant checkboxes
-        document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                console.log('[NOTI.HTML] Checkbox changed, tracking for save');
-                pendingChanges.add(parseInt(checkbox.value));
-                
-                // Enable save button and show pending changes
-                const saveButton = document.getElementById('saveSubscriptions');
-                saveButton.disabled = false;
-                // showToast('Änderungen noch nicht gespeichert', 'info');
-            });
-        });
+            const notificationCheckElement = document.getElementById('notificationCheck');
+            const notificationPermission = await checkNotificationPermission(pwaStatus);
+            
+            updateStatusElement(
+                notificationCheckElement,
+                notificationPermission,
+                'Berechtigung für Benachrichtigungen wurde erteilt.',
+                'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
+            );
+
+            // Setup checkbox listeners only when installed
+            setupCheckboxListeners();
+        } else {
+            // Skip notification initialization for non-installed apps
+            const notificationCheckElement = document.getElementById('notificationCheck');
+            updateStatusElement(
+                notificationCheckElement,
+                'needsInstall',
+                '',
+                'Installation erforderlich für Benachrichtigungen'
+            );
+        }
 
     } catch (error) {
         console.error('[NOTI.HTML] Initialization error:', error);
         showToast('Fehler bei der Initialisierung', 'error');
     }
 });
+
+// Move checkbox setup to separate function
+function setupCheckboxListeners() {
+    document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            console.log('[NOTI.HTML] Checkbox changed, tracking for save');
+            pendingChanges.add(parseInt(checkbox.value));
+            document.getElementById('saveSubscriptions').disabled = false;
+        });
+    });
+}
+
 
 
 document.getElementById('saveSubscriptions').addEventListener('click', async () => {
