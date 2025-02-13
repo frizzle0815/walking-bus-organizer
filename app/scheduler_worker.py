@@ -34,13 +34,19 @@ def init_scheduler(app):
         }
         
         executors = {
-            'default': ProcessPoolExecutor(max_workers=3)
+            'default': ProcessPoolExecutor(
+                max_workers=3
+            )
         }
         
         scheduler = BackgroundScheduler(
             jobstores=jobstores,
             executors=executors,
-            timezone=pytz.timezone('Europe/Berlin')
+            timezone=pytz.timezone('Europe/Berlin'),
+            job_defaults={
+                'max_instances': 1,
+                'misfire_grace_time': 300  # 5 minute timeout
+            }
         )
     
     return scheduler
@@ -165,22 +171,17 @@ def send_walking_bus_notifications(bus_id):
 
     with app.app_context():
         try:
-            from app.services.push_service import get_vapid_config
-            VAPID_CONFIG = get_vapid_config()
-            
-            logger.info(f"[SCHEDULER] VAPID configuration loaded: {VAPID_CONFIG}")
-            
-            # Initialize push service with updated config
             push_service = PushService(bus_id)
-            
-            # Prepare and send notifications
             result = push_service.prepare_schedule_notifications()
-            
-            logger.info(f"[SCHEDULER] Notification results for bus {bus_id}: {result}")
+            logger.info(f"[SCHEDULER] Notification completed for bus {bus_id}: {result}")
+            return True
             
         except Exception as e:
             logger.error(f"[SCHEDULER] Error sending notifications for bus {bus_id}: {str(e)}")
-            raise
+            return False
+        finally:
+            # Ensure cleanup
+            db.session.remove()
 
 
 if __name__ == '__main__':

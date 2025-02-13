@@ -262,9 +262,11 @@ class PushService:
                         PushSubscription.is_active == False,
                         PushSubscription.paused_at <= thirty_days_ago
                     ),
-                    # Subscriptions with invalid token_identifiers
-                    ~PushSubscription.token_identifier.in_(
-                        db.session.query(AuthToken.token_identifier)
+                    # Subscriptions with inactive auth tokens
+                    PushSubscription.token_identifier.in_(
+                        db.session.query(AuthToken.token_identifier).filter(
+                            AuthToken.is_active == False
+                        )
                     )
                 )
             ).all()

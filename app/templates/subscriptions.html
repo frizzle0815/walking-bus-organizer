@@ -54,6 +54,7 @@
                             <th>Erstellt</th>
                             <th>Zuletzt aktiv</th>
                             <th>Details</th>
+                            <th>Aktionen</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -109,6 +110,16 @@
                                     <i class="fas fa-info-circle"></i>
                                 </button>
                             </td>
+                            <td>
+                                {% if not sub.is_active %}
+                                <button class="btn btn-sm btn-danger delete-subscription" 
+                                        data-subscription-id="{{ sub.id }}"
+                                        data-endpoint="{{ sub.endpoint }}"
+                                        data-token="{{ sub.token_identifier }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                {% endif %}
+                            </td>
                         </tr>
                         <tr class="collapse" id="details-{{ sub.id }}">
                             <td colspan="6">
@@ -120,6 +131,7 @@
                                 </div>
                             </td>
                         </tr>
+
                         {% endfor %}
                     </tbody>
                 </table>
@@ -268,6 +280,45 @@ document.getElementById('sendBroadcast').addEventListener('click', async () => {
         alert('Fehler beim Senden der Nachricht');
         console.error(error);
     }
+});
+
+document.querySelectorAll('.delete-subscription').forEach(button => {
+    button.addEventListener('click', async (e) => {
+        const button = e.target.closest('button');
+        const endpoint = button.dataset.endpoint;
+        const tokenIdentifier = button.dataset.token;
+        
+        console.log('Deleting subscription:', {
+            endpoint,
+            tokenIdentifier
+        });
+        
+        if (confirm('Möchten Sie diese pausierte Geräteregistrierung wirklich löschen?')) {
+            try {
+                const response = await fetchWithAuth(`/api/notifications/subscription`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        endpoint: endpoint,
+                        token_identifier: tokenIdentifier,
+                        complete_removal: true,
+                        user_initiated: true
+                    })
+                });
+
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    throw new Error('Fehler beim Löschen der Subscription');
+                }
+            } catch (error) {
+                alert('Fehler beim Löschen der Subscription');
+                console.error(error);
+            }
+        }
+    });
 });
 </script>
 {% endblock %}

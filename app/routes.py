@@ -1454,9 +1454,29 @@ def delete_push_subscription():
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
 
-    # Handle complete removal case
+    # Handle user-initiated deletion of specific subscription
+    if request.json.get('user_initiated'):
+        token_identifier = request.json.get('token_identifier')
+        endpoint = request.json.get('endpoint')
+        current_app.logger.info(f"[NOTI] Processing user deletion for token {token_identifier}")
+        
+        subscription = PushSubscription.query.filter_by(
+            token_identifier=token_identifier,
+            endpoint=endpoint,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        if subscription:
+            db.session.delete(subscription)
+            db.session.commit()
+            current_app.logger.info(f"[NOTI] Successfully deleted user-specified subscription")
+            return jsonify({'status': 'success', 'removed_count': 1})
+        
+        return jsonify({'status': 'success', 'removed_count': 0})
+
+    # Handle system cleanup (scheduler worker)
     if request.json.get('complete_removal'):
-        current_app.logger.info(f"[NOTI] Processing complete subscription removal for token {auth_token.token_identifier}")
+        current_app.logger.info(f"[NOTI] Processing system cleanup for token {auth_token.token_identifier}")
         
         subscriptions = PushSubscription.query.filter_by(
             token_identifier=auth_token.token_identifier,
@@ -1470,10 +1490,8 @@ def delete_push_subscription():
         current_app.logger.info(f"[NOTI] Removed {len(subscriptions)} subscriptions")
         return jsonify({'status': 'success', 'removed_count': len(subscriptions)})
 
-    # Handle single subscription removal
+    # Handle single subscription removal/deactivation
     endpoint = request.json['endpoint']
-    user_initiated = request.json.get('user_initiated', False)
-    
     subscription = PushSubscription.query.filter_by(
         endpoint=endpoint,
         token_identifier=auth_token.token_identifier,
@@ -1481,18 +1499,12 @@ def delete_push_subscription():
     ).first()
     
     if subscription:
-        if user_initiated:
-            db.session.delete(subscription)
-            current_app.logger.info(f"[NOTI] User initiated deletion of subscription {subscription.id}")
-        else:
-            subscription.is_active = False
-            subscription.paused_at = get_current_time()
-            current_app.logger.info(f"[NOTI] System paused subscription {subscription.id}")
-        
+        subscription.is_active = False
+        subscription.paused_at = get_current_time()
+        current_app.logger.info(f"[NOTI] System paused subscription {subscription.id}")
         db.session.commit()
     
     return jsonify({'status': 'success'})
-
 
 
 @bp.route('/api/notifications/test', methods=['POST'])
