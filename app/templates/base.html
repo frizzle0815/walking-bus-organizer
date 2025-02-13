@@ -451,7 +451,8 @@ let authInitialized = false;
                          if (navigator.serviceWorker.controller) {
                              console.log('[BASE.HTML][UPDATE] New service worker installed and ready to take over');
                              console.log('[BASE.HTML][UPDATE] Reloading page to activate new service worker');
-                             window.location.reload();
+                             newWorker.postMessage({type: 'SKIP_WAITING'});
+                             console.log('[BASE.HTML][UPDATE] Sent SKIP_WAITING message to new worker');
                          } else {
                              console.log('[BASE.HTML][UPDATE] Service worker installed for the first time');
                          }
@@ -466,6 +467,11 @@ let authInitialized = false;
      }
      return null;
  }
+
+ navigator.serviceWorker.addEventListener('controllerchange', () => {
+    console.log('[BASE.HTML][UPDATE] New service worker took control, reloading page');
+    window.location.reload();
+});
 
 
 async function ensurePersistentStorage() {

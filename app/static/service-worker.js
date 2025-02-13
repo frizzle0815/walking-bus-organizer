@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v16'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v17'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -27,7 +27,8 @@ self.addEventListener('install', (event) => {
                 return cache.addAll(URLS_TO_CACHE);
             }),
             caches.open(DATA_CACHE).then(() => console.log('[SW] Data cache created')),
-            caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created'))
+            caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created')),
+            self.skipWaiting()
         ]).then(() => console.log('[SW] Installation complete'))
     );
 });
