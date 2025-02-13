@@ -534,17 +534,33 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
 
 // Check PWA status with iOS support
 function checkPWAStatus() {
-    // Standard PWA detection (Android/Desktop)
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-        return { isInstalled: true };
+    try {
+        // iOS standalone mode check
+        if (navigator.standalone) {
+            return { isInstalled: true };
+        }
+        
+        // Android/Desktop PWA check
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            return { isInstalled: true };
+        }
+
+        // Safari on iOS check
+        if (window.navigator.userAgent.includes('Safari') && 
+            window.navigator.userAgent.includes('iPhone')) {
+            if (window.navigator.standalone === true) {
+                return { isInstalled: true };
+            }
+        }
+        
+        return { isInstalled: false };
+        
+    } catch (error) {
+        // Log for debugging but don't break the app
+        console.log('[PWA-CHECK] Status check failed:', error);
+        // Fallback to not installed as safe default
+        return { isInstalled: false };
     }
-    
-    // iOS "Add to Home Screen" detection
-    if (window.navigator.standalone) {
-        return { isInstalled: true };
-    }
-    
-    return { isInstalled: false };
 }
 
 
