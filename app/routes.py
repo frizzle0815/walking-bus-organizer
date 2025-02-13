@@ -2675,13 +2675,25 @@ def login():
         session['bus_password_hash'] = password_hash
         session.permanent = True
 
-        return jsonify({
+        response = jsonify({
             'success': True,
             'auth_token': auth_token,
             'redirect_url': url_for('main.index')
         })
 
-    # Handle failed login
+        response.set_cookie(
+            'auth_token',
+            auth_token,
+            max_age=30 * 24 * 60 * 60,
+            secure=True,
+            httponly=True,
+            samesite='Lax',
+            path='/'
+        )
+        
+        return response  # Return successful response here
+
+    # Handle failed login - only reached if login was unsuccessful
     record_attempt()
     remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
     lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
