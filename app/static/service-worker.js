@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v17'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v18'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -49,94 +49,101 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('message', (event) => {
     console.log('[SW] Received message event:', event.data?.type);
 
-    if (event.data?.type === 'CHECK_SUBSCRIPTION') {
-        event.waitUntil(checkAndRestoreSubscription());
+    switch (event.data?.type) {
+        case 'CHECK_SUBSCRIPTION':
+            event.waitUntil(checkAndRestoreSubscription());
+            break;
 
-    } else if (event.data?.type === 'GET_AUTH_TOKEN') {
-        console.log('[SW] Processing token retrieval request');
-        
-        // Only check the service worker cache
-        getTokenFromCache()
-            .then(token => {
-                console.log('[SW] Cache token retrieval completed:', token ? 'Found' : 'Not found');
-                if (event.ports?.[0]) {
-                    event.ports[0].postMessage({ token });
-                }
-            })
-            .catch(error => {
-                console.error('[SW] Cache token retrieval error:', error);
-                if (event.ports?.[0]) {
-                    event.ports[0].postMessage({ token: null, error: error.message });
-                }
-            });
+        case 'GET_AUTH_TOKEN':
+            console.log('[SW] Processing token retrieval request');
+            getTokenFromCache()
+                .then(token => {
+                    console.log('[SW] Cache token retrieval completed:', token ? 'Found' : 'Not found');
+                    event.ports?.[0]?.postMessage({ token });
+                })
+                .catch(error => {
+                    console.error('[SW] Cache token retrieval error:', error);
+                    event.ports?.[0]?.postMessage({ token: null, error: error.message });
+                });
+            break;
 
-    } else if (event.data?.type === 'STORE_AUTH_TOKEN') {
-        console.log('[SW] Processing token storage');
-        
-        caches.open(AUTH_CACHE)
-            .then(cache => {
-                console.log('[SW] Cache opened successfully');
-                const response = new Response(JSON.stringify({
-                    token: event.data.token,
-                    timestamp: new Date().toISOString()
-                }));
-                return cache.put(AUTH_TOKEN_CACHE_KEY, response);
-            })
-            .then(() => {
-                console.log('[SW] Token stored successfully');
-                if (event.ports?.[0]) {
-                    event.ports[0].postMessage({ success: true });
+        case 'STORE_AUTH_TOKEN':
+            console.log('[SW] Processing token storage');
+            caches.open(AUTH_CACHE)
+                .then(cache => {
+                    console.log('[SW] Cache opened successfully');
+                    const response = new Response(JSON.stringify({
+                        token: event.data.token,
+                        timestamp: new Date().toISOString()
+                    }));
+                    return cache.put(AUTH_TOKEN_CACHE_KEY, response);
+                })
+                .then(() => {
+                    console.log('[SW] Token stored successfully');
+                    event.ports?.[0]?.postMessage({ success: true });
                     console.log('[SW] Success message sent back');
-                }
-            })
-            .catch(error => {
-                console.error('[SW] Storage error:', error);
-                if (event.ports?.[0]) {
-                    event.ports[0].postMessage({
+                })
+                .catch(error => {
+                    console.error('[SW] Storage error:', error);
+                    event.ports?.[0]?.postMessage({
                         success: false,
                         error: error.message
                     });
                     console.log('[SW] Error message sent back');
-                }
+                });
+            break;
+
+        case 'CLEAR_AUTH_TOKEN':
+            console.log('[SW] Starting cache clearing');
+            caches.keys().then(keys => {
+                console.log('[SW] Existing caches before deletion:', keys);
             });
 
-    } else if (event.data?.type === 'CLEAR_AUTH_TOKEN') {
-        console.log('[SW] Starting cache clearing');
-        
-        // Log existing caches before deletion
-        caches.keys().then(keys => {
-            console.log('[SW] Existing caches before deletion:', keys);
-        });
-
-        Promise.all([
-            caches.open(STATIC_CACHE).then(cache => cache.keys().then(keys => Promise.all(keys.map(key => cache.delete(key))))),
-            caches.open(DATA_CACHE).then(cache => cache.keys().then(keys => Promise.all(keys.map(key => cache.delete(key))))),
-            caches.open(AUTH_CACHE).then(cache => cache.keys().then(keys => Promise.all(keys.map(key => cache.delete(key)))))
-        ]).then(() => {
-            console.log('[SW] All caches deleted successfully');
-            if (event.ports?.[0]) {
-                event.ports[0].postMessage({ success: true });
+            Promise.all([
+                caches.open(STATIC_CACHE).then(cache => 
+                    cache.keys().then(keys => 
+                        Promise.all(keys.map(key => cache.delete(key)))
+                    )
+                ),
+                caches.open(DATA_CACHE).then(cache => 
+                    cache.keys().then(keys => 
+                        Promise.all(keys.map(key => cache.delete(key)))
+                    )
+                ),
+                caches.open(AUTH_CACHE).then(cache => 
+                    cache.keys().then(keys => 
+                        Promise.all(keys.map(key => cache.delete(key)))
+                    )
+                )
+            ])
+            .then(() => {
+                console.log('[SW] All caches deleted successfully');
+                event.ports?.[0]?.postMessage({ success: true });
                 console.log('[SW] Success message sent back');
-            }
-            console.log('[SW] Updating service worker registration');
-            self.registration.update();
-            
-            // Verify cache deletion
-            return caches.keys();
-        }).then(remainingKeys => {
-            console.log('[SW] Remaining caches after deletion:', remainingKeys);
-        }).catch(error => {
-            console.error('[SW] Clear error:', error);
-            if (event.ports?.[0]) {
-                event.ports[0].postMessage({
+                console.log('[SW] Updating service worker registration');
+                self.registration.update();
+                return caches.keys();
+            })
+            .then(remainingKeys => {
+                console.log('[SW] Remaining caches after deletion:', remainingKeys);
+            })
+            .catch(error => {
+                console.error('[SW] Clear error:', error);
+                event.ports?.[0]?.postMessage({
                     success: false,
                     error: error.message
                 });
                 console.log('[SW] Error message sent back');
-            }
-        });
-    } else {
-        console.log('[SW] Unknown message type received:', event.data?.type);
+            });
+            break;
+
+        case 'SKIP_WAITING':
+            console.log('[SW] Skip waiting command received');
+            self.skipWaiting();
+            break;
+
+        default:
+            console.log('[SW] Unknown message type received:', event.data?.type);
     }
 });
 
