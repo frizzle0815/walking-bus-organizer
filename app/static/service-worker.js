@@ -139,7 +139,7 @@ self.addEventListener('message', (event) => {
     }
 });
 
-
+// triggered in base.html
 self.addEventListener('periodicsync', (event) => {
     console.log('[SW][SYNC] Received sync event', event);
     if (event.tag === 'keep-alive') {

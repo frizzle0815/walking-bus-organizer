@@ -404,12 +404,6 @@ let authInitialized = false;
                 });
             }
 
-            // Now safely send message to activated worker
-            const messageChannel = new MessageChannel();
-            registration.active.postMessage({
-                type: 'CHECK_SUBSCRIPTION'
-            }, [messageChannel.port2]);
-
             // Dummy request to keep service-worker alive for android
             if ('periodicSync' in registration) {
                 const status = await navigator.permissions.query({
@@ -423,6 +417,14 @@ let authInitialized = false;
                     console.log('[BASE.HTML][SYNC] Periodic sync registered');
                 }
             }
+
+            // Now safely send message to activated worker
+            const messageChannel = new MessageChannel();
+            registration.active.postMessage({
+                type: 'CHECK_SUBSCRIPTION'
+            }, [messageChannel.port2]);
+
+
              
              // Log current service worker state
              console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');
