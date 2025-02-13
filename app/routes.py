@@ -263,7 +263,48 @@ def generate_temp_token_route():
 @bp.route("/temp-login/<token>")
 def temp_login_route(token):
     if request.headers.get('Accept') == 'application/json':
-        return temp_login(token)
+        # First validate the temp token
+        temp_token = TempToken.query.get(token)
+        if not temp_token or datetime.now() > temp_token.expiry:
+            return jsonify({
+                "success": False,
+                "error": "Ungültiger oder abgelaufener Login Link"
+            }), 401
+
+        # Create auth token using temp token data
+        user_agent = request.headers.get('User-Agent')
+        auth_token = create_auth_token(
+            temp_token.walking_bus_id,
+            temp_token.walking_bus_name,
+            temp_token.bus_password_hash,
+            client_info=user_agent
+        )
+        
+        # Set up session
+        session['walking_bus_id'] = temp_token.walking_bus_id
+        session['walking_bus_name'] = temp_token.walking_bus_name
+        session['bus_password_hash'] = temp_token.bus_password_hash
+        session.permanent = True
+        
+        response = jsonify({
+            'success': True,
+            'auth_token': auth_token,
+            'redirect_url': url_for('main.index')
+        })
+        
+        response.set_cookie(
+            'auth_token',
+            auth_token,
+            max_age=30 * 24 * 60 * 60,
+            secure=True,
+            httponly=True,
+            samesite='Lax',
+            path='/'
+        )
+        
+        return response
+
+    # Initial page load
     return render_template('temp-login.html')
 
 

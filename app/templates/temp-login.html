@@ -13,69 +13,47 @@
 </div>
 
 <script>
- document.addEventListener('DOMContentLoaded', async function() {
-     try {
-         const urlParts = window.location.pathname.split('/');
-         const token = urlParts[urlParts.length - 1];
-         
-         const response = await fetch(`/temp-login/${token}`, {
-             headers: {
-                 'Accept': 'application/json'
-             }
-         });
-         const data = await response.json();
-         
-         if (data.success && data.auth_token) {
-             // Store in localStorage first as fallback
-             localStorage.setItem('auth_token', data.auth_token);
-             
-             // Try to store in Service Worker cache
-             if ('serviceWorker' in navigator) {
-                 try {
-                     const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-                     const activeWorker = registration.active;
-                     
-                     await new Promise((resolve, reject) => {
-                         const messageChannel = new MessageChannel();
-                         const timeoutId = setTimeout(() => {
-                             console.log('[TEMP-LOGIN] Token storage in SW timed out');
-                             resolve();
-                         }, 5000);
-                         
-                         messageChannel.port1.onmessage = (event) => {
-                             clearTimeout(timeoutId);
-                             if (event.data.success) {
-                                 console.log('[TEMP-LOGIN] Token stored in SW');
-                             }
-                             resolve();
-                         };
-                         
-                         activeWorker.postMessage({
-                             type: 'STORE_AUTH_TOKEN',
-                             token: data.auth_token
-                         }, [messageChannel.port2]);
-                     });
-                 } catch (error) {
-                     console.log('[TEMP-LOGIN] SW storage failed:', error);
-                 }
-             }
-             
-             window.location.replace(data.redirect_url);
-         } else {
-             throw new Error(data.error || 'Login fehlgeschlagen');
-         }
-     } catch (error) {
-         document.querySelector('.container').innerHTML = `
-             <div class="row justify-content-center">
-                 <div class="col-md-6 text-center">
-                     <div class="alert alert-danger">
-                         ${error.message}
-                     </div>
-                     <a href="/login" class="btn btn-primary">Zum Login</a>
-                 </div>
-             </div>
-         `;
-     }
- });
+document.addEventListener('DOMContentLoaded', async function() {
+    const showError = (message) => {
+        document.querySelector('.container').innerHTML = `
+            <div class="row justify-content-center">
+                <div class="col-md-6 text-center">
+                    <div class="alert alert-danger">
+                        ${message}
+                    </div>
+                    <a href="/login" class="btn btn-primary">Zum Login</a>
+                </div>
+            </div>
+        `;
+    };
+
+    try {
+        const urlParts = window.location.pathname.split('/');
+        const token = urlParts[urlParts.length - 1];
+        
+        const response = await fetch(`/temp-login/${token}`, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Login fehlgeschlagen');
+        }
+
+        const data = await response.json();
+        
+        if (data.success && data.auth_token) {
+            // Store token using TokenManager
+            await window.tokenManager.storeToken(data.auth_token);
+            window.location.replace(data.redirect_url);
+        } else {
+            throw new Error(data.error || 'Unerwarteter Fehler beim Login');
+        }
+    } catch (error) {
+        showError(error.message);
+    }
+});
  </script>
 {% endblock %}
