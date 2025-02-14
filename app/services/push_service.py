@@ -216,17 +216,17 @@ class PushService:
 
                     # Only add weather info if calculations exist
                     if weather_info:
-                        weather_message = "Heute bleibt es trocken ☀️"
+                        weather_message = "Es bleibt trocken ☀️"
                         if weather_info.precipitation > 0.5:
-                            weather_message = f"Heute wird starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
+                            weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
                         elif weather_info.precipitation > 0:
-                            weather_message = f"Heute wird leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
-                        status_message = f"{base_message}\n\n{weather_message}"
+                            weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
+                        status_message = f"{base_message}\n \n{weather_message}"
                     else:
                         status_message = base_message
 
                     notification_data = {
-                        'title': 'Walking Bus Status',
+                        'title': 'Walking Bus Erinnerung',
                         'body': status_message,
                         'data': {
                             'type': 'schedule_reminder',

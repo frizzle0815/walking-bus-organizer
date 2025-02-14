@@ -4,7 +4,7 @@ const AUTH_CACHE = 'walking-bus-auth-v1';
 
 const AUTH_TOKEN_CACHE_KEY = 'auth-token';
 
-const CACHE_VERSION = 'v18'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v19'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -223,9 +223,10 @@ self.addEventListener('notificationclick', (event) => {
 // Separate function for status toggle logic
 async function handleStatusToggle(data) {
     if (!data) return;
-   
+    
     const { participantId, currentStatus, date, participantName } = data;
     try {
+        // First update the participation status
         const response = await fetchWithAuth(`/api/participation/${participantId}`, {
             method: 'PATCH',
             headers: {
@@ -237,22 +238,40 @@ async function handleStatusToggle(data) {
             })
         });
 
-        // Rest of notification logic remains the same
-        const title = response.ok ? 'Status geändert' : 'Fehler';
+        // Then trigger the Redis status update
+        await fetchWithAuth('/api/trigger-update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                date: date
+            })
+        });
+
+        const title = response.ok ? 'Status geändert' : 'Fehler ⚠️';
         const message = response.ok ?
             ((!currentStatus) ? `${participantName} erfolgreich angemeldet` : `${participantName} erfolgreich abgemeldet`) :
-            `Status für ${participantName} konnte nicht geändert werden`;
+            `Status für ${participantName} konnte nicht geändert werden ⚠️ Bitte Änderung in der App durchführen.`;
            
+        // Enhanced notification options matching push notification style
         self.registration.showNotification(title, {
             body: message,
+            icon: '/static/icons/icon-192x192.png',  // Same icon as push notifications
+            badge: '/static/icons/bus-simple-solid.png', // Same badge as push notifications
             tag: `status-change-${participantId}-${Date.now()}`,
-            requireInteraction: false
+            requireInteraction: false,
+            renotify: true
         });
     } catch (error) {
-        self.registration.showNotification('Netzwerkfehler', {
-            body: `Verbindung zum Server fehlgeschlagen für ${participantName}`,
+        // Also enhance error notification
+        self.registration.showNotification('Netzwerkfehler ⚠️', {
+            body: `Verbindung zum Server fehlgeschlagen für ${participantName} ⚠️ Bitte Änderung in der App durchführen.`,
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/bus-simple-solid.png',
             tag: `status-change-error-${participantId}-${Date.now()}`,
-            requireInteraction: false
+            requireInteraction: false,
+            renotify: true
         });
     }
 }
