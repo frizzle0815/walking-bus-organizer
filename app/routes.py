@@ -1649,36 +1649,36 @@ def validate_pwa_token():
     data = request.get_json()
     pwa_token = data.get('pwa_token')
     
-    token_identifier = cache.get(f"pwa_token_{pwa_token}")
-    if not token_identifier:
+    cache_key = f"pwa_token_{pwa_token}"
+    cached_data = cache.get(cache_key)
+    
+    if not cached_data:
         current_app.logger.warning("[PWA] Invalid or expired token")
         return jsonify({"error": "Invalid or expired PWA token"}), 401
     
-    current_app.logger.info(f"[PWA] Found token_identifier: {token_identifier}")
-        
-    # Get original auth token
+    current_app.logger.info(f"[PWA] Found token_identifier: {cached_data['token_identifier']}")
+    
+    # Create new auth token for PWA using cached data
+    new_token = create_auth_token(
+        cached_data['walking_bus_id'],
+        cached_data['walking_bus_name'],
+        cached_data['bus_password_hash'],
+        client_info=request.headers.get('User-Agent'),
+        token_identifier=cached_data['token_identifier']
+    )
+    
+    # Mark original token as PWA installed
     auth_token = AuthToken.query.filter_by(
-        token_identifier=token_identifier,
+        token_identifier=cached_data['token_identifier'],
         is_active=True
     ).first()
     
-    if not auth_token:
-        return jsonify({"error": "Invalid token identifier"}), 401
-    
-    # Create new auth token for PWA
-    new_token = create_auth_token(
-        auth_token.walking_bus_id,
-        auth_token.walking_bus.name,
-        auth_token.bus_password_hash,
-        client_info=request.headers.get('User-Agent')
-    )
-    
-    # Mark PWA as installed
-    auth_token.is_pwa_installed = True
-    auth_token.pwa_status_updated_at = get_current_time()
+    if auth_token:
+        auth_token.is_pwa_installed = True
+        auth_token.pwa_status_updated_at = get_current_time()
     
     # Remove PWA token from cache
-    cache.delete(f"pwa_token_{pwa_token}")
+    cache.delete(cache_key)
     
     db.session.commit()
     current_app.logger.info("[PWA] Installation complete")    
@@ -2543,17 +2543,23 @@ def manifest():
             
             if not token_entry.is_pwa_installed:
                 cache_key = f"pwa_token_{token_entry.token_identifier}"
-                existing_token = cache.get(cache_key)
+                cached_data = cache.get(cache_key)
                 
-                if existing_token:
-                    current_app.logger.info(f"[MANIFEST] Extending existing PWA token: {existing_token}")
-                    pwa_token = existing_token
+                if cached_data:
+                    current_app.logger.info(f"[MANIFEST] Using existing PWA token data")
+                    pwa_token = cached_data.get('pwa_token')
                     # Reset timeout to 5 minutes from now
-                    cache.set(cache_key, pwa_token, timeout=300)
+                    cache.set(cache_key, cached_data, timeout=300)
                 else:
                     pwa_token = secrets.token_urlsafe(32)
                     current_app.logger.info(f"[MANIFEST] Generated new PWA token: {pwa_token}")
-                    cache.set(cache_key, pwa_token, timeout=300)
+                    cache.set(cache_key, {
+                        'pwa_token': pwa_token,
+                        'token_identifier': token_entry.token_identifier,
+                        'walking_bus_id': token_entry.walking_bus_id,
+                        'walking_bus_name': token_entry.walking_bus.name,
+                        'bus_password_hash': token_entry.bus_password_hash
+                    }, timeout=300)
                 
                 manifest_data["start_url"] = f"/?pwa_install=true&pwa_token={pwa_token}"
     
