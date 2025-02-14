@@ -1511,54 +1511,59 @@ def delete_push_subscription():
 @require_auth
 def test_notification():
     walking_bus_id = get_current_walking_bus_id()
-    push_service = PushService(walking_bus_id)
-    
     data = request.json
     participant_ids = data['participantIds']
     
-    # Get participants
+    # Get participants for validation
     participants = Participant.query.filter(
         Participant.id.in_(participant_ids),
         Participant.walking_bus_id == walking_bus_id
     ).all()
 
-    results = []
-    for subscription in push_service.get_subscriptions():
-        matching_participants = [p for p in participants 
-                               if p.id in set(subscription.participant_ids)]
-                               
-        if not matching_participants:
-            continue
-            
-        for participant in matching_participants:
-            notification_data = {
-                'title': 'Walking Bus Test',
-                'body': f'Test Benachrichtigung für: {participant.name}',
-                'data': {
-                    'type': 'test',
-                    'participantIds': [participant.id]
-                },
-                'tag': f'test-notification-{participant.id}-{int(time.time())}',
-                'actions': [{
-                    'action': 'okay',
-                    'title': 'OK'
-                }],
-                'requireInteraction': True
-            }
-            
-            success, error = push_service.send_notification(subscription, notification_data)
-            results.append({
-                'participant': participant.name,
-                'success': success,
-                'error': error
-            })
+    if not participants:
+        return jsonify({
+            'status': 'error',
+            'message': 'Keine gültigen Teilnehmer gefunden'
+        }), 400
 
-    cleanup_result = push_service.cleanup_expired_subscriptions()
+    # Calculate scheduled time
+    scheduled_time = datetime.now() + timedelta(minutes=2)
+    
+    # Create scheduler job data - only essential info
+    job_data = {
+        'type': 'test_notification',
+        'walking_bus_id': walking_bus_id,
+        'participant_ids': participant_ids,
+        'scheduled_time': scheduled_time.isoformat()
+    }
+    
+    # Store job in Redis for scheduler
+    job_key = f'test_notification:{walking_bus_id}:{int(time.time())}'
+    redis_client.setex(
+        job_key,
+        300,  # 5 minutes TTL
+        json.dumps(job_data)
+    )
+    
+    # Notify scheduler about new job
+    redis_client.publish('test_notification_requests', json.dumps({
+        'type': 'new_test_notification',
+        'job_key': job_key
+    }))
+    
+    current_app.logger.info(
+        f"[TEST] Scheduled notification for bus {walking_bus_id} "
+        f"with {len(participants)} participants at {scheduled_time}"
+    )
     
     return jsonify({
         'status': 'success',
-        'results': results,
-        'cleanup': cleanup_result
+        'message': 'Test-Benachrichtigung eingeplant',
+        'scheduled_time': scheduled_time.isoformat(),
+        'participants': [
+            {'id': p.id, 'name': p.name} 
+            for p in participants
+        ]
     })
 
 

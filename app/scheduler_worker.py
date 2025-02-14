@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import WalkingBus, WalkingBusSchedule, SchedulerJob
+from app.models import WalkingBus, WalkingBusSchedule, SchedulerJob, Participant
 from app.services.push_service import PushService
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -7,6 +7,7 @@ from apscheduler.executors.pool import ProcessPoolExecutor
 from apscheduler.jobstores.base import JobLookupError
 from datetime import datetime, timedelta
 from app.services.weather_service import WeatherService
+import time
 import pytz
 import logging
 from redis import Redis
@@ -16,6 +17,9 @@ import os
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('scheduler')
+
+redis_url = os.environ.get('REDIS_URL')
+redis_client = Redis.from_url(redis_url)
 
 # Global scheduler instance
 scheduler = None
@@ -55,12 +59,10 @@ def init_scheduler(app):
 
 def init_redis_listener(app):
     """Initialize Redis listener for schedule changes"""
-    redis_url = os.environ.get('REDIS_URL')
     logger.info(f"Initializing Redis listener with URL: {redis_url}")
     
-    redis_client = Redis.from_url(redis_url)
     pubsub = redis_client.pubsub()
-    pubsub.subscribe('schedule_updates')
+    pubsub.subscribe('schedule_updates', 'test_notification_requests')
     return pubsub
 
 
@@ -197,27 +199,114 @@ def send_walking_bus_notifications(bus_id):
             db.session.remove()
 
 
+def handle_test_notification(app, job_key):
+    """Process a test notification job from Redis"""
+    logger.info(f"[TEST] Processing notification job: {job_key}")
+    
+    # Get job data from Redis
+    job_data = redis_client.get(job_key)
+    if not job_data:
+        logger.warning(f"[TEST] Job data not found for key: {job_key}")
+        return
+    
+    job_data = json.loads(job_data)
+    scheduled_time = datetime.fromisoformat(job_data['scheduled_time'])
+    
+    # Create unique job ID
+    job_id = f"test_notification_{job_data['walking_bus_id']}_{int(time.time())}"
+    
+    # Schedule the job
+    scheduler.add_job(
+        send_test_notifications,
+        'date',
+        run_date=scheduled_time,
+        id=job_id,
+        args=[job_data['walking_bus_id'], job_data['participant_ids']],
+        replace_existing=True
+    )
+    
+    logger.info(f"[TEST] Scheduled job {job_id} for {scheduled_time}")
+
+
+def send_test_notifications(walking_bus_id, participant_ids):
+    """Execute test notifications"""
+    logger.info(f"[TEST] Executing test notifications for bus {walking_bus_id}")
+    
+    app = create_app()
+    with app.app_context():
+        try:
+            push_service = PushService(walking_bus_id)
+            
+            # Get participants
+            participants = Participant.query.filter(
+                Participant.id.in_(participant_ids),
+                Participant.walking_bus_id == walking_bus_id
+            ).all()
+            
+            results = []
+            for subscription in push_service.get_subscriptions():
+                matching_participants = [p for p in participants 
+                                      if p.id in set(subscription.participant_ids)]
+                                      
+                if not matching_participants:
+                    continue
+                    
+                for participant in matching_participants:
+                    notification_data = {
+                        'title': 'Walking Bus Test',
+                        'body': f'Test Benachrichtigung erfolgreich für: {participant.name}',
+                        'data': {
+                            'type': 'test',
+                            'participantIds': [participant.id]
+                        },
+                        'tag': f'test-notification-{participant.id}-{int(time.time())}',
+                        'actions': [{
+                            'action': 'okay',
+                            'title': 'OK'
+                        }],
+                        'requireInteraction': True
+                    }
+                    
+                    success, error = push_service.send_notification(subscription, notification_data)
+                    results.append({
+                        'participant': participant.name,
+                        'success': success,
+                        'error': error
+                    })
+            
+            logger.info(f"[TEST] Notification results: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"[TEST] Error sending notifications: {str(e)}")
+            return False
+        finally:
+            db.session.remove()
+
+
 if __name__ == '__main__':
     # Create Flask app instance with enhanced configuration
     app = create_app()
     
     with app.app_context():
         try:
-            # Initialize and start scheduler
             scheduler = init_scheduler(app)
             scheduler.start()
             logger.info('Scheduler started successfully')
-            initialize_all_schedules()
             
-            # Initialize Redis listener
             pubsub = init_redis_listener(app)
             logger.info('Redis listener initialized')
             
-            # Main event loop for Redis messages
             for message in pubsub.listen():
                 if message['type'] == 'message':
                     data = json.loads(message['data'])
-                    handle_schedule_change(app, data)
+                    logger.info(f"[REDIS] Received message: {data}")
+                    
+                    channel = message.get('channel', b'').decode('utf-8')
+                    if channel == 'test_notification_requests':
+                        handle_test_notification(app, data['job_key'])
+                    elif channel == 'schedule_updates':
+                        handle_schedule_change(app, data)
                     
         except Exception as e:
             logger.error(f"Critical error in scheduler worker: {e}")

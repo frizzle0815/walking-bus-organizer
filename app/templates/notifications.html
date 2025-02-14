@@ -13,6 +13,26 @@
             <div class="toast-body"></div>
         </div>
     </div>
+
+    <!-- Test Notification Modal -->
+    <div class="modal fade" id="testNotificationModal" tabindex="-1">
+        <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title">Test-Benachrichtigung gestartet</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+            <div class="alert alert-info">
+                <p><strong>Test-Benachrichtigung wird in 2 Minuten zugestellt.</strong></p>
+                <hr>
+                <p>Bitte die App jetzt vollständig schließen.</p>
+                <p>Wenn die Benachrichtigung nicht innerhalb von 2 Minuten zugestellt wird, bitte in den Einstellungen auf dem Endgerät dafür sorgen, dass die App UND der verwendete Browser bei Nicht-Benutzung nicht vorzeitig beendet wird.</p>
+            </div>
+            </div>
+        </div>
+        </div>
+    </div>
     
     <!-- Info Box -->
     <div class="alert alert-info" role="alert">
@@ -687,16 +707,22 @@ document.getElementById('testNotification').addEventListener('click', async () =
     }
 
     try {
+        // Send delayed notification request
         const response = await fetchWithAuth('/api/notifications/test', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ participantIds: selectedIds })
+            body: JSON.stringify({ 
+                participantIds: selectedIds,
+                delayMinutes: 2 
+            })
         });
 
         if (response.ok) {
-            showToast('Test-Benachrichtigung wurde gesendet', 'success');
+            // Show modal instead of toast
+            const modal = new bootstrap.Modal(document.getElementById('testNotificationModal'));
+            modal.show();
         } else {
             throw new Error('Fehler beim Senden der Test-Benachrichtigung');
         }
