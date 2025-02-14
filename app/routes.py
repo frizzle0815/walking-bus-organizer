@@ -1513,8 +1513,8 @@ def test_notification():
     walking_bus_id = get_current_walking_bus_id()
     data = request.json
     participant_ids = data['participantIds']
-    
-    # Get participants for validation
+
+    # Validate participants
     participants = Participant.query.filter(
         Participant.id.in_(participant_ids),
         Participant.walking_bus_id == walking_bus_id
@@ -1526,42 +1526,37 @@ def test_notification():
             'message': 'Keine gültigen Teilnehmer gefunden'
         }), 400
 
-    # Calculate scheduled time
-    scheduled_time = datetime.now() + timedelta(minutes=2)
-    
-    # Create scheduler job data - only essential info
+    # Create job data without scheduled time
     job_data = {
         'type': 'test_notification',
         'walking_bus_id': walking_bus_id,
-        'participant_ids': participant_ids,
-        'scheduled_time': scheduled_time.isoformat()
+        'participant_ids': participant_ids
     }
-    
-    # Store job in Redis for scheduler
+
+    # Store in Redis for scheduler
     job_key = f'test_notification:{walking_bus_id}:{int(time.time())}'
     redis_client.setex(
         job_key,
         300,  # 5 minutes TTL
         json.dumps(job_data)
     )
-    
-    # Notify scheduler about new job
+
+    # Notify scheduler
     redis_client.publish('test_notification_requests', json.dumps({
         'type': 'new_test_notification',
         'job_key': job_key
     }))
-    
+
     current_app.logger.info(
-        f"[TEST] Scheduled notification for bus {walking_bus_id} "
-        f"with {len(participants)} participants at {scheduled_time}"
+        f"[TEST] Queued notification for bus {walking_bus_id} "
+        f"with {len(participants)} participants"
     )
-    
+
     return jsonify({
         'status': 'success',
-        'message': 'Test-Benachrichtigung eingeplant',
-        'scheduled_time': scheduled_time.isoformat(),
+        'message': 'Test-Benachrichtigung wird in 2 Minuten zugestellt',
         'participants': [
-            {'id': p.id, 'name': p.name} 
+            {'id': p.id, 'name': p.name}
             for p in participants
         ]
     })

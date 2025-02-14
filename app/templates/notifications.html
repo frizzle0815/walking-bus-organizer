@@ -26,8 +26,7 @@
             <div class="alert alert-info">
                 <p><strong>Test-Benachrichtigung wird in 2 Minuten zugestellt.</strong></p>
                 <hr>
-                <p>Bitte die App jetzt vollständig schließen.</p>
-                <p>Wenn die Benachrichtigung nicht innerhalb von 2 Minuten zugestellt wird, bitte in den Einstellungen auf dem Endgerät dafür sorgen, dass die App UND der verwendete Browser bei Nicht-Benutzung nicht vorzeitig beendet wird.</p>
+                <p>Bitte die App jetzt <b>vollständig schließen</b>, um zu testen, ob Benachrichtigungen auch bei nicht geöffneter App zugestellt werden können.</p>
             </div>
             </div>
         </div>
@@ -63,6 +62,19 @@
                     <span class="flex-grow-1">Berechtigung für Benachrichtigungen</span>
                 </li>
             </ul>
+        </div>
+    </div>
+
+    <!-- Test Notification -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Test Benachrichtigungen</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Hier können Sie die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
+            <button id="testNotification" class="btn btn-secondary">
+                <i class="fas fa-bell me-2"></i>Test-Benachrichtigung senden
+            </button>
         </div>
     </div>
 
@@ -112,19 +124,6 @@
                 </div>
             {% endif %}
            
-        </div>
-    </div>
-
-    <!-- Test Notification -->
-    <div class="card mt-4">
-        <div class="card-header">
-            <h5 class="mb-0">Test Benachrichtigungen</h5>
-        </div>
-        <div class="card-body">
-            <p class="text-muted">Hier können Sie die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
-            <button id="testNotification" class="btn btn-secondary">
-                <i class="fas fa-bell me-2"></i>Test-Benachrichtigung senden
-            </button>
         </div>
     </div>
 
@@ -506,7 +505,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const env = detectEnvironment();
     
     console.log('[NOTI.HTML] Environment:', env, 'PWA Status:', pwaStatus);
-    
+
     // Update PWA status UI first
     updateStatusElement(
         pwaCheckElement,
@@ -544,6 +543,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
 
         setupCheckboxListeners();
+        updateTestNotificationButtonState();
     } catch (error) {
         console.error('[NOTI.HTML] Notification setup error:', error);
         showToast('Fehler bei der Benachrichtigungs-Initialisierung', 'error');
@@ -582,10 +582,12 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
         if (selectedIds.length === 0 && pendingChanges.size > 0) {
             console.log('[NOTI.HTML] Removing all subscriptions');
             await notificationManager.unsubscribeFromPush();
+            updateTestNotificationButtonState();
             showToast('Alle Benachrichtigungen deaktiviert', 'info');
         } else if (selectedIds.length > 0) {
             console.log('[NOTI.HTML] Updating subscriptions with:', selectedIds);
             await notificationManager.subscribeUserToPush(selectedIds);
+            updateTestNotificationButtonState();
             showToast('Einstellungen gespeichert', 'success');
         }
 
@@ -855,6 +857,16 @@ function showToast(message, type) {
     bsToast.show();
 }
 
+
+function updateTestNotificationButtonState() {
+    const testButton = document.getElementById('testNotification');
+    const hasPermissions = Notification.permission === 'granted';
+    const hasSelectedParticipants = document.querySelectorAll('.participant-checkbox:checked').length > 0;
+    const isPWAInstalled = checkPWAStatus().isInstalled;
+    
+    testButton.disabled = !(hasPermissions && hasSelectedParticipants && isPWAInstalled);
+}
+
 document.getElementById('testNotification').addEventListener('click', async () => {
     const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
         .map(cb => parseInt(cb.value));
@@ -872,8 +884,7 @@ document.getElementById('testNotification').addEventListener('click', async () =
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ 
-                participantIds: selectedIds,
-                delayMinutes: 2 
+                participantIds: selectedIds
             })
         });
 

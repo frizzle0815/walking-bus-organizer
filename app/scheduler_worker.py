@@ -210,7 +210,7 @@ def handle_test_notification(app, job_key):
         return
     
     job_data = json.loads(job_data)
-    scheduled_time = datetime.fromisoformat(job_data['scheduled_time'])
+    scheduled_time = datetime.now(pytz.timezone('Europe/Berlin')) + timedelta(minutes=2)
     
     # Create unique job ID
     job_id = f"test_notification_{job_data['walking_bus_id']}_{int(time.time())}"
