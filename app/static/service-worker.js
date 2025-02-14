@@ -196,10 +196,11 @@ async function fetchWithAuth(url, options = {}) {
     console.log('[SW][AUTH][FETCH] Starting authenticated request');
     
     let token = null;
+    const AUTH_URL = `${self.location.origin}/static/auth-token`;
     
     // Try to get token from Cache Storage
     const cache = await caches.open(AUTH_CACHE);
-    const tokenResponse = await cache.match('/static/auth-token');
+    const tokenResponse = await cache.match(AUTH_URL);
     
     if (tokenResponse) {
         const data = await tokenResponse.json();
@@ -231,9 +232,9 @@ async function checkAndRestoreSubscription() {
     try {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Get token directly from Cache Storage
+        const AUTH_URL = `${self.location.origin}/static/auth-token`;
         const cache = await caches.open(AUTH_CACHE);
-        const tokenResponse = await cache.match('/static/auth-token');
+        const tokenResponse = await cache.match(AUTH_URL);
         
         if (!tokenResponse) {
             console.log('[SW] No auth token available yet, skipping subscription check');

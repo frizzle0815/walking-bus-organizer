@@ -3,7 +3,8 @@
 (function() {
     window.TokenManager = class TokenManager {
         constructor() {
-            console.log('[AUTH.HTML][TokenManager] Initializing');
+            this.AUTH_URL = `${window.location.origin}/static/auth-token`;
+            console.log('[AUTH.HTML][TokenManager] Initializing with URL:', this.AUTH_URL);
         }
 
         async storeToken(token) {
@@ -19,13 +20,12 @@
                     })],
                     { type: 'application/json' }
                 );
-                await cache.put('/static/auth-token', new Response(tokenBlob));
+                await cache.put(this.AUTH_URL, new Response(tokenBlob));
                 console.log('[AUTH.HTML][TokenManager] Token stored in Cache Storage');
             }
 
             // Backup in localStorage
             localStorage.setItem('auth_token', token);
-            console.log('[AUTH.HTML][TokenManager] Token stored in localStorage as backup');
         }
 
         async getToken() {
@@ -34,7 +34,7 @@
             if ('caches' in window) {
                 try {
                     const cache = await caches.open('walking-bus-auth-v1');
-                    const response = await cache.match('/static/auth-token');
+                    const response = await cache.match(this.AUTH_URL);
                     
                     if (response) {
                         const data = await response.json();
@@ -47,14 +47,7 @@
             }
 
             // Fallback to localStorage
-            const token = localStorage.getItem('auth_token');
-            if (token) {
-                console.log('[AUTH.HTML][TokenManager] Token found in localStorage');
-                return token;
-            }
-
-            console.log('[AUTH.HTML][TokenManager] No token found');
-            return null;
+            return localStorage.getItem('auth_token');
         }
 
         async clearToken() {
@@ -62,13 +55,11 @@
 
             if ('caches' in window) {
                 const cache = await caches.open('walking-bus-auth-v1');
-                await cache.delete('/static/auth-token');
+                await cache.delete(this.AUTH_URL);
             }
 
             localStorage.removeItem('auth_token');
             document.cookie = 'session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict';
-            
-            console.log('[AUTH.HTML][TokenManager] All tokens cleared');
         }
     }
     // Globale Instanz erstellen

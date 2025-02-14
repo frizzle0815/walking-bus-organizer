@@ -99,17 +99,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         return;
     }
 
-    await checkStoredAuth();
-
     // Auth token verification functions
     async function checkStoredAuth() {
         console.log('[LOGIN] Starting stored auth check');
         
-        // Single source of truth: Cache Storage
+        const AUTH_URL = `${window.location.origin}/static/auth-token`;
+        
         if ('caches' in window) {
             try {
                 const cache = await caches.open('walking-bus-auth-v1');
-                const tokenResponse = await cache.match('/static/auth-token');
+                const tokenResponse = await cache.match(AUTH_URL);
                 
                 if (tokenResponse) {
                     const data = await tokenResponse.json();
