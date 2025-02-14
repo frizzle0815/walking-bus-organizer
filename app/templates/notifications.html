@@ -46,6 +46,9 @@
             <h5 class="mb-0">Systemvoraussetzungen</h5>
         </div>
         <div class="card-body">
+            <div id="systemRequirements" class="mb-4">
+                <!-- Status messages will be inserted here -->
+            </div>
             <ul class="list-group">
                 <li class="list-group-item d-flex align-items-center" id="pwaCheck">
                     <span class="status-icon me-2">
@@ -61,6 +64,7 @@
                 </li>
             </ul>
         </div>
+    </div>
 
     <!-- Participant Selection -->
     <div class="card">
@@ -125,7 +129,44 @@
     </div>
 
 </div>
+<style>
+.img-fluid {
+    max-width: 100%;
+    height: auto;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
 
+.list-group-item {
+    align-items: flex-start !important; /* Override Bootstrap's center alignment */
+}
+
+.status-icon {
+    padding-top: 3px; /* Fine-tune vertical position of icon */
+}
+
+/* If you have multi-line content, this ensures proper text wrapping */
+.flex-grow-1 {
+    min-width: 0;
+}
+
+.battery-settings-image {
+    max-width: 300px;  /* Limits width to 300px */
+    width: 100%;       /* Takes full width up to max-width */
+    height: auto;      /* Maintains aspect ratio */
+    display: block;    /* Removes any inline spacing */
+    margin: 1rem auto; /* Centers image with consistent spacing */
+}
+
+.ios-guide-image {
+    max-width: 300px;
+    width: 100%;
+    height: auto;
+    display: block;
+    margin: 1rem 0;
+}
+</style>
 
 <script>
 let pendingChanges = new Set(); // Track changed participant IDs
@@ -457,53 +498,55 @@ async function initializeServiceWorker() {
 const notificationManager = new NotificationManager();
 
 document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        console.log('[NOTI.HTML] DOM Content Loaded');
+    console.log('[NOTI.HTML] DOM Content Loaded');
 
-        // Check PWA status first
-        const pwaStatus = checkPWAStatus();
-        const pwaCheckElement = document.getElementById('pwaCheck');
-        
-        // Update PWA status UI first
+    // Check PWA status first
+    const pwaStatus = checkPWAStatus();
+    const pwaCheckElement = document.getElementById('pwaCheck');
+    const env = detectEnvironment();
+    
+    console.log('[NOTI.HTML] Environment:', env, 'PWA Status:', pwaStatus);
+    
+    // Update PWA status UI first
+    updateStatusElement(
+        pwaCheckElement,
+        pwaStatus.isInstalled ? 'installed' : 'notInstalled',
+        'App ist installiert',
+        'App muss noch installiert werden (Android) bzw. dem Home Bildschirm hinzugefügt werden (iOS)'
+    );
+
+    // For non-installed apps, show installation instructions without throwing error
+    if (!pwaStatus.isInstalled) {
+        const notificationCheckElement = document.getElementById('notificationCheck');
         updateStatusElement(
-            pwaCheckElement,
-            pwaStatus.isInstalled ? 'installed' : 'notInstalled',
-            'App ist installiert',
-            'App muss noch installiert werden (Android) bzw. dem Home Bildschirm hinzugefügt werden (iOS)'
+            notificationCheckElement,
+            'needsInstall',
+            '',
+            'Installation erforderlich für Benachrichtigungen'
+        );
+        return; // Exit early for non-installed apps
+    }
+
+    // Only proceed with notification setup if installed
+    try {
+        await notificationManager.init();
+        await notificationManager.validateAndCleanupSubscriptions();
+        await notificationManager.loadExistingSubscriptions();
+
+        const notificationCheckElement = document.getElementById('notificationCheck');
+        const notificationPermission = await checkNotificationPermission(pwaStatus);
+        
+        updateStatusElement(
+            notificationCheckElement,
+            notificationPermission,
+            'Berechtigung für Benachrichtigungen wurde erteilt.',
+            'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
         );
 
-        // Only proceed with notification setup if installed
-        if (pwaStatus.isInstalled) {
-            await notificationManager.init();
-            await notificationManager.validateAndCleanupSubscriptions();
-            await notificationManager.loadExistingSubscriptions();
-
-            const notificationCheckElement = document.getElementById('notificationCheck');
-            const notificationPermission = await checkNotificationPermission(pwaStatus);
-            
-            updateStatusElement(
-                notificationCheckElement,
-                notificationPermission,
-                'Berechtigung für Benachrichtigungen wurde erteilt.',
-                'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
-            );
-
-            // Setup checkbox listeners only when installed
-            setupCheckboxListeners();
-        } else {
-            // Skip notification initialization for non-installed apps
-            const notificationCheckElement = document.getElementById('notificationCheck');
-            updateStatusElement(
-                notificationCheckElement,
-                'needsInstall',
-                '',
-                'Installation erforderlich für Benachrichtigungen'
-            );
-        }
-
+        setupCheckboxListeners();
     } catch (error) {
-        console.error('[NOTI.HTML] Initialization error:', error);
-        showToast('Fehler bei der Initialisierung', 'error');
+        console.error('[NOTI.HTML] Notification setup error:', error);
+        showToast('Fehler bei der Benachrichtigungs-Initialisierung', 'error');
     }
 });
 
@@ -546,6 +589,16 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
             showToast('Einstellungen gespeichert', 'success');
         }
 
+        // Update notification status display immediately
+        const notificationCheckElement = document.getElementById('notificationCheck');
+        const notificationPermission = await checkNotificationPermission();
+        updateStatusElement(
+            notificationCheckElement,
+            notificationPermission,
+            'Berechtigung für Benachrichtigungen wurde erteilt.',
+            'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
+        );
+
         pendingChanges.clear();
         document.getElementById('saveSubscriptions').disabled = true;
 
@@ -554,6 +607,27 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
         showToast('Fehler beim Speichern', 'error');
     }
 });
+
+
+// Enhanced device and browser detection
+function detectEnvironment() {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+    
+    // Browser detection
+    const isChrome = /Chrome/.test(navigator.userAgent);
+    const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+    const isFirefox = /Firefox/.test(navigator.userAgent);
+    
+    const browserName = isChrome ? 'Chrome' : 
+                       isSafari ? 'Safari' : 
+                       isFirefox ? 'Firefox' : 'Browser';
+    
+    return {
+        platform: isIOS ? 'ios' : isAndroid ? 'android' : 'other',
+        browser: browserName
+    };
+}
 
 
 // Check PWA status with iOS support
@@ -589,23 +663,86 @@ function checkPWAStatus() {
 
 
 function updateStatusElement(element, status, successText, failureText) {
+    // Add debug logging
+    console.log('[STATUS] Element found:', element);
+    console.log('[STATUS] Element children:', {
+        iconSpan: element.querySelector('.status-icon'),
+        textSpan: element.querySelector('.flex-grow-1')
+    });
+
+    const env = detectEnvironment();
     const iconSpan = element.querySelector('.status-icon');
     const textSpan = element.querySelector('.flex-grow-1');
 
-    // Log the incoming status for debugging
-    if (status === 'installed' || status === 'notInstalled') {
-        console.log('[PERMISSIONS] PWA status check:', status);
-    } else {
-        console.log('[PERMISSIONS] Notification status check:', status);
-        console.log('[PERMISSIONS] System notification permission:', Notification.permission);
+    // Verify elements exist
+    if (!iconSpan || !textSpan) {
+        console.error('[STATUS] Required elements not found');
+        return;
     }
 
-    // Handle PWA installation status first
+    // Force platform for testing
+    if (env.platform === 'other') {
+        env.platform = 'android'; // or 'ios' for testing
+        console.log('[STATUS] Platform override for testing:', env.platform);
+    }
+
+    console.log('[STATUS] Updating element:', {
+        element,
+        status,
+        successText,
+        failureText,
+        environment: detectEnvironment()
+    });
+
+    // Log for debugging
+    console.log('[PERMISSIONS] Status check:', status);
+    console.log('[PERMISSIONS] Environment:', env);
+
+    // Handle PWA installation status
     if (status === 'installed' || status === 'notInstalled') {
         iconSpan.innerHTML = status === 'installed' 
             ? '<i class="fas fa-check-circle text-success"></i>'
             : '<i class="fas fa-exclamation-circle text-warning"></i>';
-        textSpan.textContent = status === 'installed' ? successText : failureText;
+        
+        if (status === 'notInstalled') {
+            if (env.platform === 'ios') {
+                textSpan.innerHTML = `
+                    <div class="installation-guide">
+                        <p>Installation erforderlich: App zum Home-Bildschirm hinzufügen</p>
+                        <ol>
+                            <li>Safari-Browser verwenden</li>
+                            <li>Auf Teilen-Symbol tippen</li>
+                            <li>"Zum Home-Bildschirm hinzufügen" wählen</li>
+                        </ol>
+                        <img src="/static/images/ios-install-guide.png" class="ios-guide-image">
+                    </div>`;
+            } else if (env.platform === 'android') {
+                textSpan.innerHTML = `
+                    <div class="installation-guide">
+                        <p>Installation erforderlich - Siehe Link im Menü</p>
+                    </div>`;
+                
+                // Setup click handler after button is added to DOM
+                setTimeout(() => {
+                    const installButton = textSpan.querySelector('.install-trigger');
+                    if (installButton && window.deferredPrompt) {
+                        installButton.addEventListener('click', async (e) => {
+                            e.preventDefault();
+                            window.deferredPrompt.prompt();
+                            const { outcome } = await window.deferredPrompt.userChoice;
+                            console.log('[INSTALL] User response:', outcome);
+                            window.deferredPrompt = null;
+                            
+                            if (outcome === 'accepted') {
+                                location.reload();
+                            }
+                        });
+                    }
+                });
+            }
+        } else {
+            textSpan.textContent = successText;
+        }
         return;
     }
 
@@ -623,34 +760,55 @@ function updateStatusElement(element, status, successText, failureText) {
             
         case 'granted':
             iconSpan.innerHTML = '<i class="fas fa-check-circle text-success"></i>';
-            textSpan.textContent = successText;
+            textSpan.innerHTML = `
+                ${successText}
+                ${env.platform === 'android' ? getBatteryOptimizationWarning(env.browser) : ''}
+            `;
             break;
             
         case 'denied':
             iconSpan.innerHTML = '<i class="fas fa-times-circle text-warning"></i>';
-            textSpan.innerHTML = `
-            <div class="text-danger mb-3">Benachrichtigungen wurden blockiert. Die Einstellung muss manuell wie folgt geändert werden:</div>
-            
-            <div class="platform-instructions">
-                <div class="platform mb-3">
-                    <h6 class="fw-bold">iOS</h6>
-                    <div class="ms-3">
-                        Einstellungen > Datenschutz & Sicherheit > WalkBus
-                    </div>
-                </div>
-                
-                <div class="platform">
-                    <h6 class="fw-bold">Android</h6>
-                    <div class="ms-3">
-                        Einstellungen > Apps > WalkBus > Berechtigungen
-                    </div>
-                </div>
-            </div>`;
-        break;
+            textSpan.innerHTML = getPermissionDeniedMessage(env);
+            break;
             
         default:
             iconSpan.innerHTML = '<i class="fas fa-exclamation-circle text-warning"></i>';
             textSpan.innerHTML = 'Berechtigung fehlt. Wähle unten einen Teilnehmer, klicke "Änderungen speichern" und erlaube in der folgenden Abfrage die Benachrichtigungen.';
+    }
+}
+
+function getBatteryOptimizationWarning(browser) {
+    return `
+        <div class="alert alert-info mt-3">
+            <h6 class="fw-bold">Wichtiger Hinweis für zuverlässige Benachrichtigungen auf Android:</h6>
+            <p class="mb-2">Bitte deaktiviere "App bei Nichtnutzung pausieren" für:</p>
+            <ul class="mb-2">
+                <li>WalkBus</li>
+                <li>${browser}</li>
+            </ul>
+            <p>Einstellungen > Apps > App auswählen > App bei Nichtnutzung pausieren</p>
+            <img src="/static/images/android-inactivity-settings.png" class="battery-settings-image">
+        </div>`;
+}
+
+function getPermissionDeniedMessage(env) {
+    const baseMessage = `
+        <div class="text-danger mb-3">
+            Benachrichtigungen wurden blockiert. Die Einstellung muss manuell geändert werden:
+        </div>`;
+        
+    if (env.platform === 'ios') {
+        return `
+            ${baseMessage}
+            <div class="ms-3">
+                Einstellungen > Datenschutz & Sicherheit > WalkBus
+            </div>`;
+    } else {
+        return `
+            ${baseMessage}
+            <div class="ms-3">
+                Einstellungen > Apps > WalkBus > Berechtigungen
+            </div>`;
     }
 }
 
