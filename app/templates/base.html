@@ -47,11 +47,14 @@
        
        <!-- Center: Connection Status + Time -->
        <div class="d-flex align-items-center mx-auto">
-           <div id="connection-status" class="me-2">
-               <i class="fas fa-circle connection-indicator"></i>
-           </div>
-           <div id="current-time" class="fw-bold"></div>
-       </div>
+        <div id="connection-status" class="me-2">
+            <i class="fas fa-circle connection-indicator"></i>
+        </div>
+        <div id="notification-status" class="me-2" role="button" onclick="window.location.href='/notifications'" style="cursor: pointer;">
+            <i class="fas fa-bell notification-indicator"></i>
+        </div>
+        <div id="current-time" class="fw-bold"></div>
+    </div>
        
        <!-- Right side: Toggle Button -->
        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
@@ -379,6 +382,27 @@
         background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%280, 0, 0, 0.75%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
     }
 
+.notification-indicator {
+    font-size: 0.7rem;
+    transition: all 0.3s ease;
+    position: relative;
+    top: -1px;
+}
+
+.notification-indicator.disabled {
+    position: relative;
+}
+
+.notification-indicator.disabled:after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 140%;
+    height: 2px;
+    background: currentColor;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
 
 
   </style>
@@ -587,6 +611,8 @@ if (installApp) {
              }
          });
      }
+
+     await updateNotificationIndicator();
  });
 
  
@@ -647,6 +673,30 @@ function SSE_updateTimeDisplay(time) {
          });
      }
  });
+
+ async function updateNotificationIndicator() {
+    if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        
+        // Wait for activation if needed
+        if (registration.installing) {
+            await new Promise(resolve => {
+                registration.installing.addEventListener('statechange', e => {
+                    if (e.target.state === 'activated') resolve();
+                });
+            });
+        }
+
+        const subscription = await registration.pushManager.getSubscription();
+        const indicator = document.querySelector('.notification-indicator');
+        
+        if (subscription) {
+            indicator.classList.remove('disabled');
+        } else {
+            indicator.classList.add('disabled');
+        }
+    }
+}
 </script>
 </body>
 </html>
