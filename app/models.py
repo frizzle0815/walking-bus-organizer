@@ -143,6 +143,8 @@ class AuthToken(db.Model):
     invalidated_at = db.Column(db.DateTime, default=None, onupdate=get_current_time)
     invalidation_reason = db.Column(db.String(100))
     token_identifier = db.Column(db.String(64), unique=True, nullable=False)
+    is_pwa_installed = db.Column(db.Boolean, default=False)
+    pwa_status_updated_at = db.Column(db.DateTime, default=None)
     
     walking_bus = db.relationship('WalkingBus', backref='auth_tokens')
 

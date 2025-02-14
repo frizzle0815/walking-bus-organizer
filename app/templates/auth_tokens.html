@@ -18,6 +18,7 @@
                             <th>#</th>
                             <th>Token Identifier</th>
                             <th>Client</th>
+                            <th>PWA Status</th>
                             <th>Erstellt am</th>
                             <th>Zuletzt verwendet</th>
                             <th>Läuft ab am</th>
@@ -30,6 +31,13 @@
                             <td>{{ loop.index }}</td>
                             <td>{{ token.token_identifier[:4] }}...</td>
                             <td>{{ token.platform }}</td>
+                            <td>
+                                {% if token.is_pwa_installed %}
+                                    <i class="fas fa-check text-success" title="Als App installiert"></i>
+                                {% else %}
+                                    <i class="fas fa-times text-danger" title="Nicht als App installiert"></i>
+                                {% endif %}
+                            </td>
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.last_used.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
@@ -66,6 +74,7 @@
                                 <th>#</th>
                                 <th>Token Identifier</th>
                                 <th>Client</th>
+                                <th>PWA Status</th>
                                 <th>Erstellt am</th>
                                 <th>Deaktiviert am</th>
                                 <th>Grund</th>
@@ -77,6 +86,13 @@
                                 <td>{{ loop.index }}</td>
                                 <td>{{ token.token_identifier[:4] }}...</td>
                                 <td>{{ token.platform }}</td>
+                                <td>
+                                    {% if token.is_pwa_installed %}
+                                        <i class="fas fa-check text-success" title="Als App installiert"></i>
+                                    {% else %}
+                                        <i class="fas fa-times text-danger" title="Nicht als App installiert"></i>
+                                    {% endif %}
+                                </td>
                                 <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                                 <td>{{ token.invalidated_at.strftime('%d.%m.%Y %H:%M') }}</td>
                                 <td>{{ token.invalidation_reason }}</td>

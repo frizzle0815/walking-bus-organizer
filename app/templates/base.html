@@ -517,6 +517,54 @@ async function ensurePersistentStorage() {
  }
 
 
+ function checkPWAStatus() {
+    try {
+        // iOS standalone mode check
+        if (navigator.standalone) {
+            const status = true;
+            sendStatusToBackend(status);
+            return { isInstalled: status };
+        }
+        
+        // Android/Desktop PWA check
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            const status = true;
+            sendStatusToBackend(status);
+            return { isInstalled: status };
+        }
+
+        // Safari on iOS check
+        if (window.navigator.userAgent.includes('Safari') && 
+            window.navigator.userAgent.includes('iPhone')) {
+            if (window.navigator.standalone === true) {
+                const status = true;
+                sendStatusToBackend(status);
+                return { isInstalled: status };
+            }
+        }
+        
+        // Not installed case
+        const status = false;
+        sendStatusToBackend(status);
+        return { isInstalled: status };
+        
+    } catch (error) {
+        console.log('[PWA-CHECK] Status check failed:', error);
+        sendStatusToBackend(false);
+        return { isInstalled: false };
+    }
+}
+
+function sendStatusToBackend(status) {
+    fetchWithAuth('/api/pwa-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            is_installed: status 
+        })
+    });
+}
+
  // PWA installation handling
  let deferredPrompt;
 
@@ -613,8 +661,11 @@ if (installApp) {
      }
 
      await updateNotificationIndicator();
+     await checkPWAStatus();
  });
 
+ // Check when display mode changes 
+window.matchMedia('(display-mode: standalone)').addEventListener('change', checkPWAStatus);
  
 function SSE_updateTimeDisplay(time) {
     const timeElement = document.getElementById('current-time');

@@ -348,7 +348,9 @@ def list_auth_tokens():
             'is_active': token.is_active,
             'invalidated_at': token.invalidated_at,
             'invalidation_reason': token.invalidation_reason,
-            'walking_bus_id': token.walking_bus_id
+            'walking_bus_id': token.walking_bus_id,
+            'is_pwa_installed': token.is_pwa_installed,
+            'pwa_status_updated_at': token.pwa_status_updated_at
         }
         enhanced_tokens.append(token_dict)
     
@@ -1613,6 +1615,29 @@ def broadcast_notification():
         'results': results,
         'cleanup': cleanup_result
     })
+
+
+@bp.route("/api/pwa-status", methods=["POST"])
+@require_auth
+def update_pwa_status():
+    data = request.get_json()
+    is_installed = data.get('is_installed', False)
+    
+    # Get current token
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+    
+    # Only update if status changed
+    if auth_token.is_pwa_installed != is_installed:
+        auth_token.is_pwa_installed = is_installed
+        auth_token.pwa_status_updated_at = get_current_time()
+        db.session.commit()
+        
+        current_app.logger.info(
+            f"Updated PWA status for token {auth_token.token_identifier}: {is_installed}"
+        )
+    
+    return jsonify({"success": True})
 
 
 #####################################################
