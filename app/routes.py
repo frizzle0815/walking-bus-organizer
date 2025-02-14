@@ -2734,16 +2734,6 @@ def login():
             'redirect_url': url_for('main.index')
         })
 
-        response.set_cookie(
-            'auth_token',
-            auth_token,
-            max_age=30 * 24 * 60 * 60,
-            secure=True,
-            httponly=True,
-            samesite='Lax',
-            path='/'
-        )
-        
         return response  # Return successful response here
 
     # Handle failed login - only reached if login was unsuccessful
@@ -2776,15 +2766,6 @@ def logout():
         "message": "Logged out successfully",
         "clear_cache": True
     })
-    
-    # Explicitly delete the auth_token cookie with matching parameters
-    response.delete_cookie(
-        'auth_token',
-        path='/',
-        secure=True,
-        httponly=True,
-        samesite='Lax'
-    )
     
     response.headers.update({
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',

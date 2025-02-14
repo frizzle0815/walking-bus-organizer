@@ -28,6 +28,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     };
 
     try {
+        console.log('[TEMP-LOGIN] Starting temporary login process');
+        
         const urlParts = window.location.pathname.split('/');
         const token = urlParts[urlParts.length - 1];
         
@@ -45,13 +47,18 @@ document.addEventListener('DOMContentLoaded', async function() {
         const data = await response.json();
         
         if (data.success && data.auth_token) {
-            // Store token using TokenManager
+            console.log('[TEMP-LOGIN] Login successful, storing token');
+            
+            // Store token using simplified TokenManager
             await window.tokenManager.storeToken(data.auth_token);
+            
+            console.log('[TEMP-LOGIN] Token stored, redirecting to:', data.redirect_url);
             window.location.replace(data.redirect_url);
         } else {
             throw new Error(data.error || 'Unerwarteter Fehler beim Login');
         }
     } catch (error) {
+        console.error('[TEMP-LOGIN] Error:', error.message);
         showError(error.message);
     }
 });

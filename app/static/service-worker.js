@@ -2,9 +2,7 @@ const STATIC_CACHE = 'walking-bus-static-v1';
 const DATA_CACHE = 'walking-bus-data-v1';
 const AUTH_CACHE = 'walking-bus-auth-v1';
 
-const AUTH_TOKEN_CACHE_KEY = 'auth-token';
-
-const CACHE_VERSION = 'v19'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v20'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -52,89 +50,6 @@ self.addEventListener('message', (event) => {
     switch (event.data?.type) {
         case 'CHECK_SUBSCRIPTION':
             event.waitUntil(checkAndRestoreSubscription());
-            break;
-
-        case 'GET_AUTH_TOKEN':
-            console.log('[SW] Processing token retrieval request');
-            getTokenFromCache()
-                .then(token => {
-                    console.log('[SW] Cache token retrieval completed:', token ? 'Found' : 'Not found');
-                    event.ports?.[0]?.postMessage({ token });
-                })
-                .catch(error => {
-                    console.error('[SW] Cache token retrieval error:', error);
-                    event.ports?.[0]?.postMessage({ token: null, error: error.message });
-                });
-            break;
-
-        case 'STORE_AUTH_TOKEN':
-            console.log('[SW] Processing token storage');
-            caches.open(AUTH_CACHE)
-                .then(cache => {
-                    console.log('[SW] Cache opened successfully');
-                    const response = new Response(JSON.stringify({
-                        token: event.data.token,
-                        timestamp: new Date().toISOString()
-                    }));
-                    return cache.put(AUTH_TOKEN_CACHE_KEY, response);
-                })
-                .then(() => {
-                    console.log('[SW] Token stored successfully');
-                    event.ports?.[0]?.postMessage({ success: true });
-                    console.log('[SW] Success message sent back');
-                })
-                .catch(error => {
-                    console.error('[SW] Storage error:', error);
-                    event.ports?.[0]?.postMessage({
-                        success: false,
-                        error: error.message
-                    });
-                    console.log('[SW] Error message sent back');
-                });
-            break;
-
-        case 'CLEAR_AUTH_TOKEN':
-            console.log('[SW] Starting cache clearing');
-            caches.keys().then(keys => {
-                console.log('[SW] Existing caches before deletion:', keys);
-            });
-
-            Promise.all([
-                caches.open(STATIC_CACHE).then(cache => 
-                    cache.keys().then(keys => 
-                        Promise.all(keys.map(key => cache.delete(key)))
-                    )
-                ),
-                caches.open(DATA_CACHE).then(cache => 
-                    cache.keys().then(keys => 
-                        Promise.all(keys.map(key => cache.delete(key)))
-                    )
-                ),
-                caches.open(AUTH_CACHE).then(cache => 
-                    cache.keys().then(keys => 
-                        Promise.all(keys.map(key => cache.delete(key)))
-                    )
-                )
-            ])
-            .then(() => {
-                console.log('[SW] All caches deleted successfully');
-                event.ports?.[0]?.postMessage({ success: true });
-                console.log('[SW] Success message sent back');
-                console.log('[SW] Updating service worker registration');
-                self.registration.update();
-                return caches.keys();
-            })
-            .then(remainingKeys => {
-                console.log('[SW] Remaining caches after deletion:', remainingKeys);
-            })
-            .catch(error => {
-                console.error('[SW] Clear error:', error);
-                event.ports?.[0]?.postMessage({
-                    success: false,
-                    error: error.message
-                });
-                console.log('[SW] Error message sent back');
-            });
             break;
 
         case 'SKIP_WAITING':
@@ -277,62 +192,18 @@ async function handleStatusToggle(data) {
 }
 
 
-async function getTokenFromIndexedDB() {
-    console.log('[SW][AUTH][IndexedDB] Attempting to retrieve token');
-    const db = await new Promise((resolve, reject) => {
-        const request = indexedDB.open('WalkingBusAuth', 1);
-        request.onerror = () => {
-            console.error('[SW][AUTH][IndexedDB] Error opening database:', request.error);
-            reject(request.error);
-        }
-        request.onsuccess = () => {
-            console.log('[SW][AUTH][IndexedDB] Database opened successfully');
-            resolve(request.result);
-        }
-    });
-    
-    const tx = db.transaction('tokens', 'readonly');
-    const store = tx.objectStore('tokens');
-    const tokenData = await store.get('current-token');
-    console.log('[SW][AUTH][IndexedDB] Token retrieved:', tokenData ? 'Found' : 'Not found');
-    return tokenData?.token;
-}
-
-function getTokenFromLocalStorage() {
-    console.log('[SW][AUTH][LocalStorage] Attempting to retrieve token');
-    const token = self.localStorage?.getItem('auth_token');
-    console.log('[SW][AUTH][LocalStorage] Token retrieved:', token ? 'Found' : 'Not found');
-    return token;
-}
-
-async function getTokenFromCache() {
-    console.log('[SW][AUTH][Cache] Attempting to retrieve token');
-    const cache = await caches.open('walking-bus-auth-v1');
-    const response = await cache.match('auth-token');
-    if (response) {
-        const data = await response.json();
-        console.log('[SW][AUTH][Cache] Token found in cache');
-        return data.token;
-    }
-    console.log('[SW][AUTH][Cache] No token found in cache');
-    return null;
-}
-
-
 async function fetchWithAuth(url, options = {}) {
     console.log('[SW][AUTH][FETCH] Starting authenticated request');
     
-    let token;
+    let token = null;
     
-    // Try IndexedDB first
-    token = await getTokenFromIndexedDB();
-    if (!token) {
-        // If no token in IndexedDB, try localStorage
-        token = getTokenFromLocalStorage();
-        if (!token) {
-            // Last resort: check cache
-            token = await getTokenFromCache();
-        }
+    // Try to get token from Cache Storage
+    const cache = await caches.open(AUTH_CACHE);
+    const tokenResponse = await cache.match('/static/auth-token');
+    
+    if (tokenResponse) {
+        const data = await tokenResponse.json();
+        token = data.token;
     }
 
     if (!token) {
@@ -354,31 +225,31 @@ async function fetchWithAuth(url, options = {}) {
     return response;
 }
 
-
 async function checkAndRestoreSubscription() {
     console.log('[SW] Checking for existing subscription in database');
     
     try {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Check if we have a token before proceeding
-        const token = await getTokenFromIndexedDB() || 
-                     getTokenFromLocalStorage() || 
-                     await getTokenFromCache();
-                     
-        if (!token) {
+        // Get token directly from Cache Storage
+        const cache = await caches.open(AUTH_CACHE);
+        const tokenResponse = await cache.match('/static/auth-token');
+        
+        if (!tokenResponse) {
             console.log('[SW] No auth token available yet, skipping subscription check');
             return;
         }
-        // Check if user had subscriptions
+        
+        const tokenData = await tokenResponse.json();
+        const token = tokenData.token;
+
+        // Rest of the function remains the same
         const response = await fetchWithAuth('/api/notifications/subscription');
         const data = await response.json();
         
-        // Add check for subscription status
         if (data && data.subscription && !data.subscription.is_active) {
             console.log('[SW] Found paused subscription, attempting to restore');
             
-            // Get VAPID key and create new subscription
             const vapidResponse = await fetchWithAuth('/api/notifications/vapid-key');
             const vapidKey = await vapidResponse.text();
             
@@ -387,7 +258,6 @@ async function checkAndRestoreSubscription() {
                 applicationServerKey: vapidKey
             });
             
-            // Store new subscription with existing participantIds
             await fetchWithAuth('/api/notifications/subscription', {
                 method: 'POST',
                 headers: {

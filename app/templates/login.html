@@ -99,71 +99,37 @@ document.addEventListener('DOMContentLoaded', async function() {
         return;
     }
 
+    await checkStoredAuth();
+
     // Auth token verification functions
     async function checkStoredAuth() {
-        let token = null;
+        console.log('[LOGIN] Starting stored auth check');
         
-        // 1. Try Service Worker cache first
+        // Single source of truth: Cache Storage
         if ('caches' in window) {
             try {
                 const cache = await caches.open('walking-bus-auth-v1');
-                const tokenResponse = await cache.match('static/auth-token');
-                if (tokenResponse) {
-                    const tokenData = await tokenResponse.json();
-                    token = tokenData.token;
-                    console.log('[LOGIN] Token found in Service Worker cache');
-                }
-            } catch (error) {
-                console.log('[LOGIN] Cache access failed, continuing with other methods');
-            }
-        }
-        
-        // 2. Check localStorage if no token found in cache
-        if (!token) {
-            token = localStorage.getItem('auth_token');
-            if (token) {
-                console.log('[LOGIN] Token found in localStorage');
-            }
-        }
-        
-        // 3. Check cookies as last resort
-        if (!token) {
-            token = document.cookie.split('; ')
-                .find(row => row.startsWith('auth_token='))
-                ?.split('=')[1];
-            if (token) {
-                console.log('[LOGIN] Token found in cookies');
-            }
-        }
-
-        if (token) {
-            try {
-                // Use existing fetchWithAuth from base.html
-                const response = await window.fetchWithAuth('/api/walking-bus-schedule');
+                const tokenResponse = await cache.match('/static/auth-token');
                 
-                if (response.ok) {
-                    console.log('[LOGIN] Token is valid, performing auto-login');
-                    window.location.href = '/';
-                    return true;
+                if (tokenResponse) {
+                    const data = await tokenResponse.json();
+                    console.log('[LOGIN] Token found in Cache Storage');
+                    
+                    // Verify token validity
+                    const response = await window.fetchWithAuth('/api/walking-bus-schedule');
+                    
+                    if (response.ok) {
+                        console.log('[LOGIN] Token is valid, performing auto-login');
+                        window.location.href = '/';
+                        return true;
+                    }
                 }
             } catch (error) {
-                console.error('[LOGIN] Token verification failed:', error);
+                console.log('[LOGIN] Cache check failed:', error);
             }
-            
-            clearAuthData();
         }
+        
         return false;
-    }
-
-    function clearAuthData() {
-        if ('caches' in window) {
-            caches.open('walking-bus-auth-v1').then(cache => {
-                cache.delete('static/auth-token');
-            });
-        }
-        localStorage.removeItem('auth_token');
-        document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-        console.log('[LOGIN] Cleared all stored auth data');
     }
 
     // Run the auth check
