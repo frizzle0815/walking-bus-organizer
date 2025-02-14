@@ -89,7 +89,8 @@ class PushService:
                 },
                 data=json.dumps(notification_data),
                 vapid_private_key=vapid_keys['private_key'],
-                vapid_claims=vapid_claims
+                vapid_claims=vapid_claims,
+                ttl=3000  # 50 Minuten in Sekunden
             )
 
             enhanced_notification_data = notification_data.copy()
