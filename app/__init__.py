@@ -24,13 +24,13 @@ migrate = Migrate()
 
 cache = Cache(config={
     'CACHE_TYPE': 'redis',
-    'CACHE_REDIS_URL': 'redis://localhost:6379/0'
+    'CACHE_REDIS_URL': os.getenv('REDIS_URL', 'redis://redis:6379/0')
 })
 
 
 # Define the application's timezone
 DEFAULT_TIMEZONE = 'Europe/Berlin'
-DEFAULT_REDIS_URL = 'redis://localhost:6379'
+DEFAULT_REDIS_URL = 'redis://redis:6379'
 timezone_name = os.getenv('APP_TIMEZONE', DEFAULT_TIMEZONE)
 redis_url = os.getenv('REDIS_URL', DEFAULT_REDIS_URL)
 redis_client = Redis.from_url(redis_url)
@@ -169,6 +169,10 @@ class RequestFormatter(logging.Formatter):
 
 def create_app():
     app = Flask(__name__)
+    app.config['REDIS_URL'] = redis_url
+    app.config['CACHE_TYPE'] = 'redis'
+    app.config['CACHE_REDIS_URL'] = redis_url
+    
     cache.init_app(app)
 
     # Security Configuration
