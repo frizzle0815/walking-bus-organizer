@@ -20,6 +20,7 @@ from .services.weather_service import WeatherService
 from .services.push_service import PushService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from . import get_git_revision
+from . import cache
 from sqlalchemy.exc import SQLAlchemyError
 from .auth import (
     require_auth, SECRET_KEY, is_ip_allowed, 
@@ -27,8 +28,9 @@ from .auth import (
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
-    renew_auth_token
+    renew_auth_token, extract_token_from_request
 )
+import secrets
 import jwt
 import json
 import time
@@ -1640,6 +1642,54 @@ def update_pwa_status():
     return jsonify({"success": True})
 
 
+# Route for first time auto-login after pwa installation on iOS (workaround)
+@bp.route("/api/validate-pwa-token", methods=["POST"])
+def validate_pwa_token():
+    current_app.logger.info("[PWA] Starting token validation")
+    data = request.get_json()
+    pwa_token = data.get('pwa_token')
+    
+    token_identifier = cache.get(f"pwa_token_{pwa_token}")
+    if not token_identifier:
+        current_app.logger.warning("[PWA] Invalid or expired token")
+        return jsonify({"error": "Invalid or expired PWA token"}), 401
+    
+    current_app.logger.info(f"[PWA] Found token_identifier: {token_identifier}")
+        
+    # Get original auth token
+    auth_token = AuthToken.query.filter_by(
+        token_identifier=token_identifier,
+        is_active=True
+    ).first()
+    
+    if not auth_token:
+        return jsonify({"error": "Invalid token identifier"}), 401
+    
+    # Create new auth token for PWA
+    new_token = create_auth_token(
+        auth_token.walking_bus_id,
+        auth_token.walking_bus.name,
+        auth_token.bus_password_hash,
+        client_info=request.headers.get('User-Agent')
+    )
+    
+    # Mark PWA as installed
+    auth_token.is_pwa_installed = True
+    auth_token.pwa_status_updated_at = get_current_time()
+    
+    # Remove PWA token from cache
+    cache.delete(f"pwa_token_{pwa_token}")
+    
+    db.session.commit()
+    current_app.logger.info("[PWA] Installation complete")    
+    
+    return jsonify({
+        "success": True,
+        "auth_token": new_token
+    })
+
+
+
 #####################################################
 ######################################################
 
@@ -2474,9 +2524,41 @@ def ALT_stream():
 def service_worker():
     return send_from_directory('static', 'service-worker.js')
 
+
+# PWA token added to manifest.json for auto-login after installation on iOS
 @bp.route('/static/manifest.json')
 def manifest():
-    return send_from_directory('static', 'manifest.json')
+    current_app.logger.info("[MANIFEST] ====== New Manifest Request ======")
+    
+    with open('app/static/manifest.json', 'r') as f:
+        manifest_data = json.load(f)
+    
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if token:
+        current_app.logger.info(f"[MANIFEST] Found token: {token[:10]}...")
+        token_entry = AuthToken.query.filter_by(id=token, is_active=True).first()
+        
+        if token_entry:
+            current_app.logger.info(f"[MANIFEST] Token entry found, PWA installed: {token_entry.is_pwa_installed}")
+            
+            if not token_entry.is_pwa_installed:
+                cache_key = f"pwa_token_{token_entry.token_identifier}"
+                existing_token = cache.get(cache_key)
+                
+                if existing_token:
+                    current_app.logger.info(f"[MANIFEST] Extending existing PWA token: {existing_token}")
+                    pwa_token = existing_token
+                    # Reset timeout to 5 minutes from now
+                    cache.set(cache_key, pwa_token, timeout=300)
+                else:
+                    pwa_token = secrets.token_urlsafe(32)
+                    current_app.logger.info(f"[MANIFEST] Generated new PWA token: {pwa_token}")
+                    cache.set(cache_key, pwa_token, timeout=300)
+                
+                manifest_data["start_url"] = f"/?pwa_install=true&pwa_token={pwa_token}"
+    
+    current_app.logger.info(f"[MANIFEST] Final start_url: {manifest_data.get('start_url')}")
+    return jsonify(manifest_data)
 
 
 def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):

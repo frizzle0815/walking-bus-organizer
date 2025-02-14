@@ -13,3 +13,4 @@ pywebpush==1.14.0
 cryptography==41.0.7
 py-vapid==1.9.1
 APScheduler==3.10.4
+flask-caching==2.1.0

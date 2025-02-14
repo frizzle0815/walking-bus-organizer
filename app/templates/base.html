@@ -601,68 +601,89 @@ if (installApp) {
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
-     console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
-     console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+    console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
+    console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
 
-     // Register service worker
-     await registerServiceWorker();
+    // Check PWA status first
+    const pwaStatus = checkPWAStatus();
+    
+    // Only fetch manifest if PWA not installed
+    if (!pwaStatus.isInstalled) {
+        console.log('[BASE] PWA not installed, fetching manifest with auth');
+        const token = await tokenManager.getToken();
+        
+        if (token) {
+            try {
+                const response = await fetchWithAuth('/static/manifest.json');
+                const manifest = await response.json();
+                console.log('[BASE] Manifest fetched with auth:', manifest);
+            } catch (error) {
+                console.error('[BASE] Error fetching manifest:', error);
+            }
+        }
+    } else {
+        console.log('[BASE] PWA already installed, skipping manifest fetch');
+    }
 
-     // Initialize login functionality
-     loginUser();
+    // Register service worker
+    await registerServiceWorker();
 
-     // UI Components initialization
-     const darkModeToggle = document.getElementById('darkModeToggle');
-     const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-     const navbar = document.querySelector('.navbar-collapse');
-     
-     // Size control visibility
-     const sizeControlContainer = document.getElementById('size-control-container');
-     if (sizeControlContainer && window.location.pathname === '/') {
-         sizeControlContainer.style.display = 'block';
-     }
+    // Initialize login functionality
+    loginUser();
 
-     // Navbar click handling
-     if (navbar) {
-         document.addEventListener('click', (event) => {
-             if (navbar.classList.contains('show') && 
-                 !navbar.contains(event.target) && 
-                 !event.target.classList.contains('navbar-toggler')) {
-                 document.querySelector('.navbar-toggler').click();
-             }
-         });
-     }
+    // UI Components initialization
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const navbar = document.querySelector('.navbar-collapse');
+    
+    // Size control visibility
+    const sizeControlContainer = document.getElementById('size-control-container');
+    if (sizeControlContainer && window.location.pathname === '/') {
+        sizeControlContainer.style.display = 'block';
+    }
 
-     // Dark mode initialization and handlers
-     if (darkModeToggle) {
-         const storedTheme = localStorage.getItem('theme');
-         if (storedTheme) {
-             document.documentElement.setAttribute('data-theme', storedTheme);
-             updateDarkModeIcon(storedTheme === 'dark');
-         } else if (prefersDarkScheme.matches) {
-             document.documentElement.setAttribute('data-theme', 'dark');
-             updateDarkModeIcon(true);
-         }
-         
-         darkModeToggle.addEventListener('click', () => {
-             const currentTheme = document.documentElement.getAttribute('data-theme');
-             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-             document.documentElement.setAttribute('data-theme', newTheme);
-             localStorage.setItem('theme', newTheme);
-             updateDarkModeIcon(newTheme === 'dark');
-         });
+    // Navbar click handling
+    if (navbar) {
+        document.addEventListener('click', (event) => {
+            if (navbar.classList.contains('show') && 
+                !navbar.contains(event.target) && 
+                !event.target.classList.contains('navbar-toggler')) {
+                document.querySelector('.navbar-toggler').click();
+            }
+        });
+    }
 
-         prefersDarkScheme.addEventListener('change', (e) => {
-             if (!localStorage.getItem('theme')) {
-                 const newTheme = e.matches ? 'dark' : 'light';
-                 document.documentElement.setAttribute('data-theme', newTheme);
-                 updateDarkModeIcon(e.matches);
-             }
-         });
-     }
+    // Dark mode initialization and handlers
+    if (darkModeToggle) {
+        const storedTheme = localStorage.getItem('theme');
+        if (storedTheme) {
+            document.documentElement.setAttribute('data-theme', storedTheme);
+            updateDarkModeIcon(storedTheme === 'dark');
+        } else if (prefersDarkScheme.matches) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            updateDarkModeIcon(true);
+        }
+        
+        darkModeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateDarkModeIcon(newTheme === 'dark');
+        });
 
-     await updateNotificationIndicator();
-     await checkPWAStatus();
- });
+        prefersDarkScheme.addEventListener('change', (e) => {
+            if (!localStorage.getItem('theme')) {
+                const newTheme = e.matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                updateDarkModeIcon(e.matches);
+            }
+        });
+    }
+
+    await updateNotificationIndicator();
+});
+
 
  // Check when display mode changes 
 window.matchMedia('(display-mode: standalone)').addEventListener('change', checkPWAStatus);

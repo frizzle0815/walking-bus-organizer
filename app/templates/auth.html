@@ -9,6 +9,7 @@
                 store: 'tokens'
             };
             this.initializeDB();
+            this.checkPWAInstallation();
         }
 
         async _initializeServiceWorker() {
@@ -181,6 +182,32 @@
                     type: 'GET_AUTH_TOKEN'
                 }, [messageChannel.port2]);
             });
+        }
+
+        async checkPWAInstallation() {
+            if (new URLSearchParams(window.location.search).get('pwa_install')) {
+                const pwaToken = new URLSearchParams(window.location.search).get('pwa_token');
+                if (pwaToken) {
+                    try {
+                        const response = await fetch('/api/validate-pwa-token', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ pwa_token: pwaToken })
+                        });
+                        
+                        const data = await response.json();
+                        if (data.success) {
+                            await this.storeToken(data.auth_token);
+                            // Clean URL
+                            window.history.replaceState({}, document.title, "/");
+                        }
+                    } catch (error) {
+                        console.error('PWA token validation failed:', error);
+                    }
+                }
+            }
         }
     }
     // Globale Instanz erstellen

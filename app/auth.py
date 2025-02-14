@@ -254,8 +254,6 @@ def require_auth(f):
     return decorated_function
 
 
-
-
 # Configuration constants
 MAX_TEMP_TOKENS = 3
 TOKEN_VALIDITY_MINUTES = 30
@@ -413,3 +411,22 @@ def cleanup_old_tokens():
         AuthToken.invalidated_at < month_ago
     ).delete()
     db.session.commit()
+
+
+def extract_token_from_request():
+    """Get auth token from request headers or session"""
+    auth_header = request.headers.get('Authorization', '')
+    current_app.logger.info(f"[AUTH][PWA] Authorization header: {auth_header}")
+    
+    if auth_header.startswith('Bearer '):
+        token = auth_header.replace('Bearer ', '')
+        current_app.logger.info(f"[AUTH][PWA] Found token in header: {token[:10]}...")
+        return token
+    
+    if 'auth_token' in session:
+        token = session['auth_token']
+        current_app.logger.info(f"[AUTH][PWA] Found token in session: {token[:10]}...")
+        return token
+        
+    current_app.logger.info("[AUTH][PWA] No token found in header or session")
+    return None

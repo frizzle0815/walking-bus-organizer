@@ -1,6 +1,7 @@
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_caching import Cache
 from datetime import datetime, timedelta
 import os
 import pytz
@@ -20,6 +21,11 @@ from py_vapid import Vapid
 
 db = SQLAlchemy()
 migrate = Migrate()
+
+cache = Cache(config={
+    'CACHE_TYPE': 'redis',
+    'CACHE_REDIS_URL': 'redis://localhost:6379/0'
+})
 
 
 # Define the application's timezone
@@ -163,6 +169,7 @@ class RequestFormatter(logging.Formatter):
 
 def create_app():
     app = Flask(__name__)
+    cache.init_app(app)
 
     # Security Configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
