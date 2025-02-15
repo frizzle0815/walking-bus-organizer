@@ -543,22 +543,13 @@ async function ensurePersistentStorage() {
             }
         }
         
-        // Not installed - fetch custom manifest
+        // Not installed - update manifest link
         const status = false;
         sendStatusToBackend(status);
         
-        // Fetch and update manifest
-        const response = await fetchWithAuth('/api/manifest');
-        const manifestData = await response.json();
-        
-        // Create blob URL for dynamic manifest
-        const manifestLink = document.querySelector('link[rel="manifest"]');
-        const manifestBlob = new Blob(
-            [JSON.stringify(manifestData)], 
-            {type: 'application/json'}
-        );
-        manifestLink.href = URL.createObjectURL(manifestBlob);
-        
+        // Trigger manifest update to add temp-login for pwa installation
+        await fetchWithAuth('/api/manifest');
+                
         return { isInstalled: status };
         
     } catch (error) {

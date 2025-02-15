@@ -2524,10 +2524,10 @@ def get_base_manifest():
     with open(manifest_path, 'r') as f:
         return json.load(f)
 
+
 @bp.route('/api/manifest')
 @require_auth
 def auth_manifest():
-    # Get token from request
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     if not token and 'auth_token' in session:
         token = session['auth_token']
@@ -2558,16 +2558,19 @@ def auth_manifest():
             
         start_url = url_for('main.temp_login_route', token=token, _external=True)
         manifest_data["start_url"] = start_url
-        current_app.logger.info(f"[MANIFEST] Setting start_url to: {start_url}")
         
         for icon in manifest_data["icons"]:
-            icon["src"] = url_for('static', 
-                                 filename=icon["src"].replace('/static/', ''), 
-                                 _external=True)
-    else:
-        current_app.logger.info("[MANIFEST] PWA already installed, using default manifest")
-
-    return jsonify(manifest_data)
+            icon["src"] = url_for('static',
+                                filename=icon["src"].replace('/static/', ''),
+                                _external=True)
+                                
+        # Write modified manifest back to file
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest_data, f, indent=2)
+            
+        current_app.logger.info(f"[MANIFEST] Updated manifest file with new start_url: {start_url}")
+    
+    return jsonify({"success": True})
 
 
 
