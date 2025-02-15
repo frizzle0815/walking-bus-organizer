@@ -517,7 +517,7 @@ async function ensurePersistentStorage() {
  }
 
 
- function checkPWAStatus() {
+ async function checkPWAStatus() {
     try {
         // iOS standalone mode check
         if (navigator.standalone) {
@@ -534,7 +534,7 @@ async function ensurePersistentStorage() {
         }
 
         // Safari on iOS check
-        if (window.navigator.userAgent.includes('Safari') && 
+        if (window.navigator.userAgent.includes('Safari') &&
             window.navigator.userAgent.includes('iPhone')) {
             if (window.navigator.standalone === true) {
                 const status = true;
@@ -543,9 +543,22 @@ async function ensurePersistentStorage() {
             }
         }
         
-        // Not installed case
+        // Not installed - fetch custom manifest
         const status = false;
         sendStatusToBackend(status);
+        
+        // Fetch and update manifest
+        const response = await fetchWithAuth('/api/manifest');
+        const manifestData = await response.json();
+        
+        // Create blob URL for dynamic manifest
+        const manifestLink = document.querySelector('link[rel="manifest"]');
+        const manifestBlob = new Blob(
+            [JSON.stringify(manifestData)], 
+            {type: 'application/json'}
+        );
+        manifestLink.href = URL.createObjectURL(manifestBlob);
+        
         return { isInstalled: status };
         
     } catch (error) {
@@ -554,6 +567,7 @@ async function ensurePersistentStorage() {
         return { isInstalled: false };
     }
 }
+
 
 function sendStatusToBackend(status) {
     fetchWithAuth('/api/pwa-status', {

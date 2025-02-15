@@ -33,9 +33,9 @@
                             <td>{{ token.platform }}</td>
                             <td>
                                 {% if token.is_pwa_installed %}
-                                    <i class="fas fa-check text-success" title="Als App installiert"></i>
+                                    <i class="fas fa-check-circle text-success" title="Als App installiert"></i>
                                 {% else %}
-                                    <i class="fas fa-times text-danger" title="Nicht als App installiert"></i>
+                                    <i class="fas fa-xmark-circle text-danger" title="Nicht als App installiert"></i>
                                 {% endif %}
                             </td>
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
@@ -88,9 +88,9 @@
                                 <td>{{ token.platform }}</td>
                                 <td>
                                     {% if token.is_pwa_installed %}
-                                        <i class="fas fa-check text-success" title="Als App installiert"></i>
+                                        <i class="fas fa-check-circle text-success" title="Als App installiert"></i>
                                     {% else %}
-                                        <i class="fas fa-times text-danger" title="Nicht als App installiert"></i>
+                                        <i class="fas fa-xmark-circle text-danger" title="Nicht als App installiert"></i>
                                     {% endif %}
                                 </td>
                                 <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>

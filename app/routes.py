@@ -27,11 +27,12 @@ from .auth import (
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
-    renew_auth_token
+    renew_auth_token, generate_pwa_temp_token
 )
 import jwt
 import json
 import time
+import os
 from os import environ
 from .init_buses import init_walking_buses
 from . import redis_client
@@ -216,6 +217,7 @@ def share():
                          token_count=token_data['count'],
                          max_tokens=token_data['max'])
 
+
 @bp.route("/scheduler")
 @require_auth
 def scheduler_view():
@@ -263,35 +265,71 @@ def generate_temp_token_route():
 @bp.route("/temp-login/<token>")
 def temp_login_route(token):
     if request.headers.get('Accept') == 'application/json':
-        # First validate the temp token
         temp_token = TempToken.query.get(token)
+        
         if not temp_token or datetime.now() > temp_token.expiry:
             return jsonify({
                 "success": False,
                 "error": "Ungültiger oder abgelaufener Login Link"
             }), 401
 
-        # Create auth token using temp token data
-        user_agent = request.headers.get('User-Agent')
-        auth_token = create_auth_token(
-            temp_token.walking_bus_id,
-            temp_token.walking_bus_name,
-            temp_token.bus_password_hash,
-            client_info=user_agent
-        )
-        
+        # Handle PWA installation tokens differently
+        if temp_token.is_pwa_token:
+            current_app.logger.info(f"[TEMP-LOGIN] Processing PWA installation token: {token}")
+            if temp_token.token_identifier:
+                old_token = AuthToken.query.filter_by(
+                    token_identifier=temp_token.token_identifier,
+                    is_active=True
+                ).first()
+                
+                if old_token:
+                    # Create new token with PWA installation info
+                    client_info = (
+                                        f"PWA Installation | "
+                                        f"Previous Token: {old_token.token_identifier[:8]}... | "
+                                        f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
+                                    )
+
+                    auth_token = create_auth_token(
+                        temp_token.walking_bus_id,
+                        temp_token.walking_bus_name,
+                        temp_token.bus_password_hash,
+                        client_info=client_info
+                    )
+                    
+                    # Set up token renewal relationships
+                    new_token_record = AuthToken.query.get(auth_token)
+                    old_token.renewed_to = auth_token
+                    new_token_record.renewed_from = old_token.id
+                    
+                    # Invalidate old tokens
+                    temp_token.expiry = datetime.now()
+                    db.session.delete(temp_token)
+                    old_token.invalidate("Renewed for PWA installation")
+                    
+                    db.session.commit()
+        else:
+            # Regular share token flow
+            current_app.logger.info(f"[TEMP-LOGIN] Processing regular share token: {token}")
+            auth_token = create_auth_token(
+                temp_token.walking_bus_id,
+                temp_token.walking_bus_name,
+                temp_token.bus_password_hash,
+                client_info=request.headers.get('User-Agent')
+            )
+
         # Set up session
         session['walking_bus_id'] = temp_token.walking_bus_id
         session['walking_bus_name'] = temp_token.walking_bus_name
         session['bus_password_hash'] = temp_token.bus_password_hash
         session.permanent = True
-        
+
         response = jsonify({
             'success': True,
             'auth_token': auth_token,
             'redirect_url': url_for('main.index')
         })
-        
+
         response.set_cookie(
             'auth_token',
             auth_token,
@@ -301,11 +339,12 @@ def temp_login_route(token):
             samesite='Lax',
             path='/'
         )
-        
+
         return response
 
     # Initial page load
     return render_template('temp-login.html')
+
 
 
 @bp.route("/api/temp-token/<token>", methods=["DELETE"])
@@ -2474,9 +2513,62 @@ def ALT_stream():
 def service_worker():
     return send_from_directory('static', 'service-worker.js')
 
+
 @bp.route('/static/manifest.json')
 def manifest():
     return send_from_directory('static', 'manifest.json')
+
+
+def get_base_manifest():
+    manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
+    with open(manifest_path, 'r') as f:
+        return json.load(f)
+
+@bp.route('/api/manifest')
+@require_auth
+def auth_manifest():
+    # Get token from request
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token and 'auth_token' in session:
+        token = session['auth_token']
+    
+    auth_token = AuthToken.query.filter_by(id=token).first()
+    
+    # Load base manifest
+    manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
+    with open(manifest_path, 'r') as f:
+        manifest_data = json.load(f)
+    
+    if not auth_token.is_pwa_installed:
+        current_app.logger.info(f"[MANIFEST] Generating manifest for non-installed PWA. Token identifier: {auth_token.token_identifier}")
+        
+        existing_token = TempToken.query.filter_by(
+            token_identifier=auth_token.token_identifier,
+            is_pwa_token=True
+        ).first()
+        
+        if existing_token:
+            current_app.logger.info(f"[MANIFEST] Found existing PWA token: {existing_token.id}")
+            existing_token.expiry = datetime.now() + timedelta(minutes=5)
+            db.session.commit()
+            token = existing_token.id
+        else:
+            current_app.logger.info("[MANIFEST] No existing token found, generating new one")
+            token = generate_pwa_temp_token(auth_token)
+            
+        start_url = url_for('main.temp_login_route', token=token, _external=True)
+        manifest_data["start_url"] = start_url
+        current_app.logger.info(f"[MANIFEST] Setting start_url to: {start_url}")
+        
+        for icon in manifest_data["icons"]:
+            icon["src"] = url_for('static', 
+                                 filename=icon["src"].replace('/static/', ''), 
+                                 _external=True)
+    else:
+        current_app.logger.info("[MANIFEST] PWA already installed, using default manifest")
+
+    return jsonify(manifest_data)
+
 
 
 def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):

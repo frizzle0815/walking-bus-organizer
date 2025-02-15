@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         const urlParts = window.location.pathname.split('/');
         const token = urlParts[urlParts.length - 1];
         
+        console.log('[TEMP-LOGIN] Processing token:', token);
+        
         const response = await fetch(`/temp-login/${token}`, {
             headers: {
                 'Accept': 'application/json'
@@ -45,15 +47,27 @@ document.addEventListener('DOMContentLoaded', async function() {
         const data = await response.json();
         
         if (data.success && data.auth_token) {
+            console.log('[TEMP-LOGIN] Token received, storing...');
+            
             // Store token using TokenManager
             await window.tokenManager.storeToken(data.auth_token);
+            
+            // Add delay to ensure token is stored
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Set token in session storage as backup
+            sessionStorage.setItem('auth_token', data.auth_token);
+            
+            console.log('[TEMP-LOGIN] Token stored, redirecting...');
             window.location.replace(data.redirect_url);
         } else {
             throw new Error(data.error || 'Unerwarteter Fehler beim Login');
         }
     } catch (error) {
+        console.error('[TEMP-LOGIN] Error:', error);
         showError(error.message);
     }
 });
+
  </script>
 {% endblock %}

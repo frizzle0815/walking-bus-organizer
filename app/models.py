@@ -123,6 +123,8 @@ class TempToken(db.Model):
     bus_password_hash = db.Column(db.String(256), nullable=False)
     created_by = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_pwa_token = db.Column(db.Boolean, default=False)
+    token_identifier = db.Column(db.String(64), nullable=True)
 
     # Add relationship to WalkingBus
     walking_bus = db.relationship('WalkingBus', backref='temp_tokens')

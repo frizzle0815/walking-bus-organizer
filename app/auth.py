@@ -279,7 +279,8 @@ def generate_temp_token():
     # Check existing tokens count for current walking bus
     current_tokens = TempToken.query.filter(
         TempToken.walking_bus_id == session['walking_bus_id'],
-        TempToken.expiry > datetime.now()
+        TempToken.expiry > datetime.now(),
+        TempToken.is_pwa_token == False
     ).count()
     
     if current_tokens >= MAX_TEMP_TOKENS:
@@ -328,7 +329,8 @@ def get_active_temp_tokens():
     
     tokens = TempToken.query.filter(
         TempToken.walking_bus_id == session['walking_bus_id'],
-        TempToken.expiry > current_time
+        TempToken.expiry > current_time,
+        TempToken.is_pwa_token == False  # Only get share tokens
     ).all()
     
     active_tokens = []
@@ -413,3 +415,30 @@ def cleanup_old_tokens():
         AuthToken.invalidated_at < month_ago
     ).delete()
     db.session.commit()
+
+
+def generate_pwa_temp_token(auth_token):
+    # Get bus config from environment
+    buses_env = os.environ.get('WALKING_BUSES', '').strip()
+    bus_configs = dict(
+        (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
+        for b in buses_env.split(',')
+        if len(b.split(':')) == 3
+    )
+    
+    # Get hash for this bus
+    bus_password_hash = bus_configs[auth_token.walking_bus_id]
+    
+    new_token = TempToken(
+        id=generate_short_token(),
+        expiry=datetime.now() + timedelta(minutes=5),
+        walking_bus_id=auth_token.walking_bus_id,
+        walking_bus_name=auth_token.walking_bus.name,
+        bus_password_hash=bus_password_hash,  # From bus configs
+        created_by=auth_token.walking_bus_id,
+        is_pwa_token=True,
+        token_identifier=auth_token.token_identifier
+    )
+    db.session.add(new_token)
+    db.session.commit()
+    return new_token.id
