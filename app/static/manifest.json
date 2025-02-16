@@ -1,7 +1,8 @@
 {
   "name": "Walking Bus Organizer",
   "short_name": "WalkBus",
-  "start_url": "pwa-login",
+  "start_url": "/pwa-login",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#414141",

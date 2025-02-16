@@ -235,4 +235,17 @@ def create_app():
     app.config['VAPID_PUBLIC_KEY'] = VAPID_CONFIG['public_key']
     app.config['VAPID_EMAIL'] = os.getenv('VAPID_EMAIL', 'default@example.com')
 
+    # Add assetlinks fingerprint setup
+    if os.environ.get('SHA256_FINGERPRINT'):
+        assetlinks_path = os.path.join(app.root_path, '.well-known/assetlinks.json')
+        with open(assetlinks_path, 'r') as f:
+            data = json.load(f)
+            
+        data[0]['target']['sha256_cert_fingerprints'] = [os.environ.get('SHA256_FINGERPRINT')]
+        
+        with open(assetlinks_path, 'w') as f:
+            json.dump(data, f, indent=2)
+            
+        app.logger.info('Updated assetlinks.json with fingerprint')
+
     return app

@@ -3,6 +3,6 @@
   "target": {
     "namespace": "android_app",
     "package_name": "com.walkingbus.organizer",
-    "sha256_cert_fingerprints": []
+    "sha256_cert_fingerprints": ["${SHA256_FINGERPRINT}"]
   }
 }]

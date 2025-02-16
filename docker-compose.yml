@@ -19,6 +19,7 @@ services:
       - WEATHER_LAT=50.6612
       - WEATHER_LON=6.7871
       - VAPID_EMAIL=your@email.com
+      - SHA256_FINGERPRINT=${SHA256_FINGERPRINT}
     volumes:
       - vapid_keys:/app/data
 
