@@ -690,6 +690,10 @@ if (installApp) {
      }
 
      await updateNotificationIndicator();
+     // Hack for iOS before starting checkWithAuth
+     while (!window.fetchWithAuth) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
      await checkPWAStatus();
  });
 
