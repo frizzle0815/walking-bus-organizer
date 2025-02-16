@@ -2,200 +2,38 @@
 <script>
 (function() {
     window.TokenManager = class TokenManager {
-        constructor() {
-            this.DB_CONFIG = {
-                name: 'WalkingBusAuth',
-                version: 1,
-                store: 'tokens'
-            };
-            this.initializeDB();
-        }
-
-        async _initializeServiceWorker() {
-            console.log('[AUTH.HTML][TokenManager] Starting Service Worker initialization');
-            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-
-            if (registration.installing) {
-                console.log('[AUTH.HTML][TokenManager] Service Worker installing');
-                await new Promise(resolve => {
-                    registration.installing.addEventListener('statechange', e => {
-                        if (e.target.state === 'activated') {
-                            console.log('[AUTH.HTML][TokenManager] Service Worker activated');
-                            resolve();
-                        }
-                    });
-                });
+        async getToken() {
+            // Try to get token from cookie first
+            const cookies = document.cookie.split(';');
+            const authCookie = cookies.find(c => c.trim().startsWith('auth_token='));
+            if (authCookie) {
+                return authCookie.split('=')[1].trim();
             }
 
-            return registration.active;
-        }
+            // Fallback: Check localStorage
+            const localToken = localStorage.getItem('auth_token');
+            if (localToken) {
+                // Attempt to restore cookie from localStorage
+                document.cookie = `auth_token=${localToken}; max-age=${30*24*60*60}; secure; samesite=Strict`;
+                return localToken;
+            }
 
-        async initializeDB() {
-            const request = indexedDB.open(this.DB_CONFIG.name, this.DB_CONFIG.version);
-            
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(this.DB_CONFIG.store)) {
-                    db.createObjectStore(this.DB_CONFIG.store);
-                }
-            };
-            
-            return new Promise((resolve, reject) => {
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+            return null;
         }
 
         async storeToken(token) {
-            const tokenData = {
-                token,
-                timestamp: Date.now(),
-                expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000)
-            };
-
-            // Store in IndexedDB
-            const db = await this.initializeDB();
-            const tx = db.transaction(this.DB_CONFIG.store, 'readwrite');
-            await tx.objectStore(this.DB_CONFIG.store).put(tokenData, 'current-token');
-
-            // Store in localStorage
+            // Store in localStorage as backup
             localStorage.setItem('auth_token', token);
-
-            // Store in ServiceWorker
-            if ('serviceWorker' in navigator) {
-                const activeWorker = await this._initializeServiceWorker();
-                await this._storeInServiceWorker(activeWorker, token);
-            }
-        }
-
-        async getToken() {
-            try {
-                // Check IndexedDB first
-                const indexedDBToken = await this._getFromIndexedDB();
-                if (indexedDBToken) {
-                    await this.synchronizeToken(indexedDBToken);
-                    return indexedDBToken;
-                }
-
-                // Then check localStorage (synchronous and fast)
-                const localStorageToken = this._getFromLocalStorage();
-                if (localStorageToken) {
-                    await this.synchronizeToken(localStorageToken);
-                    return localStorageToken;
-                }
-
-                // Finally check ServiceWorker
-                const serviceWorkerToken = await this._getFromServiceWorker();
-                if (serviceWorkerToken) {
-                    await this.synchronizeToken(serviceWorkerToken);
-                    return serviceWorkerToken;
-                }
-
-                return null;
-            } catch (error) {
-                console.log('[AUTH.HTML][TokenManager] Error retrieving token:', error);
-                return null;
-            }
-        }
-
-        async synchronizeToken(token) {
-            try {
-                const db = await this.initializeDB();
-                const tx = db.transaction(this.DB_CONFIG.store, 'readonly');
-                const store = tx.objectStore(this.DB_CONFIG.store);
-                const indexedDBToken = await store.get('current-token');
-
-                if (!indexedDBToken?.token) {
-                    await this.storeToken(token);
-                }
-
-                if (!localStorage.getItem('auth_token')) {
-                    localStorage.setItem('auth_token', token);
-                }
-
-                if ('serviceWorker' in navigator) {
-                    const activeWorker = await this._initializeServiceWorker();
-                    const swToken = await this._getFromServiceWorker(activeWorker);
-                    if (!swToken) {
-                        await this._storeInServiceWorker(activeWorker, token);
-                    }
-                }
-            } catch (error) {
-                console.error('[AUTH.HTML][TokenManager] Sync error:', error);
-            }
         }
 
         async clearToken() {
-            // Clear IndexedDB
-            const db = await this.initializeDB();
-            const tx = db.transaction(this.DB_CONFIG.store, 'readwrite');
-            await tx.objectStore(this.DB_CONFIG.store).clear();
-
-            // Clear localStorage
+            // Clear cookie
+            document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; secure; samesite=Strict';
+            // Clear backup
             localStorage.removeItem('auth_token');
-
-            // Clear Flask session cookie
-            document.cookie = 'session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict';
-
-            // Clear ServiceWorker with initialization
-            if ('serviceWorker' in navigator) {
-                const activeWorker = await this._initializeServiceWorker();
-                const messageChannel = new MessageChannel();
-                activeWorker.postMessage({
-                    type: 'CLEAR_AUTH_TOKEN'
-                }, [messageChannel.port2]);
-            }
-        }
-
-        async _storeInServiceWorker(activeWorker, token) {
-            return new Promise((resolve) => {
-                const messageChannel = new MessageChannel();
-                messageChannel.port1.onmessage = (event) => resolve(event.data);
-                activeWorker.postMessage({
-                    type: 'STORE_AUTH_TOKEN',
-                    token: token
-                }, [messageChannel.port2]);
-            });
-        }
-
-        async _getFromIndexedDB() {
-            const db = await this.initializeDB();
-            const tx = db.transaction(this.DB_CONFIG.store, 'readonly');
-            const tokenData = await tx.objectStore(this.DB_CONFIG.store).get('current-token');
-            return tokenData?.token;
-        }
-
-        _getFromLocalStorage() {
-            return localStorage.getItem('auth_token');
-        }
-
-        async _getFromServiceWorker(activeWorker = null) {
-            if (!('serviceWorker' in navigator)) return null;
-            
-            const worker = activeWorker || await this._initializeServiceWorker();
-            const messageChannel = new MessageChannel();
-            
-            return new Promise((resolve) => {
-                messageChannel.port1.onmessage = (event) => resolve(event.data?.token);
-                worker.postMessage({
-                    type: 'GET_AUTH_TOKEN'
-                }, [messageChannel.port2]);
-            });
         }
     }
-    // Globale Instanz erstellen
-    window.tokenManager = new TokenManager();
-    console.log('[AUTH.HTML] TokenManager instance created globally');
 
-    window.authReady = Promise.resolve(window.tokenManager);
-    
-    // Make fetchWithAuth wait for auth to be ready
-    const originalFetchWithAuth = window.fetchWithAuth;
-    window.fetchWithAuth = async function(...args) {
-        await window.authReady;
-        return originalFetchWithAuth.apply(this, args);
-    }
-    
     console.log('[AUTH.HTML] TokenManager initialized and ready for use');
 })();
 
@@ -203,44 +41,25 @@
 (function() {
     // Make auth functions globally available
     window.fetchWithAuth = async function(url, options = {}) {
-        try {
-            const token = await tokenManager.getToken();
-            if (!token) {
-                window.location.href = '/login';
-                return;
-            }
-            
-            const response = await fetch(url, {
-                ...options,
-                headers: {
-                    ...options.headers,
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+    try {
+        // Cookie will be sent automatically
+        const response = await fetch(url, options);
 
-            // Add this check
-            if (response.status === 401) {
-                await tokenManager.clearToken();
-                window.location.href = '/login';
-                return;
-            }
-
-            return response;
-        } catch (error) {
-            throw error;
+        if (response.status === 401) {
+            await tokenManager.clearToken();
+            window.location.href = '/login';
+            return;
         }
-    };
+
+        return response;
+    } catch (error) {
+        throw error;
+    }
+};
 
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
-        console.log(`[AUTH.HTML] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
-        
-        const token = await tokenManager.getToken();
-        
-        if (token) {
-            config.headers['Authorization'] = `Bearer ${token}`;
-        }
-        
+        // No need to add Authorization header - cookie is sent automatically
         return config;
     }, (error) => {
         return Promise.reject(error);

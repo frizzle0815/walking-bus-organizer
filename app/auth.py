@@ -112,7 +112,17 @@ def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, clien
         db.session.add(token_record)
         db.session.commit()
         current_app.logger.info(f"Token created successfully: {token_identifier}")
-        return auth_token
+        return {
+            'token': auth_token,
+            'cookie_settings': {
+                'name': 'auth_token',
+                'value': auth_token,
+                'max_age': 60 * 24 * 60 * 60,  # 60 days
+                'secure': True,
+                'httponly': True,
+                'samesite': 'Strict'
+            }
+        }
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Token creation failed: {str(e)}")
@@ -161,14 +171,15 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         current_app.logger.info("[AUTH] Starting authentication check")
         
-        # Token extraction with logging
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if not token and 'auth_token' in session:
-            token = session['auth_token']
-            current_app.logger.info("[AUTH] Using token from session")
+        # Check cookie first
+        token = request.cookies.get('auth_token')
         
+        # Fallback to Authorization header if no cookie
         if not token:
-            current_app.logger.warning("[AUTH] No token found in headers or session")
+            token = request.headers.get('Authorization', '').replace('Bearer ', '')
+            
+        if not token:
+            current_app.logger.warning("[AUTH] No token found in cookies or headers")
             return jsonify({"error": "No token provided", "redirect": True}), 401
 
         try:
@@ -381,19 +392,25 @@ def temp_login(token):
         client_info = f"Created from temp token: {token} | User-Agent: {user_agent}"
         
         # Create proper auth token with database record
-        auth_token = create_auth_token(
+        auth_result = create_auth_token(
             walking_bus_id=token_data.walking_bus_id,
             walking_bus_name=token_data.walking_bus_name,
             bus_password_hash=token_data.bus_password_hash,
             client_info=client_info
         )
         
-        return jsonify({
+        response = jsonify({
             "success": True,
-            "auth_token": auth_token,
+            "auth_token": auth_result['token'],
             "redirect_url": "/"
         })
-    
+        
+        # Set cookie with auth token
+        cookie_settings = auth_result['cookie_settings']
+        response.set_cookie(**cookie_settings)
+        
+        return response
+        
     except Exception as e:
         current_app.logger.error(f"Temp login error: {str(e)}")
         return jsonify({"error": "Ungültiger Login Link"}), 401
