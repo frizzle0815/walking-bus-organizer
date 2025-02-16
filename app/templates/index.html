@@ -816,6 +816,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         setupModalHandling();
         console.log('[INIT] Modal handling setup complete');
 
+        await window.PWAManager.check();
+        console.log('[INDEX] PWA Status:', window.PWAManager.isInstalled());
+
         // Smoothly hide loading overlay
         loadingOverlay.style.opacity = '0';
         setTimeout(() => {

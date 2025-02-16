@@ -499,23 +499,23 @@ const notificationManager = new NotificationManager();
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[NOTI.HTML] DOM Content Loaded');
 
-    // Check PWA status first
-    const pwaStatus = checkPWAStatus();
+    // Check PWA status using PWAManager
+    await window.PWAManager.check();
     const pwaCheckElement = document.getElementById('pwaCheck');
     const env = detectEnvironment();
     
-    console.log('[NOTI.HTML] Environment:', env, 'PWA Status:', pwaStatus);
+    console.log('[NOTI.HTML] Environment:', env, 'PWA Status:', window.PWAManager.isInstalled());
 
-    // Update PWA status UI first
+    // Update PWA status UI
     updateStatusElement(
         pwaCheckElement,
-        pwaStatus.isInstalled ? 'installed' : 'notInstalled',
+        window.PWAManager.isInstalled() ? 'installed' : 'notInstalled',
         'App ist installiert',
         'App muss noch installiert werden (Android) bzw. dem Home Bildschirm hinzugefügt werden (iOS)'
     );
 
-    // For non-installed apps, show installation instructions without throwing error
-    if (!pwaStatus.isInstalled) {
+    // Handle non-installed state
+    if (!window.PWAManager.isInstalled()) {
         const notificationCheckElement = document.getElementById('notificationCheck');
         updateStatusElement(
             notificationCheckElement,
@@ -523,17 +523,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             '',
             'Installation erforderlich für Benachrichtigungen'
         );
-        return; // Exit early for non-installed apps
+        return;
     }
 
-    // Only proceed with notification setup if installed
+    // Proceed with notification setup for installed apps
     try {
         await notificationManager.init();
         await notificationManager.validateAndCleanupSubscriptions();
         await notificationManager.loadExistingSubscriptions();
 
         const notificationCheckElement = document.getElementById('notificationCheck');
-        const notificationPermission = await checkNotificationPermission(pwaStatus);
+        const notificationPermission = await checkNotificationPermission();
         
         updateStatusElement(
             notificationCheckElement,
@@ -549,6 +549,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Fehler bei der Benachrichtigungs-Initialisierung', 'error');
     }
 });
+
 
 // Move checkbox setup to separate function
 function setupCheckboxListeners() {
@@ -785,7 +786,7 @@ function getPermissionDeniedMessage(env) {
 
 function checkNotificationPermission() {
     // First check if PWA is installed
-    if (!checkPWAStatus().isInstalled) {
+    if (!window.PWAManager.isInstalled()) {
         return 'needsInstall';
     }
 
@@ -830,7 +831,7 @@ function updateTestNotificationButtonState() {
     const testButton = document.getElementById('testNotification');
     const hasPermissions = Notification.permission === 'granted';
     const hasSelectedParticipants = document.querySelectorAll('.participant-checkbox:checked').length > 0;
-    const isPWAInstalled = checkPWAStatus().isInstalled;
+    const isPWAInstalled = window.PWAManager.isInstalled();
     
     testButton.disabled = !(hasPermissions && hasSelectedParticipants && isPWAInstalled);
 }

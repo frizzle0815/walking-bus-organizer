@@ -513,6 +513,78 @@ let authInitialized = false;
 });
 
 
+window.PWAManager = {
+    status: { isInstalled: false },
+    
+    async check() {
+        try {
+            // iOS standalone check
+            if (navigator.standalone) {
+                this.status.isInstalled = true;
+                await this.sendStatusToBackend(true);
+                return this.status;
+            }
+            
+            // Android/Desktop PWA check
+            if (window.matchMedia('(display-mode: standalone)').matches) {
+                this.status.isInstalled = true;
+                await this.sendStatusToBackend(true);
+                return this.status;
+            }
+            
+            // Safari iOS check
+            if (window.navigator.userAgent.includes('Safari') && 
+                window.navigator.userAgent.includes('iPhone')) {
+                if (window.navigator.standalone === true) {
+                    this.status.isInstalled = true;
+                    await this.sendStatusToBackend(true);
+                    return this.status;
+                }
+            }
+            
+            // Not installed - handle setup
+            this.status.isInstalled = false;
+            await this.sendStatusToBackend(false);
+            await this.setupIOSAutoLogin();
+            return this.status;
+            
+        } catch (error) {
+            console.log('[PWA-MANAGER] Check failed:', error);
+            this.status.isInstalled = false;
+            await this.sendStatusToBackend(false);
+            return this.status;
+        }
+    },
+
+    async sendStatusToBackend(status) {
+        await fetchWithAuth('/api/pwa-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_installed: status })
+        });
+    },
+
+    async setupIOSAutoLogin() {
+        try {
+            const browserToken = localStorage.getItem('browser_token');
+            console.log('[PWA-MANAGER] Setting up iOS auto-login');
+            await fetchWithAuth('/api/pwa-setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ browser_token: browserToken })
+            });
+            console.log('[PWA-MANAGER] iOS setup successful');
+        } catch (error) {
+            console.log('[PWA-MANAGER] iOS setup failed:', error);
+        }
+    },
+
+    isInstalled() {
+        return this.status.isInstalled;
+    }
+};
+
+
 async function ensurePersistentStorage() {
     console.log('[BASE.HTML][STORAGE] Requesting persistent storage');
     if (navigator.storage && navigator.storage.persist) {
@@ -531,68 +603,6 @@ async function ensurePersistentStorage() {
      }
  }
 
-
- async function checkPWAStatus() {
-    try {
-        // iOS standalone mode check
-        if (navigator.standalone) {
-            const status = true;
-            sendStatusToBackend(status);
-            return { isInstalled: status };
-        }
-        
-        // Android/Desktop PWA check
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-            const status = true;
-            sendStatusToBackend(status);
-            return { isInstalled: status };
-        }
-
-        // Safari on iOS check
-        if (window.navigator.userAgent.includes('Safari') &&
-            window.navigator.userAgent.includes('iPhone')) {
-            if (window.navigator.standalone === true) {
-                const status = true;
-                sendStatusToBackend(status);
-                return { isInstalled: status };
-            }
-        }
-        
-        // Not installed - update manifest link
-        const status = false;
-        sendStatusToBackend(status);
-        
-        // Activate browser_token as temp pwa_token in backend for auto-login after Installation on iOS
-        try {
-            const browserToken = localStorage.getItem('browser_token');
-            await fetchWithAuth('/api/pwa-setup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ browser_token: browserToken })
-            });
-        } catch (fetchError) {
-            console.log('[PWA-CHECK] Auth required:', fetchError);
-        }
-                
-        return { isInstalled: status };
-        
-    } catch (error) {
-        console.log('[PWA-CHECK] Status check failed:', error);
-        sendStatusToBackend(false);
-        return { isInstalled: false };
-    }
-}
-
-
-function sendStatusToBackend(status) {
-    fetchWithAuth('/api/pwa-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            is_installed: status 
-        })
-    });
-}
 
  // PWA installation handling
  let deferredPrompt;
@@ -694,12 +704,8 @@ if (installApp) {
      while (!window.fetchWithAuth) {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
-     await checkPWAStatus();
  });
 
- // Check when display mode changes 
-window.matchMedia('(display-mode: standalone)').addEventListener('change', checkPWAStatus);
- 
 function SSE_updateTimeDisplay(time) {
     const timeElement = document.getElementById('current-time');
     if (timeElement && time !== timeElement.textContent) {
