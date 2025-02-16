@@ -373,8 +373,26 @@ def delete_temp_token(token):
 @require_auth
 def list_auth_tokens():
     tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
+    temp_tokens = TempToken.query.order_by(TempToken.created_at.desc()).all()
+    
+    # Get all participants for name lookup
+    participants = Participant.query.all()
+    participant_map = {p.id: p.name for p in participants}
+    
+    # Get all push subscriptions for lookup
+    subscriptions = PushSubscription.query.all()
+    subscription_map = {}
+    for sub in subscriptions:
+        if sub.token_identifier not in subscription_map:
+            subscription_map[sub.token_identifier] = []
+        # Map participant IDs to names
+        participant_names = [participant_map.get(pid) for pid in sub.participant_ids if pid in participant_map]
+        subscription_map[sub.token_identifier].append({
+            'participants': participant_names,
+            'is_active': sub.is_active,
+            'endpoint': sub.endpoint
+        })
        
-    # Create a new list with enhanced token objects
     enhanced_tokens = []
     for token in tokens:
         token_dict = {
@@ -389,13 +407,18 @@ def list_auth_tokens():
             'invalidation_reason': token.invalidation_reason,
             'walking_bus_id': token.walking_bus_id,
             'is_pwa_installed': token.is_pwa_installed,
-            'pwa_status_updated_at': token.pwa_status_updated_at
+            'pwa_status_updated_at': token.pwa_status_updated_at,
+            'subscriptions': subscription_map.get(token.token_identifier, [])
         }
         enhanced_tokens.append(token_dict)
     
+    current_time = datetime.now()
+    
     return render_template(
         "auth_tokens.html",
-        tokens=enhanced_tokens
+        tokens=enhanced_tokens,
+        temp_tokens=temp_tokens,
+        current_time=current_time
     )
 
 
@@ -2521,7 +2544,7 @@ def get_base_manifest():
 
 # We need this since we use start_url in manifest.json 
 # to get rid of adress bar showing
-@main.route('/.well-known/<path:filename>')
+@bp.route('/.well-known/<path:filename>')
 def well_known(filename):
     return send_from_directory('.well-known', filename, mimetype='application/json')
 
