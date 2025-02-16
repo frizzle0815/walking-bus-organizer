@@ -2519,6 +2519,12 @@ def get_base_manifest():
     with open(manifest_path, 'r') as f:
         return json.load(f)
 
+# We need this since we use start_url in manifest.json 
+# to get rid of adress bar showing
+@main.route('/.well-known/<path:filename>')
+def well_known(filename):
+    return send_from_directory('.well-known', filename, mimetype='application/json')
+
 
 @bp.route('/manifest')
 def manifest():

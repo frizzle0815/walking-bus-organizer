@@ -1,0 +1,14 @@
+{
+    "applinks": {
+        "apps": [],
+        "details": [
+            {
+                "appID": "com.walkingbus.organizer",
+                "paths": ["*"]
+            }
+        ]
+    },
+    "webcredentials": {
+        "apps": ["com.walkingbus.organizer"]
+    }
+}
