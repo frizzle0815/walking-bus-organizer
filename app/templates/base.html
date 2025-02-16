@@ -2,7 +2,21 @@
 <html lang="de">
     <head>
         <!-- PWA and Meta Tags -->
-        <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+        <script>
+            function generateShortToken() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                return Array.from(crypto.getRandomValues(new Uint8Array(10)))
+                    .map(x => chars[x % chars.length])
+                    .join('');
+            }
+        
+            let browserToken = localStorage.getItem('browser_token');
+            if (!browserToken) {
+                browserToken = generateShortToken();
+                localStorage.setItem('browser_token', browserToken);
+            }
+            document.write(`<link rel="manifest" href="{{ url_for('main.manifest') }}?token=${browserToken}">`);
+        </script>
         <meta name="theme-color" content="#414141">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-capable" content="yes">
@@ -547,8 +561,17 @@ async function ensurePersistentStorage() {
         const status = false;
         sendStatusToBackend(status);
         
-        // Trigger manifest update to add temp-login for pwa installation
-        await fetchWithAuth('/api/manifest');
+        // Activate browser_token as temp pwa_token in backend for auto-login after Installation on iOS
+        try {
+            const browserToken = localStorage.getItem('browser_token');
+            await fetchWithAuth('/api/pwa-setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ browser_token: browserToken })
+            });
+        } catch (fetchError) {
+            console.log('[PWA-CHECK] Auth required:', fetchError);
+        }
                 
         return { isInstalled: status };
         

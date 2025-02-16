@@ -2514,63 +2514,194 @@ def service_worker():
     return send_from_directory('static', 'service-worker.js')
 
 
-@bp.route('/static/manifest.json')
-def manifest():
-    return send_from_directory('static', 'manifest.json')
-
-
 def get_base_manifest():
     manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
     with open(manifest_path, 'r') as f:
         return json.load(f)
 
 
-@bp.route('/api/manifest')
+@bp.route('/manifest')
+def manifest():
+    browser_token = request.args.get('token')
+    manifest_data = get_base_manifest()
+
+    for icon in manifest_data['icons']:
+        # Extract filename from original path
+        filename = icon['src'].split('/')[-1]
+        # Create proper absolute URL
+        icon['src'] = url_for('static', filename=f'icons/{filename}', _external=True)
+
+    manifest_data["start_url"] = url_for('main.pwa_login_route', token=browser_token, _external=True)
+    return jsonify(manifest_data)
+
+
+@bp.route("/api/pwa-setup", methods=["POST"])
 @require_auth
-def auth_manifest():
+def setup_pwa_token():
+    data = request.get_json()
+    browser_token = data.get('browser_token')
+    
+    # Check if token already exists
+    existing_token = TempToken.query.get(browser_token)
+    if existing_token:
+        # Update expiry if token exists
+        existing_token.expiry = datetime.now() + timedelta(minutes=5)
+        db.session.commit()
+        return jsonify({"success": True})
+    
+    # Get token and decode payload
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token and 'auth_token' in session:
-        token = session['auth_token']
+    auth_token = AuthToken.query.get(token)
+    payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
     
-    auth_token = AuthToken.query.filter_by(id=token).first()
+    # Create new token only if it doesn't exist
+    new_token = TempToken(
+        id=browser_token,
+        expiry=datetime.now() + timedelta(minutes=5),
+        walking_bus_id=auth_token.walking_bus_id,
+        walking_bus_name=auth_token.walking_bus.name,
+        bus_password_hash=payload['bus_password_hash'],
+        created_by=auth_token.walking_bus_id,
+        is_pwa_token=True,
+        token_identifier=auth_token.token_identifier
+    )
     
-    # Load base manifest
-    manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
-    with open(manifest_path, 'r') as f:
-        manifest_data = json.load(f)
-    
-    if not auth_token.is_pwa_installed:
-        current_app.logger.info(f"[MANIFEST] Generating manifest for non-installed PWA. Token identifier: {auth_token.token_identifier}")
-        
-        existing_token = TempToken.query.filter_by(
-            token_identifier=auth_token.token_identifier,
-            is_pwa_token=True
-        ).first()
-        
-        if existing_token:
-            current_app.logger.info(f"[MANIFEST] Found existing PWA token: {existing_token.id}")
-            existing_token.expiry = datetime.now() + timedelta(minutes=5)
-            db.session.commit()
-            token = existing_token.id
-        else:
-            current_app.logger.info("[MANIFEST] No existing token found, generating new one")
-            token = generate_pwa_temp_token(auth_token)
-            
-        start_url = url_for('main.temp_login_route', token=token, _external=True)
-        manifest_data["start_url"] = start_url
-        
-        for icon in manifest_data["icons"]:
-            icon["src"] = url_for('static',
-                                filename=icon["src"].replace('/static/', ''),
-                                _external=True)
-                                
-        # Write modified manifest back to file
-        with open(manifest_path, 'w') as f:
-            json.dump(manifest_data, f, indent=2)
-            
-        current_app.logger.info(f"[MANIFEST] Updated manifest file with new start_url: {start_url}")
+    db.session.add(new_token)
+    db.session.commit()
     
     return jsonify({"success": True})
+
+
+
+@bp.route("/pwa-login/<token>")
+def pwa_login_route(token):
+    if request.headers.get('Accept') == 'application/json':
+        temp_token = TempToken.query.get(token)
+        
+        if not temp_token or not temp_token.is_pwa_token:
+            return jsonify({
+                "success": False,
+                "error": "Ungültiger PWA Login Token"
+            }), 401
+            
+        if datetime.now() > temp_token.expiry:
+            return jsonify({
+                "success": False,
+                "error": "Der PWA Login Token ist abgelaufen"
+            }), 401
+
+        # Get existing auth token
+        old_token = AuthToken.query.filter_by(
+            token_identifier=temp_token.token_identifier,
+            is_active=True
+        ).first()
+        
+        if old_token:
+            client_info = (
+                f"PWA Installation | "
+                f"Previous Token: {old_token.token_identifier[:8]}... | "
+                f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
+            )
+
+            auth_token = create_auth_token(
+                temp_token.walking_bus_id,
+                temp_token.walking_bus_name,
+                temp_token.bus_password_hash,
+                client_info=client_info
+            )
+            
+            # Set up token renewal
+            new_token_record = AuthToken.query.get(auth_token)
+            old_token.renewed_to = auth_token
+            new_token_record.renewed_from = old_token.id
+            new_token_record.is_pwa_installed = True
+            
+            # Invalidate old token
+            old_token.invalidate("Renewed for PWA installation")
+            
+            # Clean up temp token
+            db.session.delete(temp_token)
+            db.session.commit()
+
+            # Set up session
+            session['walking_bus_id'] = temp_token.walking_bus_id
+            session['walking_bus_name'] = temp_token.walking_bus_name
+            session['bus_password_hash'] = temp_token.bus_password_hash
+            session.permanent = True
+
+            response = jsonify({
+                'success': True,
+                'auth_token': auth_token,
+                'redirect_url': url_for('main.index')
+            })
+
+            response.set_cookie(
+                'auth_token',
+                auth_token,
+                max_age=30 * 24 * 60 * 60,
+                secure=True,
+                httponly=True,
+                samesite='Lax',
+                path='/'
+            )
+
+            return response
+
+    # Initial page load
+    return render_template('pwa-login.html')
+
+
+# @bp.route('/static/manifest.json')
+# def manifest():
+#     return send_from_directory('static', 'manifest.json')
+
+
+# @bp.route('/api/manifest')
+# @require_auth
+# def auth_manifest():
+#     token = request.headers.get('Authorization', '').replace('Bearer ', '')
+#     if not token and 'auth_token' in session:
+#         token = session['auth_token']
+    
+#     auth_token = AuthToken.query.filter_by(id=token).first()
+    
+#     # Load base manifest
+#     manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
+#     with open(manifest_path, 'r') as f:
+#         manifest_data = json.load(f)
+    
+#     if not auth_token.is_pwa_installed:
+#         current_app.logger.info(f"[MANIFEST] Generating manifest for non-installed PWA. Token identifier: {auth_token.token_identifier}")
+        
+#         existing_token = TempToken.query.filter_by(
+#             token_identifier=auth_token.token_identifier,
+#             is_pwa_token=True
+#         ).first()
+        
+#         if existing_token:
+#             current_app.logger.info(f"[MANIFEST] Found existing PWA token: {existing_token.id}")
+#             existing_token.expiry = datetime.now() + timedelta(minutes=5)
+#             db.session.commit()
+#             token = existing_token.id
+#         else:
+#             current_app.logger.info("[MANIFEST] No existing token found, generating new one")
+#             token = generate_pwa_temp_token(auth_token)
+            
+#         start_url = url_for('main.temp_login_route', token=token, _external=True)
+#         manifest_data["start_url"] = start_url
+        
+#         for icon in manifest_data["icons"]:
+#             icon["src"] = url_for('static',
+#                                 filename=icon["src"].replace('/static/', ''),
+#                                 _external=True)
+                                
+#         # Write modified manifest back to file
+#         with open(manifest_path, 'w') as f:
+#             json.dump(manifest_data, f, indent=2)
+            
+#         current_app.logger.info(f"[MANIFEST] Updated manifest file with new start_url: {start_url}")
+    
+#     return jsonify({"success": True})
 
 
 
