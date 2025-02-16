@@ -2526,12 +2526,15 @@ def manifest():
     manifest_data = get_base_manifest()
 
     for icon in manifest_data['icons']:
-        # Extract filename from original path
         filename = icon['src'].split('/')[-1]
-        # Create proper absolute URL
-        icon['src'] = url_for('static', filename=f'icons/{filename}', _external=True)
-
-    manifest_data["start_url"] = url_for('main.pwa_login_route', token=browser_token, _external=True)
+        icon['src'] = url_for('static', filename=f'icons/{filename}', _external=True, _scheme='https')
+    
+    # Ensure start_url uses HTTPS and same origin
+    manifest_data["start_url"] = url_for('main.pwa_login_route', 
+                                        token=browser_token, 
+                                        _external=True,
+                                        _scheme='https')
+                                        
     return jsonify(manifest_data)
 
 
