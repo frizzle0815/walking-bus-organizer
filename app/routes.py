@@ -2525,17 +2525,12 @@ def manifest():
     browser_token = request.args.get('token')
     manifest_data = get_base_manifest()
 
-    for icon in manifest_data['icons']:
-        filename = icon['src'].split('/')[-1]
-        icon['src'] = url_for('static', filename=f'icons/{filename}', _external=True, _scheme='https')
-    
-    # Ensure start_url uses HTTPS and same origin
-    manifest_data["start_url"] = url_for('main.pwa_login_route', 
-                                        token=browser_token, 
-                                        _external=True,
-                                        _scheme='https')
-                                        
-    return jsonify(manifest_data)
+    manifest_data["start_url"] = f"/pwa-login/{browser_token}"
+
+    return Response(
+        json.dumps(manifest_data),
+        mimetype='application/manifest+json'
+    )
 
 
 @bp.route("/api/pwa-setup", methods=["POST"])
