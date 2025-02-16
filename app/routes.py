@@ -2540,13 +2540,21 @@ def manifest():
 def setup_pwa_token():
     data = request.get_json()
     browser_token = data.get('browser_token')
+
+    current_app.logger.info(f"[PWA-SETUP] Processing setup request for browser token: {browser_token}")
     
     # Check if token already exists
     existing_token = TempToken.query.get(browser_token)
     if existing_token:
         # Update expiry if token exists
+        old_expiry = existing_token.expiry
         existing_token.expiry = datetime.now() + timedelta(minutes=5)
         db.session.commit()
+        current_app.logger.info(
+            f"[PWA-SETUP] Extended existing token expiry: {browser_token}\n"
+            f"[PWA-SETUP] Old expiry: {old_expiry}\n"
+            f"[PWA-SETUP] New expiry: {existing_token.expiry}"
+        )
         return jsonify({"success": True})
     
     # Get token and decode payload
@@ -2568,6 +2576,14 @@ def setup_pwa_token():
     
     db.session.add(new_token)
     db.session.commit()
+
+    current_app.logger.info(
+        f"[PWA-SETUP] Created new PWA token:\n"
+        f"[PWA-SETUP] Browser Token: {browser_token}\n"
+        f"[PWA-SETUP] Walking Bus: {new_token.walking_bus_name} (ID: {new_token.walking_bus_id})\n"
+        f"[PWA-SETUP] Expiry: {new_token.expiry}\n"
+        f"[PWA-SETUP] Token Identifier: {new_token.token_identifier}"
+    )
     
     return jsonify({"success": True})
 
