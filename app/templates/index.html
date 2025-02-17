@@ -2574,6 +2574,7 @@ function SSE_handleError() {
 
 function SSE_updateConnectionStatus(status) {
     const indicator = document.querySelector('.connection-indicator');
+    const connectionAlert = document.getElementById('connection-alert');
     if (!indicator) return;
 
     // Remove all possible states
@@ -2588,6 +2589,9 @@ function SSE_updateConnectionStatus(status) {
         case 'connected':
             indicator.classList.add('connected');
             indicator.className = 'fas fa-circle connection-indicator connected';
+            if (connectionAlert) {
+                    connectionAlert.classList.add('d-none');
+                }
             break;
         case 'disconnected':
             indicator.classList.add('disconnected');
