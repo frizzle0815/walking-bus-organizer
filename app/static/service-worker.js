@@ -1,6 +1,6 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 
-const CACHE_VERSION = 'v20'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v22'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -45,7 +45,16 @@ self.addEventListener('message', (event) => {
 
     switch (event.data?.type) {
         case 'CHECK_SUBSCRIPTION':
-            event.waitUntil(checkAndRestoreSubscription());
+            // Execute subscription check and send result back through MessageChannel
+            event.waitUntil(
+                checkAndRestoreSubscription().then(hasSubscription => {
+                    // Send result back through the provided MessageChannel port
+                    event.ports[0].postMessage({
+                        type: 'SUBSCRIPTION_STATUS',
+                        hasSubscription: hasSubscription
+                    });
+                })
+            );
             break;
 
         case 'SKIP_WAITING':
@@ -221,28 +230,22 @@ async function checkAndRestoreSubscription() {
     console.log('[SW] Checking for existing subscription in database');
     
     try {
-        // Initial delay to ensure auth is ready
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Check if user had subscriptions using cookie auth
         const response = await fetchWithAuth('/api/notifications/subscription');
         const data = await response.json();
         
-        // Handle inactive subscription
         if (data && data.subscription && !data.subscription.is_active) {
             console.log('[SW] Found paused subscription, attempting to restore');
             
-            // Get VAPID key for push subscription
             const vapidResponse = await fetchWithAuth('/api/notifications/vapid-key');
             const vapidKey = await vapidResponse.text();
             
-            // Create new push subscription
             const subscription = await self.registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: vapidKey
             });
             
-            // Store new subscription with existing participantIds
             await fetchWithAuth('/api/notifications/subscription', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -252,11 +255,19 @@ async function checkAndRestoreSubscription() {
             });
             
             console.log('[SW] Successfully restored push subscription');
+            return true;
+            
         } else if (data && data.participantIds && data.participantIds.length > 0) {
             console.log('[SW] Found active subscription, no restoration needed');
+            return true;
         }
+        
+        console.log('[SW] No subscription found or needed');
+        return false;
+        
     } catch (error) {
         console.error('[SW] Error restoring subscription:', error);
+        return false;
     }
 }
 

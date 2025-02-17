@@ -66,7 +66,7 @@
             <i class="fas fa-circle connection-indicator"></i>
         </div>
         <div id="notification-status" class="me-2" role="button" onclick="window.location.href='/notifications'" style="cursor: pointer;">
-            <i class="fas fa-bell notification-indicator"></i>
+            <i class="fas fa-bell notification-indicator disabled"></i>
         </div>
         <div id="current-time" class="fw-bold"></div>
     </div>
@@ -707,6 +707,7 @@ if (installApp) {
      while (!window.fetchWithAuth) {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
+    await updateNotificationIndicator();
  });
 
 function SSE_updateTimeDisplay(time) {
@@ -779,33 +780,42 @@ document.addEventListener('DOMContentLoaded', () => {
 async function updateNotificationIndicator() {
     const indicator = document.querySelector('.notification-indicator');
     
-    // Early return if element doesn't exist
     if (!indicator) {
         console.log('[BASE.HTML] Notification indicator element not found');
         return;
     }
 
-    if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-        
-        // Wait for activation if needed
-        if (registration.installing) {
-            await new Promise(resolve => {
-                registration.installing.addEventListener('statechange', e => {
-                    if (e.target.state === 'activated') resolve();
-                });
-            });
-        }
+    // Start with disabled state
+    indicator.classList.add('disabled');
 
-        const subscription = await registration.pushManager.getSubscription();
-        
-        if (subscription) {
-            indicator.classList.remove('disabled');
-        } else {
-            indicator.classList.add('disabled');
+    if ('serviceWorker' in navigator) {
+        try {
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            
+            // Create MessageChannel for two-way communication
+            const messageChannel = new MessageChannel();
+            
+            // Handle response from service worker
+            messageChannel.port1.onmessage = (event) => {
+                if (event.data.hasSubscription) {
+                    indicator.classList.remove('disabled');
+                } else {
+                    indicator.classList.add('disabled');
+                }
+            };
+
+            // Send check request with MessageChannel port
+            registration.active.postMessage(
+                { type: 'CHECK_SUBSCRIPTION' },
+                [messageChannel.port2]
+            );
+
+        } catch (error) {
+            console.log('[BASE.HTML] Error checking notification status:', error);
         }
     }
 }
+
 </script>
 </body>
 </html>
