@@ -37,6 +37,7 @@
     console.log('[AUTH.HTML] TokenManager initialized and ready for use');
 })();
 
+window.tokenManager = new TokenManager();
 
 (function() {
     // Make auth functions globally available
@@ -148,6 +149,7 @@ async function loginUser() {
     });
 }
 
+
 // Helper function for error display
 function showErrorMessage(form, message) {
     const errorDiv = document.querySelector('.alert-danger') || 
@@ -166,16 +168,29 @@ function showErrorMessage(form, message) {
 // Add this at the end of the auth.html script section
 window.handleLogout = async function() {
     try {
-        const token = await tokenManager.getToken();
-        await tokenManager.clearToken();
+        // Clear localStorage first
+        localStorage.clear();
         
-        // Server-side invalidation
-        await fetch('/logout', {
-            headers: token ? {
-                'Authorization': `Bearer ${token}`
-            } : {}
-        });
+        // Call backend logout route
+        const response = await fetch('/logout');
+        const data = await response.json();
         
+        // Unregister all service workers
+        if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+                await registration.unregister();
+            }
+        }
+
+        // Delete all caches completely
+        if ('caches' in window) {
+            const cacheKeys = await caches.keys();
+            await Promise.all(
+                cacheKeys.map(key => caches.delete(key))
+            );
+        }
+
         window.location.href = '/login';
     } catch (error) {
         console.error('[AUTH.HTML][LOGOUT] Error during logout:', error);

@@ -27,7 +27,8 @@ from .auth import (
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
-    renew_auth_token, generate_pwa_temp_token
+    renew_auth_token, generate_pwa_temp_token,
+    check_and_renew_token
 )
 import jwt
 import json
@@ -273,50 +274,14 @@ def temp_login_route(token):
                 "error": "Ungültiger oder abgelaufener Login Link"
             }), 401
 
-        # Handle PWA installation tokens differently
-        if temp_token.is_pwa_token:
-            current_app.logger.info(f"[TEMP-LOGIN] Processing PWA installation token: {token}")
-            if temp_token.token_identifier:
-                old_token = AuthToken.query.filter_by(
-                    token_identifier=temp_token.token_identifier,
-                    is_active=True
-                ).first()
-                
-                if old_token:
-                    # Create new token with PWA installation info
-                    client_info = (
-                                        f"PWA Installation | "
-                                        f"Previous Token: {old_token.token_identifier[:8]}... | "
-                                        f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
-                                    )
-
-                    auth_token = create_auth_token(
-                        temp_token.walking_bus_id,
-                        temp_token.walking_bus_name,
-                        temp_token.bus_password_hash,
-                        client_info=client_info
-                    )
-                    
-                    # Set up token renewal relationships
-                    new_token_record = AuthToken.query.get(auth_token)
-                    old_token.renewed_to = auth_token
-                    new_token_record.renewed_from = old_token.id
-                    
-                    # Invalidate old tokens
-                    temp_token.expiry = datetime.now()
-                    db.session.delete(temp_token)
-                    old_token.invalidate("Renewed for PWA installation")
-                    
-                    db.session.commit()
-        else:
-            # Regular share token flow
-            current_app.logger.info(f"[TEMP-LOGIN] Processing regular share token: {token}")
-            auth_token = create_auth_token(
-                temp_token.walking_bus_id,
-                temp_token.walking_bus_name,
-                temp_token.bus_password_hash,
-                client_info=request.headers.get('User-Agent')
-            )
+        # Regular share token flow
+        current_app.logger.info(f"[TEMP-LOGIN] Processing share token: {token}")
+        auth_result = create_auth_token(
+            temp_token.walking_bus_id,
+            temp_token.walking_bus_name,
+            temp_token.bus_password_hash,
+            client_info=request.headers.get('User-Agent')
+        )
 
         # Set up session
         session['walking_bus_id'] = temp_token.walking_bus_id
@@ -324,26 +289,24 @@ def temp_login_route(token):
         session['bus_password_hash'] = temp_token.bus_password_hash
         session.permanent = True
 
+        # Clean up used token
+        db.session.delete(temp_token)
+        db.session.commit()
+
         response = jsonify({
             'success': True,
-            'auth_token': auth_token,
+            'auth_token': auth_result['token'],
             'redirect_url': url_for('main.index')
         })
 
-        response.set_cookie(
-            'auth_token',
-            auth_token,
-            max_age=30 * 24 * 60 * 60,
-            secure=True,
-            httponly=True,
-            samesite='Lax',
-            path='/'
-        )
+        # Set cookie using standardized settings
+        response.set_cookie(**auth_result['cookie_settings'])
 
         return response
 
     # Initial page load
     return render_template('temp-login.html')
+
 
 
 
@@ -1004,24 +967,10 @@ def get_participant_weekday_status(participant_id, weekday):
 @bp.route("/api/daily-status", methods=["GET", "POST"])
 @require_auth
 def get_daily_status():
-    # Token renewal logic
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    payload = jwt.decode(token, options={"verify_signature": False})
-    exp_timestamp = payload['exp']
-    exp_date = datetime.fromtimestamp(exp_timestamp)
-    remaining_days = (exp_date - datetime.utcnow()).days
-
-    current_app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
-    current_app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
-    current_app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
-
-    new_token = None
-    if remaining_days < 30:
-        verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        new_token = renew_auth_token(token, verified_payload)
-        current_app.logger.info("Created new token with extended expiration")
-        current_app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
-
+    # Get token from cookie and check for renewal
+    token = request.cookies.get('auth_token')
+    auth_result = check_and_renew_token(token) if token else None
+    
     walking_bus_id = get_current_walking_bus_id()
 
     # Handle both GET and POST parameters
@@ -1088,7 +1037,7 @@ def get_daily_status():
             True
         )
 
-    return jsonify({
+    response = jsonify({
         "currentDate": target_date.isoformat(),
         "isWalkingBusDay": is_active,
         "stateReason": reason_type,
@@ -1096,8 +1045,15 @@ def get_daily_status():
         "holidayData": holiday_data,
         "note": daily_note.note if daily_note else None,
         "schedule": schedule_data,
-        "participantStates": participant_states
+        "participantStates": participant_states,
+        "new_auth_token": auth_result['token'] if auth_result else None
     })
+
+    # Set new cookie if token was renewed
+    if auth_result:
+        response.set_cookie(**auth_result['cookie_settings'])
+
+    return response
 
 
 @bp.route('/api/weather/get-calculations')
@@ -1412,7 +1368,7 @@ def create_push_subscription():
     subscription = data['subscription']
     participant_ids = data['participantIds']
     
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token = request.cookies.get('auth_token')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
     
     # Find existing subscriptions
@@ -1487,7 +1443,7 @@ def cleanup_duplicate_subscriptions():
 @require_auth
 def get_subscription_details():
     walking_bus_id = get_current_walking_bus_id()
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token = request.cookies.get('auth_token')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
 
     subscription = PushSubscription.query.filter_by(
@@ -1515,7 +1471,7 @@ def get_subscription_details():
 @require_auth
 def delete_push_subscription():
     walking_bus_id = get_current_walking_bus_id()
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token = request.cookies.get('auth_token')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
 
     # Handle user-initiated deletion of specific subscription
@@ -1686,7 +1642,7 @@ def update_pwa_status():
     is_installed = data.get('is_installed', False)
     
     # Get current token
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token = request.cookies.get('auth_token')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
     
     # Only update if status changed
@@ -1722,23 +1678,8 @@ def initialize_daily_status():
                 return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
         # Token handling
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        payload = jwt.decode(token, options={"verify_signature": False})
-        exp_timestamp = payload['exp']
-        exp_date = datetime.fromtimestamp(exp_timestamp)
-        remaining_days = (exp_date - datetime.utcnow()).days
-
-        # Add these logging statements
-        current_app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
-        current_app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
-        current_app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
-
-        new_token = None
-        if remaining_days < 30:
-            verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            new_token = renew_auth_token(token, verified_payload)
-            current_app.logger.info("Created new token with extended expiration")
-            current_app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
+        token = request.cookies.get('auth_token')
+        auth_result = check_and_renew_token(token) if token else None
 
         walking_bus_id = get_current_walking_bus_id()
         target_date = requested_date if requested_date else get_current_date()
@@ -1780,72 +1721,56 @@ def initialize_daily_status():
             walking_bus_id=walking_bus_id
         ).first()
 
-        # Check walking bus status
-        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
-        current_app.logger.info(f"Walking bus day status: {walking_bus_day}")
+        # Check walking bus status with reason
+        walking_bus_day, reason, reason_type = check_walking_bus_day(
+            target_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
 
-        # Initialize time_passed before any checks
+        # Time check for current day
         time_passed = False
-
-        # Get today's date for comparison
         today = get_current_date()
 
-        # Check walking bus status
-        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
-        current_app.logger.info(f"Walking bus day status: {walking_bus_day}")
-
-        # Then modify the time check to only apply for current day
         if walking_bus_day and schedule_data and schedule_data["end"]:
             end_time = datetime.strptime(schedule_data["end"], "%H:%M").time()
-            current_app.logger.info(f"Target date: {target_date}, Today: {today}")
-            current_app.logger.info(f"Parsed end_time: {end_time}")
             
-            # Ensure target_date is a date object for comparison
-            if isinstance(target_date, str):
-                target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
-            
-            # Only check time if we're looking at today
-            if target_date == today:
-                current_app.logger.info(f"Checking time for today: {current_time} > {end_time}")
-                if current_time > end_time:
-                    current_app.logger.info("Time check conditions met - updating status")
-                    walking_bus_day = False
-                    reason = "Der Walking Bus hat heute bereits stattgefunden."
-                    reason_type = "TIME_PASSED"
-                    time_passed = True
+            if target_date == today and current_time > end_time:
+                walking_bus_day = False
+                reason = "Der Walking Bus hat heute bereits stattgefunden."
+                reason_type = "TIME_PASSED"
+                time_passed = True
 
-        # Now handle reason formatting
-        if time_passed:
-            display_reason = reason
-        elif reason_type == "HOLIDAY" and isinstance(reason, dict):
-            display_reason = reason.get("full_reason", "")
-        else:
-            display_reason = str(reason)
+        # Handle reason formatting
+        display_reason = (
+            reason if time_passed
+            else reason.get("full_reason", "") if reason_type == "HOLIDAY" and isinstance(reason, dict)
+            else str(reason)
+        )
 
-        current_app.logger.info(f"Schedule data: {schedule_data}")
-        current_app.logger.info(f"Walking bus check results: day={walking_bus_day}, reason={reason}, type={reason_type}")
-        current_app.logger.info(f"Time check values: current={current_time}, end={end_time if 'end_time' in locals() else 'not set'}")
-
-        response = {
+        # Create response
+        response = jsonify({
             "success": True,
             "currentDate": target_date.isoformat(),
             "isWalkingBusDay": walking_bus_day,
             "reason": display_reason,
-            "reason_type": reason_type,  # This will now correctly show TIME_PASSED
+            "reason_type": reason_type,
             "note": daily_note.note if daily_note else None,
-            "schedule": schedule_data
-        }
+            "schedule": schedule_data,
+            "new_auth_token": auth_result['token'] if auth_result else None
+        })
 
-        if new_token:
-            response['new_auth_token'] = new_token
+        # Set new cookie if token was renewed
+        if auth_result:
+            response.set_cookie(**auth_result['cookie_settings'])
 
-        current_app.logger.info(f"Final response: {response}")
-        return jsonify(response)
+        return response
 
     except Exception as e:
         current_app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
 
 
 @bp.route("/api/week-overview")
@@ -2585,7 +2510,7 @@ def setup_pwa_token():
         return jsonify({"success": True})
     
     # Get token and decode payload
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    token = request.cookies.get('auth_token')
     auth_token = AuthToken.query.get(token)
     payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
     
@@ -2621,6 +2546,7 @@ def pwa_login_route(token):
     if request.headers.get('Accept') == 'application/json':
         temp_token = TempToken.query.get(token)
         
+        # Validate PWA token
         if not temp_token or not temp_token.is_pwa_token:
             return jsonify({
                 "success": False,
@@ -2628,6 +2554,8 @@ def pwa_login_route(token):
             }), 401
             
         if datetime.now() > temp_token.expiry:
+            db.session.delete(temp_token)
+            db.session.commit()
             return jsonify({
                 "success": False,
                 "error": "Der PWA Login Token ist abgelaufen"
@@ -2640,29 +2568,28 @@ def pwa_login_route(token):
         ).first()
         
         if old_token:
+            # Create new token with PWA installation info
             client_info = (
                 f"PWA Installation | "
                 f"Previous Token: {old_token.token_identifier[:8]}... | "
                 f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
             )
 
-            auth_token = create_auth_token(
+            auth_result = create_auth_token(
                 temp_token.walking_bus_id,
                 temp_token.walking_bus_name,
                 temp_token.bus_password_hash,
                 client_info=client_info
             )
             
-            # Set up token renewal
-            new_token_record = AuthToken.query.get(auth_token)
-            old_token.renewed_to = auth_token
+            # Set up token renewal relationships
+            new_token_record = AuthToken.query.get(auth_result['token'])
+            old_token.renewed_to = auth_result['token']
             new_token_record.renewed_from = old_token.id
             new_token_record.is_pwa_installed = True
             
-            # Invalidate old token
+            # Invalidate old token and clean up
             old_token.invalidate("Renewed for PWA installation")
-            
-            # Clean up temp token
             db.session.delete(temp_token)
             db.session.commit()
 
@@ -2674,24 +2601,18 @@ def pwa_login_route(token):
 
             response = jsonify({
                 'success': True,
-                'auth_token': auth_token,
+                'auth_token': auth_result['token'],
                 'redirect_url': url_for('main.index')
             })
 
-            response.set_cookie(
-                'auth_token',
-                auth_token,
-                max_age=30 * 24 * 60 * 60,
-                secure=True,
-                httponly=True,
-                samesite='Lax',
-                path='/'
-            )
+            # Set cookie using standardized settings
+            response.set_cookie(**auth_result['cookie_settings'])
 
             return response
 
     # Initial page load
     return render_template('pwa-login.html')
+
 
 
 # @bp.route('/static/manifest.json')
@@ -3010,7 +2931,7 @@ def login():
         # Success case - create token and session
         user_agent = request.headers.get('User-Agent')
         password_hash = get_consistent_hash(bus.password)
-        auth_token = create_auth_token(
+        auth_result = create_auth_token(
             bus.id,
             bus.name,
             password_hash,
@@ -3024,23 +2945,16 @@ def login():
 
         response = jsonify({
             'success': True,
-            'auth_token': auth_token,
+            'auth_token': auth_result['token'],
             'redirect_url': url_for('main.index')
         })
 
-        response.set_cookie(
-            'auth_token',
-            auth_token,
-            max_age=30 * 24 * 60 * 60,
-            secure=True,
-            httponly=True,
-            samesite='Lax',
-            path='/'
-        )
+        # Set cookie using settings from auth_result
+        response.set_cookie(**auth_result['cookie_settings'])
         
-        return response  # Return successful response here
+        return response
 
-    # Handle failed login - only reached if login was unsuccessful
+    # Handle failed login
     record_attempt()
     remaining_attempts = MAX_ATTEMPTS - len(login_attempts[ip])
     lockout_minutes = LOCKOUT_TIME.total_seconds() / 60
@@ -3054,32 +2968,27 @@ def login():
 
 @bp.route("/logout")
 def logout():
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token and 'auth_token' in session:
-        token = session['auth_token']
-    
+    # Get token from cookie
+    token = request.cookies.get('auth_token')
     if token:
         token_record = AuthToken.query.get(token)
         if token_record:
             token_record.invalidate("User logout")
             db.session.commit()
     
+    # Clear session
     session.clear()
     
     response = jsonify({
         "message": "Logged out successfully",
-        "clear_cache": True
+        "clear_cache": True,
+        "unregister_worker": True  # Signal for frontend to unregister SW
     })
     
-    # Explicitly delete the auth_token cookie with matching parameters
-    response.delete_cookie(
-        'auth_token',
-        path='/',
-        secure=True,
-        httponly=True,
-        samesite='Lax'
-    )
+    # Clear all site data - this handles cookies, cache and storage in one go
+    response.headers['Clear-Site-Data'] = '"cookies", "cache", "storage"'
     
+    # Set additional cache prevention headers
     response.headers.update({
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',
@@ -3087,3 +2996,4 @@ def logout():
     })
     
     return response
+

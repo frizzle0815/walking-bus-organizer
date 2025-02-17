@@ -643,11 +643,15 @@ if (installApp) {
      console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
      console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
 
+     if (window.location.pathname === '/login') {
+        const autoLoginSuccessful = await attemptAutoLogin();
+        if (!autoLoginSuccessful) {
+            loginUser();
+        }
+    }
+
      // Register service worker
      await registerServiceWorker();
-
-     // Initialize login functionality
-     loginUser();
 
      // UI Components initialization
      const darkModeToggle = document.getElementById('darkModeToggle');
@@ -699,7 +703,6 @@ if (installApp) {
          });
      }
 
-     await updateNotificationIndicator();
      // Hack for iOS before starting checkWithAuth
      while (!window.fetchWithAuth) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -730,41 +733,58 @@ function SSE_updateTimeDisplay(time) {
 
  async function logout() {
     try {
+        // Clear localStorage first
+        localStorage.clear();
+        
         // Call backend logout route
         const response = await fetch('/logout');
-        if (!response.ok) {
-            throw new Error('Logout failed on server');
+        const data = await response.json();
+        
+        // Unregister service worker if present
+        if (data.unregister_worker && 'serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+                await registration.unregister();
+            }
         }
 
-        // Clear localStorage token
-        localStorage.removeItem('auth_token');
-
-        // Clear Service Worker cache
+        // Delete all caches completely
         if ('caches' in window) {
-            const cache = await caches.open('walking-bus-auth-v1');
-            await cache.delete('static/auth-token');
+            const cacheKeys = await caches.keys();
+            await Promise.all(
+                cacheKeys.map(key => caches.delete(key))
+            );
         }
 
         // Redirect to login page
         window.location.href = '/login';
     } catch (error) {
         console.error('[LOGOUT] Error:', error);
-        window.location.href = '/login'; // Fallback redirect
+        window.location.href = '/login';
     }
 }
 
- // Event Listener für Logout-Button
- document.addEventListener('DOMContentLoaded', () => {
-     const logoutLink = document.querySelector('a[href="/logout"]');
-     if (logoutLink) {
-         logoutLink.addEventListener('click', (e) => {
-             e.preventDefault();
-             logout();
-         });
-     }
- });
+// Event Listener for Logout-Button
+document.addEventListener('DOMContentLoaded', () => {
+    const logoutLink = document.querySelector('a[href="/logout"]');
+    if (logoutLink) {
+        logoutLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            logout();
+        });
+    }
+});
 
- async function updateNotificationIndicator() {
+
+async function updateNotificationIndicator() {
+    const indicator = document.querySelector('.notification-indicator');
+    
+    // Early return if element doesn't exist
+    if (!indicator) {
+        console.log('[BASE.HTML] Notification indicator element not found');
+        return;
+    }
+
     if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.register('/static/service-worker.js');
         
@@ -778,7 +798,6 @@ function SSE_updateTimeDisplay(time) {
         }
 
         const subscription = await registration.pushManager.getSubscription();
-        const indicator = document.querySelector('.notification-indicator');
         
         if (subscription) {
             indicator.classList.remove('disabled');

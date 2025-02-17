@@ -115,7 +115,7 @@ def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, clien
         return {
             'token': auth_token,
             'cookie_settings': {
-                'name': 'auth_token',
+                'key': 'auth_token',
                 'value': auth_token,
                 'max_age': 60 * 24 * 60 * 60,  # 60 days
                 'secure': True,
@@ -129,26 +129,61 @@ def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, clien
         raise
 
 
+def check_and_renew_token(token):
+    """
+    Checks if token needs renewal and returns new token if necessary
+    Returns:
+        dict with new_token and cookie_settings if renewed, None otherwise
+    """
+    try:
+        # Initial payload check without verification
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp_date = datetime.fromtimestamp(payload['exp'])
+        remaining_days = (exp_date - datetime.utcnow()).days
+
+        current_app.logger.info(f"[AUTH-TOKEN] Checking token expiration: {remaining_days} days remaining")
+
+        if remaining_days < 30:
+            # Verify token before renewal
+            verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            auth_result = renew_auth_token(token, verified_payload)
+            current_app.logger.info(f"[AUTH-TOKEN] Renewed token with {remaining_days} days remaining")
+            return auth_result
+
+        return None
+        
+    except jwt.InvalidTokenError:
+        current_app.logger.error("[AUTH-TOKEN] Invalid token during renewal check")
+        return None
+    except Exception as e:
+        current_app.logger.error(f"[AUTH-TOKEN] Error during renewal check: {str(e)}")
+        return None
+
 def renew_auth_token(old_token, verified_payload):
+    """
+    Creates new token and handles renewal chain
+    Returns:
+        dict containing new token and cookie settings
+    """
     # Create new token with extended expiration
-    new_token = create_auth_token(
+    auth_result = create_auth_token(
         verified_payload['walking_bus_id'],
         verified_payload['walking_bus_name'],
         verified_payload['bus_password_hash']
     )
     
-    # Update old token record
+    # Update token chain
     old_token_record = AuthToken.query.get(old_token)
-    new_token_record = AuthToken.query.get(new_token)
+    new_token_record = AuthToken.query.get(auth_result['token'])
     
-    old_token_record.renewed_to = new_token
+    old_token_record.renewed_to = auth_result['token']
     new_token_record.renewed_from = old_token
     
-    # Mark old token as inactive
+    # Invalidate old token
     old_token_record.invalidate("Renewed with new token")
     
     db.session.commit()
-    return new_token
+    return auth_result
 
 
 def invalidate_all_tokens_for_bus(walking_bus_id, reason="Password changed"):
@@ -412,7 +447,7 @@ def temp_login(token):
         return response
         
     except Exception as e:
-        current_app.logger.error(f"Temp login error: {str(e)}")
+        current_app.logger.error(f"[TEMP-TOKEN] Temp login error: {str(e)}")
         return jsonify({"error": "Ungültiger Login Link"}), 401
 
 
