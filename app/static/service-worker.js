@@ -1,9 +1,8 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 
-const CACHE_VERSION = 'v30'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v31'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
-    '/static/manifest.json',
     '/static/icons/icon-192x192.png',
     '/static/icons/icon-512x512.png',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
@@ -30,12 +29,6 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         Promise.all([
-            // Clear old caches first
-            caches.keys().then(keys => Promise.all(
-                keys.map(key => caches.delete(key))
-            )),
-            
-            // Then run existing operations
             self.clients.claim(),
             self.registration.navigationPreload?.enable(),
             checkAndRestoreSubscription()
@@ -303,12 +296,6 @@ async function handleStaticAsset(request) {
 
 // Fetch handler
 self.addEventListener('fetch', event => {
-    // Skip caching for HTML requests
-    if (event.request.headers.get('Accept').includes('text/html')) {
-        return;
-    }
-    
-    // Only cache static assets defined in URLS_TO_CACHE
     if (URLS_TO_CACHE.some(url => event.request.url.includes(url))) {
         event.respondWith(handleStaticAsset(event.request));
     }
