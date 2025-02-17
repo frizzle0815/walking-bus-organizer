@@ -3,23 +3,33 @@
 (function() {
     window.TokenManager = class TokenManager {
         async getToken() {
-            // Try to get token from cookie first
-            const cookies = document.cookie.split(';');
-            const authCookie = cookies.find(c => c.trim().startsWith('auth_token='));
-            if (authCookie) {
-                return authCookie.split('=')[1].trim();
+            // Direct cookie access using regex
+            const cookieString = document.cookie;
+            console.log('[AUTH.HTML] Raw cookie string:', cookieString);
+            
+            // Use regex to find auth_token
+            const match = cookieString.match(/auth_token=([^;]+)/);
+            console.log('[AUTH.HTML] Cookie match result:', match);
+            
+            if (match && match[1]) {
+                const token = match[1];
+                console.log('[AUTH.HTML] Found token:', token);
+                return token;
             }
 
-            // Fallback: Check localStorage
+            // Fallback to localStorage
             const localToken = localStorage.getItem('auth_token');
+            console.log('[AUTH.HTML] LocalStorage token:', localToken);
+            
             if (localToken) {
-                // Attempt to restore cookie from localStorage
                 document.cookie = `auth_token=${localToken}; max-age=${30*24*60*60}; secure; samesite=Strict`;
                 return localToken;
             }
 
             return null;
         }
+
+
 
         async storeToken(token) {
             // Store in localStorage as backup
@@ -148,6 +158,70 @@ async function loginUser() {
         }
     });
 }
+
+
+async function attemptAutoLogin() {
+    console.log('[AUTH.HTML] Starting auto-login attempt...');
+    
+    try {
+        // First try cookie-based auth
+        const response = await fetch('/api/check-auth-cookie', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+        
+        if (data.authenticated) {
+            console.log('[AUTH.HTML] Cookie-based auto-login successful');
+            if (data.auth_token) {
+                await tokenManager.storeToken(data.auth_token);
+            }
+            window.location.replace(data.redirect_url);
+            return true;
+        }
+        
+        // If cookie auth failed, try localStorage backup
+        const localToken = localStorage.getItem('auth_token');
+        if (localToken) {
+            console.log('[AUTH.HTML] Found token in localStorage, attempting validation');
+            
+            const backupResponse = await fetch('/api/check-auth-localstorage', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ token: localToken })
+            });
+            
+            const backupData = await backupResponse.json();
+            
+            if (backupData.success) {
+                console.log('[AUTH.HTML] localStorage token validation successful');
+                if (backupData.auth_token) {
+                    await tokenManager.storeToken(backupData.auth_token);
+                }
+                window.location.replace(backupData.redirect_url);
+                return true;
+            }
+            
+            // Clear invalid localStorage token
+            localStorage.removeItem('auth_token');
+        }
+        
+        console.log('[AUTH.HTML] No valid authentication found');
+        return false;
+        
+    } catch (error) {
+        console.error('[AUTH.HTML] Auto-login error:', error);
+        return false;
+    }
+}
+
+
 
 
 // Helper function for error display

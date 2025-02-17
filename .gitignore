@@ -7,3 +7,4 @@ app/services/__pycache__/*
 howtos.txt
 logs/*
 data/*
+docker_compose_test.txt

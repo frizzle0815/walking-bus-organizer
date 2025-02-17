@@ -795,51 +795,48 @@ function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[INIT] Page loading started');
     const loadingOverlay = document.getElementById('loading-overlay');
-    
-    // Add transition for smooth fade out
     loadingOverlay.style.transition = 'opacity 0.3s ease-out';
-    
+
     try {
-        // Initialize core functionality
+        // Only load critical data first
         initializeSizeControls();
-        console.log('[INIT] Size controls initialized');
-
-        // Load main data
-        await loadInitialData();
-        console.log('[INIT] Initial load complete');
-
-        // Initialize real-time updates
-        initializeSSE();
-        console.log('[INIT] SSE connection established');
-
-        // Setup modal interactions
-        setupModalHandling();
-        console.log('[INIT] Modal handling setup complete');
-
-        await window.PWAManager.check();
-        console.log('[INDEX] PWA Status:', window.PWAManager.isInstalled());
-
-        // Smoothly hide loading overlay
+        const initialData = await loadInitialData();
+        
+        // Hide loading overlay immediately after initial render
         loadingOverlay.style.opacity = '0';
-        setTimeout(() => {
-            loadingOverlay.style.display = 'none';
-        }, 300); // Match transition duration
+        setTimeout(() => loadingOverlay.style.display = 'none', 300);
+
+        // Load remaining features in parallel after initial render
+        Promise.all([
+            initializeSSE(),
+            setupModalHandling(),
+            window.PWAManager.check()
+        ]).then(() => {
+            console.log('[INIT] All features initialized');
+        }).catch(error => {
+            console.warn('[INIT] Non-critical feature initialization error:', error);
+            // Don't show loading overlay for non-critical errors
+        });
 
     } catch (error) {
-        console.error('[INIT] Error during initialization:', error);
-        // Show error in loading overlay
-        loadingOverlay.innerHTML = `
-            <div class="spinner-container text-danger">
-                <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
-                <div>Fehler beim Laden der Daten</div>
-                <button onclick="location.reload()" class="btn btn-outline-danger mt-3">
-                    Neu laden
-                </button>
-            </div>
-        `;
+        console.error('[INIT] Critical initialization error:', error);
+        showLoadingError(loadingOverlay);
         SSE_updateConnectionStatus('disconnected');
     }
 });
+
+// Separate error handling
+function showLoadingError(overlay) {
+    overlay.innerHTML = `
+        <div class="spinner-container text-danger">
+            <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+            <div>Fehler beim Laden der Daten</div>
+            <button onclick="location.reload()" class="btn btn-outline-danger mt-3">
+                Neu laden
+            </button>
+        </div>
+    `;
+}
 
 
 async function loadInitialData() {

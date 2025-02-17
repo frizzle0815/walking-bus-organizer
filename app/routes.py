@@ -2614,6 +2614,68 @@ def pwa_login_route(token):
     return render_template('pwa-login.html')
 
 
+@bp.route('/api/check-auth-cookie', methods=['GET'])
+def check_auth():
+    token = request.cookies.get('auth_token')
+    if not token:
+        return jsonify({"authenticated": False})
+        
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        token_record = AuthToken.query.get(token)
+        
+        if not token_record or not token_record.is_active:
+            return jsonify({"authenticated": False})
+            
+        # Create new token if needed
+        auth_result = create_auth_token(
+            walking_bus_id=payload['walking_bus_id'],
+            walking_bus_name=payload['walking_bus_name'],
+            bus_password_hash=payload['bus_password_hash']
+        )
+        
+        response = jsonify({
+            "authenticated": True,
+            "auth_token": auth_result['token'],
+            "redirect_url": "/"
+        })
+        
+        # Set new cookie
+        response.set_cookie(**auth_result['cookie_settings'])
+        return response
+        
+    except jwt.InvalidTokenError:
+        return jsonify({"authenticated": False})
+
+
+@bp.route('/api/check-auth-localstorage', methods=['POST'])
+def validate_token():
+    token = request.json.get('token')
+    if not token:
+        return jsonify({"success": False})
+        
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        
+        # Create new auth token
+        auth_result = create_auth_token(
+            walking_bus_id=payload['walking_bus_id'],
+            walking_bus_name=payload['walking_bus_name'],
+            bus_password_hash=payload['bus_password_hash']
+        )
+        
+        response = jsonify({
+            "success": True,
+            "auth_token": auth_result['token'],
+            "redirect_url": "/"
+        })
+        
+        # Set cookie with new token
+        response.set_cookie(**auth_result['cookie_settings'])
+        return response
+        
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False})
 
 # @bp.route('/static/manifest.json')
 # def manifest():

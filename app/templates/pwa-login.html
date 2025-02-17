@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+
+{% include 'auth.html' %}
 <div class="container mt-5">
     <div class="row justify-content-center">
         <div class="col-md-6 text-center">
@@ -28,6 +30,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     };
 
     try {
+        // First attempt auto-login
+        const autoLoginSuccessful = await attemptAutoLogin();
+        if (autoLoginSuccessful) {
+            return; // Auto-login successful, stop here
+        }
+
+        // If auto-login fails, proceed with PWA token login
         const urlParts = window.location.pathname.split('/');
         const token = urlParts[urlParts.length - 1];
         
@@ -50,8 +59,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (data.success && data.auth_token) {
             console.log('[PWA-LOGIN] Token received, storing...');
             await window.tokenManager.storeToken(data.auth_token);
-            await new Promise(resolve => setTimeout(resolve, 200));
-            sessionStorage.setItem('auth_token', data.auth_token);
             console.log('[PWA-LOGIN] Token stored, redirecting...');
             window.location.replace(data.redirect_url);
         } else {
