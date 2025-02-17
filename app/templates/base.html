@@ -440,10 +440,11 @@
 let authInitialized = false;
 
 async function checkVersion() {
-    // Wait for service worker registration and activation
+    // 1. Register and update service worker
     const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-    
-    // Ensure worker is activated
+    await registration.update();
+
+    // 2. Wait for any installing worker to activate
     if (registration.installing) {
         await new Promise(resolve => {
             registration.installing.addEventListener('statechange', e => {
@@ -454,30 +455,43 @@ async function checkVersion() {
         });
     }
 
-    // Now safely create message channel and check version
+    // 3. Check version using MessageChannel
     const messageChannel = new MessageChannel();
     
-    messageChannel.port1.onmessage = (event) => {
-        if (event.data.type === 'VERSION_INFO') {
-            const storedVersion = localStorage.getItem('app_version');
-            if (!storedVersion || storedVersion !== event.data.version) {
-                if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                    showUpdateNotification();
-                    localStorage.setItem('app_version', event.data.version);
-                    reloadCorePagesforiOS();
+    return new Promise((resolve) => {
+        messageChannel.port1.onmessage = (event) => {
+            if (event.data.type === 'VERSION_INFO') {
+                const storedVersion = localStorage.getItem('app_version');
+                
+                if (registration.waiting) {
+                    registration.waiting.postMessage({type: 'SKIP_WAITING'});
+                }
+
+                if (storedVersion && storedVersion !== event.data.version) {
+                    // Only show notification if there was a previous version
+                    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                        showUpdateNotification(event.data.version);
+                        localStorage.setItem('app_version', event.data.version);
+                        reloadCorePagesforiOS();
+                    } else {
+                        showUpdateNotification(event.data.version);
+                        localStorage.setItem('app_version', event.data.version);
+                    }
                 } else {
-                    showUpdateNotification();
+                    // First time installation - just store the version silently
                     localStorage.setItem('app_version', event.data.version);
                 }
             }
-        }
-    };
+            resolve();
+        };
 
-    registration.active.postMessage(
-        { type: 'CHECK_VERSION' },
-        [messageChannel.port2]
-    );
+        registration.active.postMessage(
+            { type: 'CHECK_VERSION' },
+            [messageChannel.port2]
+        );
+    });
 }
+
 
 
 function showUpdateNotification(version) {
@@ -715,12 +729,13 @@ if (installApp) {
     }
 
      // Register service worker
-     try {
-        await registerServiceWorker();
-        await checkVersion();
-    } catch (error) {
-        console.log('[BASE.HTML] Service worker operations failed:', error);
-        // Continue with app initialization regardless of service worker status
+     if (window.location.pathname !== '/login') {
+        try {
+            await registerServiceWorker();
+            await checkVersion();
+        } catch (error) {
+            console.log('[BASE.HTML] Service worker operations failed:', error);
+        }
     }
 
      // UI Components initialization
@@ -889,13 +904,7 @@ async function updateNotificationIndicator() {
 
 async function reloadCorePagesforiOS() {
     const pagesToReload = [
-        '/login',
         '/',  // base.html is included in all
-        '/admin',
-        '/calendar',
-        '/share',
-        '/temp-login',
-        '/pwa-login/123'
     ];
     
     const timestamp = Date.now();
