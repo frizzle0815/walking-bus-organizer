@@ -109,11 +109,15 @@ async function loginUser() {
         return;
     }
 
-    form.addEventListener('submit', async (event) => {
+    // Remove any existing submit handlers
+    const newForm = form.cloneNode(true);
+    form.parentNode.replaceChild(newForm, form);
+
+    newForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         console.log('[AUTH.HTML] Form submission prevented, preparing to send login request.');
 
-        const formData = new FormData(form);
+        const formData = new FormData(newForm);
 
         try {
             const response = await fetch('/login', {
@@ -125,28 +129,27 @@ async function loginUser() {
                 }
             });
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             const data = await response.json();
             console.log('[AUTH.HTML] Response received:', data);
 
             if (!data.success) {
-                // Update bus selection if needed
                 if (data.buses) {
-                    const select = form.querySelector('select[name="walking_bus"]');
+                    const select = newForm.querySelector('select[name="walking_bus"]');
                     if (select) {
                         select.innerHTML = data.buses.map(bus =>
                             `<option value="${bus.id}" ${bus.id == data.selected_bus_id ? 'selected' : ''}>${bus.name}</option>`
                         ).join('');
                     }
                 }
-
-                // Show error message
-                showErrorMessage(form, data.error);
+                showErrorMessage(newForm, data.error);
                 return;
             }
 
-            // Handle successful login
             const { auth_token: authToken, redirect_url: redirectUrl } = data;
-
             if (authToken) {
                 console.log('[AUTH.HTML] Processing auth token');
                 await tokenManager.storeToken(authToken);
@@ -154,7 +157,7 @@ async function loginUser() {
             }
         } catch (error) {
             console.error('[AUTH.HTML] Login error:', error);
-            showErrorMessage(form, 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+            showErrorMessage(newForm, 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
         }
     });
 }
