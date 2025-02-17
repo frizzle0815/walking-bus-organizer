@@ -893,25 +893,19 @@ async function reloadCorePagesforiOS() {
         '/',  // base.html is included in all
         '/admin',
         '/calendar',
-        '/share'
+        '/share',
+        '/temp-login',
+        '/pwa-login/123'
     ];
     
     const timestamp = Date.now();
     
-    // Fetch all pages with cache-busting parameter
+    // Fetch all pages with timestamp parameter only
     await Promise.all(
         pagesToReload.map(page => 
-            fetch(`${page}?v=${timestamp}`, {
-                headers: {
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
-                }
-            })
+            fetch(`${page}?v=${timestamp}`)
         )
-    );
-    
-    // Force reload current page
-    window.location.reload(true);
+    ); 
 }
 
 </script>
