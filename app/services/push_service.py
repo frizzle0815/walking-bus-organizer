@@ -4,7 +4,7 @@ import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_
-from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken, WeatherCalculation
+from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken, WeatherCalculation, WalkingBusOverride
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
 import os
@@ -188,43 +188,45 @@ class PushService:
             ).all()
             
             for participant in participants:
-                # Check if participant normally attends on this weekday
                 normally_attends = getattr(participant, weekday, True)
                 
                 if normally_attends:
-                    # Get calendar entry for this date
                     calendar_entry = CalendarStatus.query.filter_by(
                         participant_id=participant.id,
                         date=target_date,
                         walking_bus_id=self.walking_bus_id
                     ).first()
                     
-                    # Determine actual status from calendar entry or default weekday setting
                     is_attending = calendar_entry.status if calendar_entry else normally_attends
                     
-                    # Get weather calculation for today
                     weather_info = WeatherCalculation.query.filter_by(
                         walking_bus_id=self.walking_bus_id,
                         date=target_date
                     ).first()
 
-                    # Base status message without weather
-                    base_message = (
-                        f"{participant.name} ist für heute angemeldet ✅" 
-                        if is_attending
-                        else f"{participant.name} ist für heute abgemeldet ❌"
-                    )
+                    bus_override = WalkingBusOverride.query.filter_by(
+                        walking_bus_id=self.walking_bus_id,
+                        date=target_date
+                    ).first()
 
-                    # Only add weather info if calculations exist
-                    if weather_info:
-                        weather_message = "Es bleibt trocken ☀️"
-                        if weather_info.precipitation > 0.5:
-                            weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
-                        elif weather_info.precipitation > 0:
-                            weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
-                        status_message = f"{base_message}\n \n{weather_message}"
+                    if bus_override and not bus_override.is_active:
+                        status_message = f"❌ Walking Bus findet heute nicht statt ❌\n \n{bus_override.reason}"
                     else:
-                        status_message = base_message
+                        base_message = (
+                            f"{participant.name} ist für heute angemeldet ✅"
+                            if is_attending
+                            else f"{participant.name} ist für heute abgemeldet ❌"
+                        )
+                        
+                        if weather_info:
+                            weather_message = "Es bleibt trocken ☀️"
+                            if weather_info.precipitation > 0.5:
+                                weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
+                            elif weather_info.precipitation > 0:
+                                weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
+                            status_message = f"{base_message}\n \n{weather_message}"
+                        else:
+                            status_message = base_message
 
                     notification_data = {
                         'title': 'Walking Bus Erinnerung',
@@ -265,6 +267,7 @@ class PushService:
             'notifications_sent': results,
             'cleanup': cleanup_result
         }
+
 
     def cleanup_expired_subscriptions(self):
         try:
