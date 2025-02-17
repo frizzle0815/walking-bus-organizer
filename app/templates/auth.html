@@ -50,28 +50,50 @@ window.tokenManager = new TokenManager();
 (function() {
     // Make auth functions globally available
     window.fetchWithAuth = async function(url, options = {}) {
-    try {
-        // Cookie will be sent automatically
-        const response = await fetch(url, options);
+        try {
+            const token = await tokenManager.getToken();
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+            
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'Authorization': `Bearer ${token}`
+                }
+            });
 
-        if (response.status === 401) {
-            await tokenManager.clearToken();
-            window.location.href = '/login';
-            return;
+            // Add this check
+            if (response.status === 401) {
+                await tokenManager.clearToken();
+                window.location.href = '/login';
+                return;
+            }
+
+            return response;
+        } catch (error) {
+            throw error;
         }
-
-        return response;
-    } catch (error) {
-        throw error;
-    }
-};
+    };
 
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
+        console.log(`[AUTH] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
+        
         const token = await tokenManager.getToken();
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+        
+        if (!token) {
+            console.log('[AUTH] No token found in interceptor, redirecting');
+            window.location.href = '/login';
+            return Promise.reject(new Error('No auth token'));
         }
+        
+        config.headers['Authorization'] = `Bearer ${token}`;
+        config.headers['Accept'] = 'application/json';
+        config.headers['Content-Type'] = 'application/json';
+        
         return config;
     });
 
@@ -86,15 +108,10 @@ window.tokenManager = new TokenManager();
         },
         error => {
             if (error.response?.status === 401) {
-                if (error.response?.data?.code === 'PASSWORD_CHANGED') {
-                    console.log('[AUTH.HTML] Password changed, clearing all tokens');
-                } else {
-                    console.log('[AUTH.HTML] Received 401, clearing tokens and redirecting to login');
-                }
-                
-                tokenManager.clearToken();
-                window.location.href = '/login';
-            }
+            console.log('[AUTH] Received 401 in axios response, clearing token');
+            tokenManager.clearToken();
+            window.location.href = '/login';
+        }
             return Promise.reject(error);
         }
     );
