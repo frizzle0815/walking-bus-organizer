@@ -155,29 +155,16 @@
  </nav>
 
  <div id="update-notification" class="alert alert-warning alert-dismissible fade" role="alert" style="display:none; position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index:1050; width:90%; max-width:600px;">
-    <!-- iOS Version -->
-    <div class="ios-text" style="display:none">
-        <h5 class="alert-heading">iOS Update erforderlich!</h5>
-        <p class="mb-0">
-            <i class="fas fa-info-circle me-2"></i>
-            Neue App-Version verfügbar! Bitte:
-        </p>
-        <ol class="mt-2 mb-0">
-            <li>App vom Home-Bildschirm löschen</li>
-            <li>Neu einloggen</li>
-            <li>App wieder zum Home-Bildschirm hinzufügen</li>
-        </ol>
+    <h5 class="alert-heading">Update verfügbar <span class="badge bg-secondary version-badge"></span></h5>
+    <p class="mb-0">
+        <i class="fas fa-info-circle me-2"></i>
+        Neue App-Version wird geladen
+    </p>
+    <div class="mt-2">
+        <button class="btn btn-primary" onclick="window.location.reload()">
+            <i class="fas fa-sync-alt me-2"></i>Jetzt aktualisieren
+        </button>
     </div>
-
-    <!-- Android Version -->
-    <div class="android-text" style="display:none">
-        <h5 class="alert-heading">Update verfügbar</h5>
-        <p class="mb-0">
-            <i class="fas fa-sync me-2"></i>
-            Klicke hier, um die neue Version zu laden
-        </p>
-    </div>
-    
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
 </div>
 
@@ -474,8 +461,14 @@ async function checkVersion() {
         if (event.data.type === 'VERSION_INFO') {
             const storedVersion = localStorage.getItem('app_version');
             if (!storedVersion || storedVersion !== event.data.version) {
-                showUpdateNotification();
-                localStorage.setItem('app_version', event.data.version);
+                if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                    showUpdateNotification();
+                    localStorage.setItem('app_version', event.data.version);
+                    reloadCorePagesforiOS();
+                } else {
+                    showUpdateNotification();
+                    localStorage.setItem('app_version', event.data.version);
+                }
             }
         }
     };
@@ -487,20 +480,10 @@ async function checkVersion() {
 }
 
 
-function showUpdateNotification() {
+function showUpdateNotification(version) {
     const updateNotification = document.getElementById('update-notification');
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-    if (isIOS) {
-        updateNotification.querySelector('.ios-text').style.display = 'inline';
-    } else {
-        updateNotification.querySelector('.android-text').style.display = 'inline';
-        updateNotification.style.cursor = 'pointer';
-        updateNotification.addEventListener('click', () => {
-            window.location.reload();
-        });
-    }
-
+    const versionBadge = updateNotification.querySelector('.version-badge');
+    versionBadge.textContent = version;
     updateNotification.style.display = 'block';
     updateNotification.classList.add('show');
 }
@@ -903,6 +886,33 @@ async function updateNotificationIndicator() {
     }
 }
 
+
+async function reloadCorePagesforiOS() {
+    const pagesToReload = [
+        '/login',
+        '/',  // base.html is included in all
+        '/admin',
+        '/calendar',
+        '/share'
+    ];
+    
+    const timestamp = Date.now();
+    
+    // Fetch all pages with cache-busting parameter
+    await Promise.all(
+        pagesToReload.map(page => 
+            fetch(`${page}?v=${timestamp}`, {
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            })
+        )
+    );
+    
+    // Force reload current page
+    window.location.reload(true);
+}
 
 </script>
 </body>
