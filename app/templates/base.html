@@ -492,6 +492,7 @@ async function checkVersion() {
                         console.log('[VERSION][OTHER] Non-iOS device, handling standard update');
                         showUpdateNotification(event.data.version);
                         localStorage.setItem('app_version', event.data.version);
+                        reloadCorePagesforiOS();
                     }
                 } else {
                     console.log('[VERSION][FIRST] First installation or no version change');

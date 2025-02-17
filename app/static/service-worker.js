@@ -1,6 +1,6 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 
-const CACHE_VERSION = 'v28'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v29'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -31,6 +31,12 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         Promise.all([
+            // Clear old caches first
+            caches.keys().then(keys => Promise.all(
+                keys.map(key => caches.delete(key))
+            )),
+            
+            // Then run existing operations
             self.clients.claim(),
             self.registration.navigationPreload?.enable(),
             checkAndRestoreSubscription()

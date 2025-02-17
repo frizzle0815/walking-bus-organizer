@@ -470,6 +470,8 @@ def cleanup_old_tokens():
 
 
 def generate_pwa_temp_token(auth_token):
+    cleanup_expired_tokens()
+
     # Get bus config from environment
     buses_env = os.environ.get('WALKING_BUSES', '').strip()
     bus_configs = dict(
