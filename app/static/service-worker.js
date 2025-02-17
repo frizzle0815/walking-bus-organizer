@@ -1,6 +1,6 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 
-const CACHE_VERSION = 'v22'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v26'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/',
@@ -55,6 +55,14 @@ self.addEventListener('message', (event) => {
                     });
                 })
             );
+            break;
+        
+        case 'CHECK_VERSION':
+            // New version check case
+            event.ports[0].postMessage({
+                type: 'VERSION_INFO',
+                version: CACHE_VERSION
+            });
             break;
 
         case 'SKIP_WAITING':

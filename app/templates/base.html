@@ -153,6 +153,34 @@
       </div>
    </div>
  </nav>
+
+ <div id="update-notification" class="alert alert-warning alert-dismissible fade" role="alert" style="display:none; position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index:1050; width:90%; max-width:600px;">
+    <!-- iOS Version -->
+    <div class="ios-text" style="display:none">
+        <h5 class="alert-heading">iOS Update erforderlich!</h5>
+        <p class="mb-0">
+            <i class="fas fa-info-circle me-2"></i>
+            Neue App-Version verfügbar! Bitte:
+        </p>
+        <ol class="mt-2 mb-0">
+            <li>App vom Home-Bildschirm löschen</li>
+            <li>Neu einloggen</li>
+            <li>App wieder zum Home-Bildschirm hinzufügen</li>
+        </ol>
+    </div>
+
+    <!-- Android Version -->
+    <div class="android-text" style="display:none">
+        <h5 class="alert-heading">Update verfügbar</h5>
+        <p class="mb-0">
+            <i class="fas fa-sync me-2"></i>
+            Klicke hier, um die neue Version zu laden
+        </p>
+    </div>
+    
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
  {% endif %}
  <div class="container {% if hide_menu %}mt-0{% else %}mt-4{% endif %}">
      {% block content %}{% endblock %}
@@ -424,6 +452,59 @@
 <script>
 let authInitialized = false;
 
+async function checkVersion() {
+    // Wait for service worker registration and activation
+    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+    
+    // Ensure worker is activated
+    if (registration.installing) {
+        await new Promise(resolve => {
+            registration.installing.addEventListener('statechange', e => {
+                if (e.target.state === 'activated') {
+                    resolve();
+                }
+            });
+        });
+    }
+
+    // Now safely create message channel and check version
+    const messageChannel = new MessageChannel();
+    
+    messageChannel.port1.onmessage = (event) => {
+        if (event.data.type === 'VERSION_INFO') {
+            const storedVersion = localStorage.getItem('app_version');
+            if (!storedVersion || storedVersion !== event.data.version) {
+                showUpdateNotification();
+                localStorage.setItem('app_version', event.data.version);
+            }
+        }
+    };
+
+    registration.active.postMessage(
+        { type: 'CHECK_VERSION' },
+        [messageChannel.port2]
+    );
+}
+
+
+function showUpdateNotification() {
+    const updateNotification = document.getElementById('update-notification');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    if (isIOS) {
+        updateNotification.querySelector('.ios-text').style.display = 'inline';
+    } else {
+        updateNotification.querySelector('.android-text').style.display = 'inline';
+        updateNotification.style.cursor = 'pointer';
+        updateNotification.addEventListener('click', () => {
+            window.location.reload();
+        });
+    }
+
+    updateNotification.style.display = 'block';
+    updateNotification.classList.add('show');
+}
+
  // Service Worker registration
  async function registerServiceWorker() {
      if ('serviceWorker' in navigator) {
@@ -651,7 +732,13 @@ if (installApp) {
     }
 
      // Register service worker
-     await registerServiceWorker();
+     try {
+        await registerServiceWorker();
+        await checkVersion();
+    } catch (error) {
+        console.log('[BASE.HTML] Service worker operations failed:', error);
+        // Continue with app initialization regardless of service worker status
+    }
 
      // UI Components initialization
      const darkModeToggle = document.getElementById('darkModeToggle');
@@ -815,6 +902,7 @@ async function updateNotificationIndicator() {
         }
     }
 }
+
 
 </script>
 </body>
