@@ -841,6 +841,17 @@ function showLoadingError(overlay) {
 
 async function loadInitialData() {
     console.log('[INITIAL_LOAD] Starting initial data load');
+
+    // Token validation
+    const token = await window.tokenManager.getToken();
+        if (!token) {
+            console.log('[INITIAL_LOAD] No auth token found, redirecting to login');
+            window.location.href = '/login';
+            return;
+        }
+    
+    console.log('[INITIAL_LOAD] Auth token verified, proceeding with data load');
+
     const stationsContainer = document.getElementById('stations');
     const tempContainer = document.createElement('div');
     tempContainer.style.display = 'none';

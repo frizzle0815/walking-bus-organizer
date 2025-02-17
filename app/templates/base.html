@@ -440,15 +440,23 @@
 let authInitialized = false;
 
 async function checkVersion() {
+    console.log('[VERSION][START] Starting version check process');
+
     // 1. Register and update service worker
     const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+    console.log('[VERSION][REGISTER] Service worker registered');
+    
     await registration.update();
+    console.log('[VERSION][UPDATE] Service worker update triggered');
 
     // 2. Wait for any installing worker to activate
     if (registration.installing) {
+        console.log('[VERSION][INSTALL] New service worker installing');
         await new Promise(resolve => {
             registration.installing.addEventListener('statechange', e => {
+                console.log(`[VERSION][STATE] Service worker state changed to: ${e.target.state}`);
                 if (e.target.state === 'activated') {
+                    console.log('[VERSION][ACTIVATE] Service worker activated');
                     resolve();
                 }
             });
@@ -456,42 +464,50 @@ async function checkVersion() {
     }
 
     // 3. Check version using MessageChannel
+    console.log('[VERSION][CHANNEL] Creating message channel');
     const messageChannel = new MessageChannel();
     
     return new Promise((resolve) => {
         messageChannel.port1.onmessage = (event) => {
+            console.log('[VERSION][MESSAGE] Received message:', event.data);
+            
             if (event.data.type === 'VERSION_INFO') {
                 const storedVersion = localStorage.getItem('app_version');
+                console.log('[VERSION][STORED] Current stored version:', storedVersion);
+                console.log('[VERSION][NEW] New version:', event.data.version);
                 
                 if (registration.waiting) {
+                    console.log('[VERSION][WAITING] Found waiting service worker, sending SKIP_WAITING');
                     registration.waiting.postMessage({type: 'SKIP_WAITING'});
                 }
 
                 if (storedVersion && storedVersion !== event.data.version) {
-                    // Only show notification if there was a previous version
+                    console.log('[VERSION][CHANGE] Version change detected');
                     if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                        console.log('[VERSION][IOS] iOS device detected, handling special case');
                         showUpdateNotification(event.data.version);
                         localStorage.setItem('app_version', event.data.version);
                         reloadCorePagesforiOS();
                     } else {
+                        console.log('[VERSION][OTHER] Non-iOS device, handling standard update');
                         showUpdateNotification(event.data.version);
                         localStorage.setItem('app_version', event.data.version);
                     }
                 } else {
-                    // First time installation - just store the version silently
+                    console.log('[VERSION][FIRST] First installation or no version change');
                     localStorage.setItem('app_version', event.data.version);
                 }
             }
             resolve();
         };
 
+        console.log('[VERSION][CHECK] Sending version check message to service worker');
         registration.active.postMessage(
             { type: 'CHECK_VERSION' },
             [messageChannel.port2]
         );
     });
 }
-
 
 
 function showUpdateNotification(version) {

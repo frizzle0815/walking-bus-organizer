@@ -70,10 +70,11 @@ window.tokenManager = new TokenManager();
 
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
-        // No need to add Authorization header - cookie is sent automatically
+        const token = await tokenManager.getToken();
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
         return config;
-    }, (error) => {
-        return Promise.reject(error);
     });
 
 
