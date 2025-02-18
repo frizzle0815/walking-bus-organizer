@@ -3,30 +3,57 @@
 (function() {
     window.TokenManager = class TokenManager {
         async getToken() {
-            // Direct cookie access using regex
-            const cookieString = document.cookie;
-            console.log('[AUTH.HTML] Raw cookie string:', cookieString);
-            
-            // Use regex to find auth_token
-            const match = cookieString.match(/auth_token=([^;]+)/);
-            console.log('[AUTH.HTML] Cookie match result:', match);
-            
-            if (match && match[1]) {
-                const token = match[1];
-                console.log('[AUTH.HTML] Found token:', token);
-                return token;
-            }
+            try {
+                // First try cookie-based auth
+                const response = await fetch('/api/check-auth-cookie', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
 
-            // Fallback to localStorage
-            const localToken = localStorage.getItem('auth_token');
-            console.log('[AUTH.HTML] LocalStorage token:', localToken);
-            
-            if (localToken) {
-                document.cookie = `auth_token=${localToken}; max-age=${30*24*60*60}; secure; samesite=Strict`;
-                return localToken;
+                const data = await response.json();
+                
+                if (data.authenticated && data.auth_token) {
+                    console.log('[AUTH.HTML] Cookie token found');
+                    // Add this: Ensure localStorage backup matches cookie
+                    localStorage.setItem('auth_token', data.auth_token);
+                    console.log('[AUTH.HTML] Backup cookie in localStorage');
+                    return data.auth_token;
+                }
+                
+                // If cookie auth failed, try localStorage backup
+                const localToken = localStorage.getItem('auth_token');
+                if (localToken) {
+                    console.log('[AUTH.HTML] Found token in localStorage, attempting validation');
+                    
+                    const backupResponse = await fetch('/api/check-auth-localstorage', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ token: localToken })
+                    });
+                    
+                    const backupData = await backupResponse.json();
+                    
+                    if (backupData.success && backupData.auth_token) {
+                        console.log('[AUTH.HTML] localStorage token validated');
+                        return backupData.auth_token;
+                    }
+                    
+                    // Clear invalid localStorage token
+                    localStorage.removeItem('auth_token');
+                }
+                
+                console.log('[AUTH.HTML] No valid token found');
+                return null;
+                
+            } catch (error) {
+                console.error('[AUTH.HTML] GetToken error:', error);
+                return null;
             }
-
-            return null;
         }
 
         async storeToken(token) {
