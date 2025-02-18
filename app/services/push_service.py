@@ -4,7 +4,17 @@ import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_
-from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken, WeatherCalculation, WalkingBusOverride
+from ..models import (
+    db,
+    PushSubscription,
+    Participant,
+    CalendarStatus,
+    PushNotificationLog,
+    AuthToken,
+    WeatherCalculation,
+    WalkingBusOverride,
+    DailyNote
+)
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
 import os
@@ -209,8 +219,13 @@ class PushService:
                         date=target_date
                     ).first()
 
+                    daily_note = DailyNote.query.filter_by(
+                        walking_bus_id=self.walking_bus_id,
+                        date=target_date
+                    ).first()
+
                     if bus_override and not bus_override.is_active:
-                        status_message = f"❌ Walking Bus findet heute nicht statt ❌\n \n{bus_override.reason}"
+                        status_message = f"❌ Heute kein Walking Bus ❌\n \nGrund: {bus_override.reason}"
                     else:
                         base_message = (
                             f"{participant.name} ist für heute angemeldet ✅"
@@ -218,15 +233,20 @@ class PushService:
                             else f"{participant.name} ist für heute abgemeldet ❌"
                         )
                         
+                        message_parts = [base_message]
+                        
                         if weather_info:
                             weather_message = "Es bleibt trocken ☀️"
                             if weather_info.precipitation > 0.5:
                                 weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
                             elif weather_info.precipitation > 0:
                                 weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
-                            status_message = f"{base_message}\n \n{weather_message}"
-                        else:
-                            status_message = base_message
+                            message_parts.append(weather_message)
+                        
+                        if daily_note:
+                            message_parts.append(f"Hinweis: {daily_note.note}")
+                            
+                        status_message = "\n \n".join(message_parts)
 
                     notification_data = {
                         'title': 'Walking Bus Erinnerung',
@@ -240,6 +260,11 @@ class PushService:
                         },
                         'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
                         'actions': [
+                            {
+                                'action': 'okay',
+                                'title': 'OK'
+                            }
+                        ] if bus_override and not bus_override.is_active else [
                             {
                                 'action': 'toggle_status',
                                 'title': 'Abmelden' if is_attending else 'Anmelden'
