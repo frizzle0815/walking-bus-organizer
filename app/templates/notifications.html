@@ -582,10 +582,20 @@ function setupCheckboxListeners() {
 
 
 document.getElementById('saveSubscriptions').addEventListener('click', async () => {
+    const saveButton = document.getElementById('saveSubscriptions');
+    const originalContent = saveButton.innerHTML;
+
     if (pendingChanges.size === 0) {
         showToast('Keine Änderungen vorhanden', 'info');
         return;
     }
+
+    // Set loading state
+    saveButton.disabled = true;
+    saveButton.innerHTML = `
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        Speichere...
+    `;
 
     try {
         const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
@@ -620,13 +630,17 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
         );
 
         pendingChanges.clear();
-        document.getElementById('saveSubscriptions').disabled = true;
-
+        
     } catch (error) {
         console.error('[NOTI.HTML] Error saving changes:', error);
         showToast('Fehler beim Speichern', 'error');
+    } finally {
+        // Always restore button state
+        saveButton.innerHTML = originalContent;
+        saveButton.disabled = true; // Keeps button disabled after successful save
     }
 });
+
 
 
 // Enhanced device and browser detection
