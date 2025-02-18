@@ -284,6 +284,21 @@ def send_test_notifications(walking_bus_id, participant_ids):
             db.session.remove()
 
 
+def initialize_all_schedules():
+    """Initialize notification schedules for all existing walking buses on startup"""
+    logger.info("[INIT] Starting initial schedule setup")
+    
+    with app.app_context():
+        # Get all walking buses with active schedules
+        buses = WalkingBus.query.join(WalkingBusSchedule).all()
+        
+        for bus in buses:
+            logger.info(f"[INIT] Setting up notifications for bus: {bus.id} - {bus.name}")
+            update_walking_bus_notifications(app, bus.id)
+            
+        logger.info(f"[INIT] Completed initial setup for {len(buses)} buses")
+
+
 if __name__ == '__main__':
     # Create Flask app instance with enhanced configuration
     app = create_app()
@@ -291,8 +306,9 @@ if __name__ == '__main__':
     with app.app_context():
         try:
             scheduler = init_scheduler(app)
+            initialize_all_schedules()
             scheduler.start()
-            logger.info('Scheduler started successfully')
+            logger.info('Scheduler started with all existing schedules initialized')
             
             pubsub = init_redis_listener(app)
             logger.info('Redis listener initialized')
