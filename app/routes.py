@@ -50,31 +50,37 @@ def favicon():
 
 # Frontend Routes
 @bp.route('/')
+@require_auth
 def index():
     return render_template('index.html')
 
 
 @bp.route("/admin")
+@require_auth
 def admin():
     return render_template("admin.html")
 
 
 @bp.route("/calendar")
+@require_auth
 def calendar_view():
     return render_template("calendar.html")
 
 
 @bp.route("/weather")
+@require_auth
 def weather():
     return render_template("weather.html")
 
 
 @bp.route('/weather/database')
+@require_auth
 def weather_database():
     return render_template('weather_database.html')
 
 
 @bp.route("/notifications")
+@require_auth
 def notifications_view():
     walking_bus_id = get_current_walking_bus_id()
     stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
@@ -109,6 +115,7 @@ def get_platform(user_agent):
     return 'Unknown'
 
 @bp.route("/subscriptions")
+@require_auth
 def subscription_overview():
     total_subs = PushSubscription.query.count()
     current_app.logger.info(f"[SUBS][VIEW] Total subscriptions found: {total_subs}")
@@ -222,6 +229,17 @@ def share():
 @bp.route("/scheduler")
 @require_auth
 def scheduler_view():
+    # Define day order mapping
+    day_order = {
+        'Monday': 0,
+        'Tuesday': 1,
+        'Wednesday': 2,
+        'Thursday': 3,
+        'Friday': 4,
+        'Saturday': 5,
+        'Sunday': 6
+    }
+
     # Get all scheduler jobs from database
     jobs = SchedulerJob.query.order_by(SchedulerJob.next_run_time).all()
     
@@ -231,7 +249,7 @@ def scheduler_view():
         if job.walking_bus_id not in grouped_jobs:
             grouped_jobs[job.walking_bus_id] = {
                 'bus_name': job.walking_bus.name,
-                'bus_id': job.walking_bus_id,  # Add bus_id for template
+                'bus_id': job.walking_bus_id,
                 'jobs': []
             }
         
@@ -241,11 +259,15 @@ def scheduler_view():
         grouped_jobs[job.walking_bus_id]['jobs'].append({
             'id': job.job_id,
             'day': day,
+            'day_order': day_order[day], # Add numeric order value
             'next_run': job.next_run_time,
             'type': job.job_type,
-            'function_name': 'send_walking_bus_notifications',  # Add function name
-            'function_description': 'Sends push notifications 1h before bus start'  # Add description
+            'function_name': 'send_walking_bus_notifications',
+            'function_description': 'Sends push notifications 1h before bus start'
         })
+        
+        # Sort jobs by day_order
+        grouped_jobs[job.walking_bus_id]['jobs'].sort(key=lambda x: x['day_order'])
     
     return render_template('scheduler.html', grouped_jobs=grouped_jobs)
 
@@ -262,7 +284,7 @@ def get_active_temp_tokens_route():
 def generate_temp_token_route():
     return generate_temp_token()
 
-
+# No require_auth !! #
 @bp.route("/temp-login/<token>")
 def temp_login_route(token):
     if request.headers.get('Accept') == 'application/json':
@@ -2541,7 +2563,7 @@ def setup_pwa_token():
     return jsonify({"success": True})
 
 
-
+# No require_auth !! #
 @bp.route("/pwa-login/<token>")
 def pwa_login_route(token):
     cleanup_expired_tokens()

@@ -4,7 +4,7 @@
 <div class="container mt-4">
     <h2>Active Scheduler Jobs</h2>
     
-    {% for bus_id, bus_data in grouped_jobs.items() %}
+    {% for bus_id, bus_data in grouped_jobs.items()|sort %}
     <div class="card mb-4">
         <div class="card-header">
             <h3>{{ bus_data.bus_name }}</h3>
