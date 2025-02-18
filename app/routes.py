@@ -28,7 +28,7 @@ from .auth import (
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
     renew_auth_token, generate_pwa_temp_token,
-    check_and_renew_token
+    check_and_renew_token, cleanup_expired_tokens
 )
 import jwt
 import json
@@ -2490,6 +2490,7 @@ def manifest():
 @bp.route("/api/pwa-setup", methods=["POST"])
 @require_auth
 def setup_pwa_token():
+    cleanup_expired_tokens()
     data = request.get_json()
     browser_token = data.get('browser_token')
 
@@ -2543,6 +2544,7 @@ def setup_pwa_token():
 
 @bp.route("/pwa-login/<token>")
 def pwa_login_route(token):
+    cleanup_expired_tokens()
     if request.headers.get('Accept') == 'application/json':
         temp_token = TempToken.query.get(token)
         
