@@ -36,7 +36,13 @@
     <!-- Info Box -->
     <div class="alert alert-info" role="alert">
         <i class="fas fa-info-circle me-2"></i>
-        Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest. Du wirst automatisch etwa eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.
+        <div class="ms-4">
+            <p>Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest.</p>
+            
+            <p>Du wirst automatisch etwa eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.</p>
+            
+            <p>Erinnerungen erfolgen nur für Tage, an denen Du normalerweise am Walking Bus teilnimmst.</p>
+        </div>
     </div>
 
     <!-- Requirements Check -->
@@ -45,9 +51,6 @@
             <h5 class="mb-0">Systemvoraussetzungen</h5>
         </div>
         <div class="card-body">
-            <div id="systemRequirements" class="mb-4">
-                <!-- Status messages will be inserted here -->
-            </div>
             <ul class="list-group">
                 <li class="list-group-item d-flex align-items-center" id="pwaCheck">
                     <span class="status-icon me-2">
@@ -71,7 +74,7 @@
             <h5 class="mb-0">Test Benachrichtigungen</h5>
         </div>
         <div class="card-body">
-            <p class="text-muted">Hier können Sie die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
+            <p class="text-muted">Hier kannst Du die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
             <button id="testNotification" class="btn btn-secondary">
                 <i class="fas fa-bell me-2"></i>Test-Benachrichtigung senden
             </button>
@@ -83,8 +86,8 @@
         <div class="card-header">
             <h5 class="mb-0">Teilnehmer auswählen</h5>
         </div>
-            <div class="d-grid gap-2 mt-3">
-                <button id="saveSubscriptions" class="btn btn-primary" disabled>
+            <div class="px-3 mt-3">
+                <button id="saveSubscriptions" class="btn btn-primary w-100" disabled>
                     <i class="fas fa-save me-2"></i>Änderungen speichern
                 </button>
             </div>
