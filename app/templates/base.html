@@ -524,8 +524,7 @@ function showUpdateNotification(version) {
     if ('serviceWorker' in navigator) {
         try {
             // 1. Wait for any existing service worker to be ready
-            await navigator.serviceWorker.ready;
-            
+           
             // 2. Register new service worker
             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
@@ -737,14 +736,16 @@ if (installApp) {
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
-     console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
-     console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+     console.log('[BASE.HTML] fetchWithAuth available:', typeof window.fetchWithAuth);
+     console.log('[BASE.HTML] axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
 
     // Register service worker
     if (window.location.pathname !== '/login') {
         try {
+            console.log('[BASE.HTML][SW] Starting service worker registration...');
             await registerServiceWorker();
             await checkVersion();
+            console.log('[BASE.HTML][SW] Service worker registration complete');
         } catch (error) {
             console.log('[BASE.HTML] Service worker operations failed:', error);
         }
@@ -808,9 +809,11 @@ if (installApp) {
      }
 
      // Hack for iOS before starting checkWithAuth
+     console.log('[BASE.HTML] DOM loaded, checking fetchWithAuth...');
      while (!window.fetchWithAuth) {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
+    console.log('[BASE.HTML] fetchWithAuth available, updating notification...');
     await updateNotificationIndicator();
  });
 
@@ -882,43 +885,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 async function updateNotificationIndicator() {
+    console.log('[BASE.HTML][SUB] Function called');
     const indicator = document.querySelector('.notification-indicator');
     
-    if (!indicator) {
-        console.log('[BASE.HTML] Notification indicator element not found');
-        return;
-    }
+    // if (!indicator) {
+    //     console.log('[BASE.HTML][SUB] Notification indicator element not found');
+    //     return;
+    // }
 
-    // Start with disabled state
     indicator.classList.add('disabled');
 
     if ('serviceWorker' in navigator) {
         try {
-            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('[BASE.HTML][SUB] Starting registration...');
             
-            // Create MessageChannel for two-way communication
+            // Check if we already have an active service worker
+            const existingRegistration = await navigator.serviceWorker.getRegistration();
+            let registration;
+            
+            if (existingRegistration?.active) {
+                console.log('[BASE.HTML][SUB] Using existing active service worker');
+                registration = existingRegistration;
+            } else {
+                // Only register new if needed
+                console.log('[BASE.HTML][SUB] Registering new service worker...');
+                registration = await navigator.serviceWorker.register('/static/service-worker.js');
+                
+                if (registration.installing) {
+                    console.log('[BASE.HTML][SUB] Waiting for installation...');
+                    await new Promise(resolve => {
+                        registration.installing.addEventListener('statechange', e => {
+                            console.log('[BASE.HTML][SUB] Worker state:', e.target.state);
+                            if (e.target.state === 'activated') {
+                                console.log('[BASE.HTML][SUB] Service Worker activated');
+                                resolve();
+                            }
+                        });
+                    });
+                }
+            }
+
+            if (!registration.active) {
+                console.log('[BASE.HTML][SUB] No active service worker found');
+                return;
+            }
+
+            console.log('[BASE.HTML][SUB] Creating message channel...');
             const messageChannel = new MessageChannel();
             
-            // Handle response from service worker
-            messageChannel.port1.onmessage = (event) => {
-                if (event.data.hasSubscription) {
-                    indicator.classList.remove('disabled');
-                } else {
-                    indicator.classList.add('disabled');
-                }
-            };
+            const subscriptionCheck = new Promise((resolve) => {
+                messageChannel.port1.onmessage = (event) => {
+                    console.log('[BASE.HTML][SUB] Received subscription status:', event.data);
+                    resolve(event.data.hasSubscription);
+                };
+            });
 
-            // Send check request with MessageChannel port
+            console.log('[BASE.HTML][SUB] Sending check message...');
             registration.active.postMessage(
                 { type: 'CHECK_SUBSCRIPTION' },
                 [messageChannel.port2]
             );
 
+            const hasSubscription = await Promise.race([
+                subscriptionCheck,
+                new Promise((_, reject) => 
+                    setTimeout(() => reject('Timeout'), 5000)
+                )
+            ]);
+            
+            if (hasSubscription) {
+                indicator.classList.remove('disabled');
+            }
+
         } catch (error) {
-            console.log('[BASE.HTML] Error checking notification status:', error);
+            console.log('[BASE.HTML][SUB] Error checking notification status:', error);
         }
     }
 }
+
+
 
 
 async function reloadCorePagesforiOS() {

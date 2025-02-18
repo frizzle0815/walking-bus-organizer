@@ -1,6 +1,6 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 
-const CACHE_VERSION = 'v31'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v33'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/static/icons/icon-192x192.png',
