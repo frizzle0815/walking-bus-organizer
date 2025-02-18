@@ -92,77 +92,74 @@ def update_walking_bus_notifications(app, walking_bus_id=None):
         if walking_bus_id:
             query = query.filter_by(id=walking_bus_id)
         buses = query.all()
-        logger.info(f"[SCHEDULER] Found {len(buses)} buses to process")
 
         for bus in buses:
-            logger.info(f"[SCHEDULER] Processing bus {bus.id} ({bus.name})")
-            schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
-            
-            if not schedule:
-                logger.warning(f"[SCHEDULER] No schedule found for bus {bus.id}, skipping")
+            try:
+                logger.info(f"[SCHEDULER] Processing bus {bus.id} ({bus.name})")
+                schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
+                
+                if not schedule:
+                    logger.warning(f"[SCHEDULER] No schedule found for bus {bus.id}, skipping")
+                    continue
+
+                weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 
+                           'friday', 'saturday', 'sunday']
+                           
+                for day in weekdays:
+                    job_id = f'notify_bus_{bus.id}_{day}'
+                    
+                    # Skip if day is inactive
+                    if not getattr(schedule, day):
+                        try:
+                            scheduler.remove_job(job_id)
+                            SchedulerJob.query.filter_by(job_id=job_id).delete()
+                        except:
+                            pass
+                        continue
+                        
+                    start_time = getattr(schedule, f"{day}_start")
+                    if not start_time:
+                        continue
+                        
+                    notification_time = (
+                        datetime.combine(datetime.today(), start_time) - 
+                        timedelta(minutes=55)
+                    ).time()
+                    
+                    # Create job
+                    job = scheduler.add_job(
+                        send_walking_bus_notifications,
+                        'cron',
+                        day_of_week=day[:3],
+                        hour=notification_time.hour,
+                        minute=notification_time.minute,
+                        args=[bus.id],
+                        id=job_id,
+                        replace_existing=True
+                    )
+                    
+                    # Update database record only if scheduler is running
+                    if scheduler.running:
+                        scheduler_job = SchedulerJob.query.filter_by(job_id=job_id).first()
+                        if not scheduler_job:
+                            scheduler_job = SchedulerJob(
+                                walking_bus_id=bus.id,
+                                job_id=job_id,
+                                job_type='walking_bus_notification',
+                                next_run_time=job.next_run_time
+                            )
+                            db.session.add(scheduler_job)
+                        else:
+                            scheduler_job.next_run_time = job.next_run_time
+                    
+                db.session.commit()
+                
+            except Exception as e:
+                logger.error(f"[SCHEDULER] Error processing bus {bus.id}: {str(e)}")
                 continue
 
-            weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 
-                       'friday', 'saturday', 'sunday']
-                       
-            for day in weekdays:
-                job_id = f'notify_bus_{bus.id}_{day}'
-                logger.debug(f"[SCHEDULER] Processing {day} for bus {bus.id}")
-                
-                # Remove job if day is inactive
-                if not getattr(schedule, day):
-                    logger.info(f"[SCHEDULER] Removing job for inactive day: {job_id}")
-                    try:
-                        scheduler.remove_job(job_id)
-                    except JobLookupError:
-                        logger.debug(f"Job {job_id} was not found - already removed or never existed")
-                    SchedulerJob.query.filter_by(job_id=job_id).delete()
-                    continue
-                    
-                start_time = getattr(schedule, f"{day}_start")
-                if not start_time:
-                    logger.warning(f"[SCHEDULER] No start time for {day}, skipping")
-                    continue
-                    
-                # Calculate notification time; 55 minutes instead of 1 hour to include more accurate weather data
-                notification_time = (
-                    datetime.combine(datetime.today(), start_time) - 
-                    timedelta(minutes=55)
-                ).time()
-                
-                logger.info(f"[SCHEDULER] Setting up job {job_id} for {notification_time}")
-                
-                # Create job
-                job = scheduler.add_job(
-                    send_walking_bus_notifications,
-                    'cron',
-                    day_of_week=day[:3],
-                    hour=notification_time.hour,
-                    minute=notification_time.minute,
-                    args=[bus.id],
-                    id=job_id,
-                    replace_existing=True
-                )
-                
-                # Update database record
-                scheduler_job = SchedulerJob.query.filter_by(job_id=job_id).first()
-                if not scheduler_job:
-                    logger.info(f"[SCHEDULER] Creating new scheduler job record: {job_id}")
-                    scheduler_job = SchedulerJob(
-                        walking_bus_id=bus.id,
-                        job_id=job_id,
-                        job_type='walking_bus_notification',
-                        next_run_time=job.next_run_time
-                    )
-                    db.session.add(scheduler_job)
-                else:
-                    logger.info(f"[SCHEDULER] Updating existing scheduler job: {job_id}")
-                    scheduler_job.next_run_time = job.next_run_time
-                    
-            db.session.commit()
-            logger.info(f"[SCHEDULER] Completed processing for bus {bus.id}")
-
     logger.info("[SCHEDULER] Finished update_walking_bus_notifications")
+
 
 
 def send_walking_bus_notifications(bus_id):
@@ -306,8 +303,8 @@ if __name__ == '__main__':
     with app.app_context():
         try:
             scheduler = init_scheduler(app)
-            initialize_all_schedules()
             scheduler.start()
+            initialize_all_schedules()
             logger.info('Scheduler started with all existing schedules initialized')
             
             pubsub = init_redis_listener(app)
@@ -328,7 +325,7 @@ if __name__ == '__main__':
             logger.error(f"Critical error in scheduler worker: {e}")
             raise
         finally:
-            if scheduler:
+            if scheduler and scheduler.running:
                 scheduler.shutdown()
             if 'pubsub' in locals():
                 pubsub.close()
