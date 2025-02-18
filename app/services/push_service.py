@@ -225,7 +225,7 @@ class PushService:
                     ).first()
 
                     if bus_override and not bus_override.is_active:
-                        status_message = f"❌ Heute kein Walking Bus ❌\n \nGrund: {bus_override.reason}"
+                        status_message = f"❌ Heute kein Walking Bus ❌\nGrund: {bus_override.reason}"
                     else:
                         base_message = (
                             f"{participant.name} ist für heute angemeldet ✅"
@@ -246,7 +246,7 @@ class PushService:
                         if daily_note:
                             message_parts.append(f"Hinweis: {daily_note.note}")
                             
-                        status_message = "\n \n".join(message_parts)
+                        status_message = "\n".join(message_parts)
 
                     notification_data = {
                         'title': 'Walking Bus Erinnerung',
