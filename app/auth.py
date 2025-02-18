@@ -206,12 +206,17 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         current_app.logger.info("[AUTH] Starting authentication check")
         
-        # Check cookie first
+        # 1. Check cookie first (new primary method)
         token = request.cookies.get('auth_token')
         
-        # Fallback to Authorization header if no cookie
+        # 2. Check Authorization header
         if not token:
             token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+        # 3. Check session as fallback (legacy support, temporary solution for smooth transition from v1.02b)
+        if not token and 'auth_token' in session:
+            token = session['auth_token']
+            current_app.logger.info("[AUTH] Using legacy token from session")
             
         if not token:
             current_app.logger.warning("[AUTH] No token found in cookies or headers")
