@@ -212,20 +212,20 @@ def handle_test_notification(app, job_key):
     # Create unique job ID
     job_id = f"test_notification_{job_data['walking_bus_id']}_{int(time.time())}"
     
-    # Schedule the job
+    # Schedule the job with token_identifier
     scheduler.add_job(
         send_test_notifications,
         'date',
         run_date=scheduled_time,
         id=job_id,
-        args=[job_data['walking_bus_id'], job_data['participant_ids']],
+        args=[job_data['walking_bus_id'], job_data['participant_ids'], job_data['token_identifier']],
         replace_existing=True
     )
     
     logger.info(f"[TEST] Scheduled job {job_id} for {scheduled_time}")
 
 
-def send_test_notifications(walking_bus_id, participant_ids):
+def send_test_notifications(walking_bus_id, participant_ids, token_identifier):
     """Execute test notifications"""
     logger.info(f"[TEST] Executing test notifications for bus {walking_bus_id}")
     
@@ -234,6 +234,17 @@ def send_test_notifications(walking_bus_id, participant_ids):
         try:
             push_service = PushService(walking_bus_id)
             
+            # Get only the subscription for this token
+            subscription = PushSubscription.query.filter_by(
+                token_identifier=token_identifier,
+                walking_bus_id=walking_bus_id,
+                is_active=True
+            ).first()
+            
+            if not subscription:
+                logger.error(f"[TEST] No active subscription found for token {token_identifier}")
+                return False
+            
             # Get participants
             participants = Participant.query.filter(
                 Participant.id.in_(participant_ids),
@@ -241,35 +252,28 @@ def send_test_notifications(walking_bus_id, participant_ids):
             ).all()
             
             results = []
-            for subscription in push_service.get_subscriptions():
-                matching_participants = [p for p in participants 
-                                      if p.id in set(subscription.participant_ids)]
-                                      
-                if not matching_participants:
-                    continue
-                    
-                for participant in matching_participants:
-                    notification_data = {
-                        'title': 'Walking Bus Test',
-                        'body': f'Test Benachrichtigung erfolgreich für: {participant.name}',
-                        'data': {
-                            'type': 'test',
-                            'participantIds': [participant.id]
-                        },
-                        'tag': f'test-notification-{participant.id}-{int(time.time())}',
-                        'actions': [{
-                            'action': 'okay',
-                            'title': 'OK'
-                        }],
-                        'requireInteraction': True
-                    }
-                    
-                    success, error = push_service.send_notification(subscription, notification_data)
-                    results.append({
-                        'participant': participant.name,
-                        'success': success,
-                        'error': error
-                    })
+            for participant in participants:
+                notification_data = {
+                    'title': 'Walking Bus Test',
+                    'body': f'Test Benachrichtigung erfolgreich für: {participant.name}',
+                    'data': {
+                        'type': 'test',
+                        'participantIds': [participant.id]
+                    },
+                    'tag': f'test-notification-{participant.id}-{int(time.time())}',
+                    'actions': [{
+                        'action': 'okay',
+                        'title': 'OK'
+                    }],
+                    'requireInteraction': True
+                }
+                
+                success, error = push_service.send_notification(subscription, notification_data)
+                results.append({
+                    'participant': participant.name,
+                    'success': success,
+                    'error': error
+                })
             
             logger.info(f"[TEST] Notification results: {results}")
             return results

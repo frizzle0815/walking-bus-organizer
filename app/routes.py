@@ -1574,6 +1574,10 @@ def test_notification():
     walking_bus_id = get_current_walking_bus_id()
     data = request.json
     participant_ids = data['participantIds']
+    
+    # Get current user's auth token
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
 
     # Validate participants
     participants = Participant.query.filter(
@@ -1587,11 +1591,25 @@ def test_notification():
             'message': 'Keine gültigen Teilnehmer gefunden'
         }), 400
 
-    # Create job data without scheduled time
+    # Verify user has active subscription
+    subscription = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id,
+        is_active=True
+    ).first()
+
+    if not subscription:
+        return jsonify({
+            'status': 'error',
+            'message': 'Keine aktive Push-Subscription gefunden'
+        }), 400
+
+    # Create job data with user identifier
     job_data = {
         'type': 'test_notification',
         'walking_bus_id': walking_bus_id,
-        'participant_ids': participant_ids
+        'participant_ids': participant_ids,
+        'token_identifier': auth_token.token_identifier
     }
 
     # Store in Redis for scheduler
@@ -1609,7 +1627,8 @@ def test_notification():
     }))
 
     current_app.logger.info(
-        f"[TEST] Queued notification for bus {walking_bus_id} "
+        f"[TEST] Queued notification for bus {walking_bus_id}, "
+        f"user {auth_token.token_identifier}, "
         f"with {len(participants)} participants"
     )
 
@@ -1621,6 +1640,7 @@ def test_notification():
             for p in participants
         ]
     })
+
 
 
 @bp.route('/api/notifications/broadcast', methods=['POST'])
