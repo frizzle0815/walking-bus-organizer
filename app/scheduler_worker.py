@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import WalkingBus, WalkingBusSchedule, SchedulerJob, Participant
+from app.models import WalkingBus, WalkingBusSchedule, SchedulerJob, Participant, PushSubscription
 from app.services.push_service import PushService
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
