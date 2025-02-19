@@ -50,37 +50,31 @@ def favicon():
 
 # Frontend Routes
 @bp.route('/')
-@require_auth
 def index():
     return render_template('index.html')
 
 
 @bp.route("/admin")
-@require_auth
 def admin():
     return render_template("admin.html")
 
 
 @bp.route("/calendar")
-@require_auth
 def calendar_view():
     return render_template("calendar.html")
 
 
 @bp.route("/weather")
-@require_auth
 def weather():
     return render_template("weather.html")
 
 
 @bp.route('/weather/database')
-@require_auth
 def weather_database():
     return render_template('weather_database.html')
 
 
 @bp.route("/notifications")
-@require_auth
 def notifications_view():
     walking_bus_id = get_current_walking_bus_id()
     stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
@@ -115,7 +109,6 @@ def get_platform(user_agent):
     return 'Unknown'
 
 @bp.route("/subscriptions")
-@require_auth
 def subscription_overview():
     total_subs = PushSubscription.query.count()
     current_app.logger.info(f"[SUBS][VIEW] Total subscriptions found: {total_subs}")
@@ -142,7 +135,7 @@ def subscription_overview():
         
         # Get auth tokens for this bus
         auth_tokens = {
-            t.token_identifier: t 
+            t.token_identifier: t
             for t in AuthToken.query.filter_by(walking_bus_id=bus.id)
         }
         all_auth_tokens.update(auth_tokens)
@@ -216,7 +209,6 @@ def subscription_overview():
 
 
 @bp.route("/share")
-@require_auth
 def share():
     """Template route that uses dictionary directly"""
     token_data = get_active_temp_tokens()
@@ -227,7 +219,6 @@ def share():
 
 
 @bp.route("/scheduler")
-@require_auth
 def scheduler_view():
     # Define day order mapping
     day_order = {
@@ -355,7 +346,6 @@ def delete_temp_token(token):
 
 
 @bp.route("/auth-tokens")
-@require_auth
 def list_auth_tokens():
     tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
     temp_tokens = TempToken.query.order_by(TempToken.created_at.desc()).all()
