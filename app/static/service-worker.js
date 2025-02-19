@@ -1,6 +1,6 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
 
-const CACHE_VERSION = 'v33'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v35'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
     '/static/icons/icon-192x192.png',
@@ -150,49 +150,53 @@ self.addEventListener('notificationclick', (event) => {
 async function handleStatusToggle(data) {
     if (!data) return;
     
-    const { participantId, currentStatus, date, participantName } = data;
+    const { participantId, date, participantName, currentStatus: originalStatus } = data;
+    const intendedStatus = !originalStatus;
+    
     try {
-        // First update the participation status
-        const response = await fetchWithAuth(`/api/participation/${participantId}`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                date: date,
-                status: !currentStatus
-            })
-        });
+        // Get current status first
+        const currentStatusResponse = await fetchWithAuth(`/api/participation/${participantId}/status?date=${date}`);
+        const { status: actualCurrentStatus } = await currentStatusResponse.json();
+        
+        // Only update if current status doesn't match intended status
+        if (actualCurrentStatus !== intendedStatus) {
+            const response = await fetchWithAuth(`/api/participation/${participantId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    date: date,
+                    status: intendedStatus
+                })
+            });
 
-        // Then trigger the Redis status update
-        await fetchWithAuth('/api/trigger-update', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                date: date
-            })
-        });
+            if (response.ok) {
+                await fetchWithAuth('/api/trigger-update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ date: date })
+                });
+            } else {
+                throw new Error('Status update failed');
+            }
+        }
 
-        const title = response.ok ? 'Status geändert' : 'Fehler ⚠️';
-        const message = response.ok ?
-            ((!currentStatus) ? `${participantName} erfolgreich angemeldet` : `${participantName} erfolgreich abgemeldet`) :
-            `Status für ${participantName} konnte nicht geändert werden ⚠️ Bitte Änderung in der App durchführen.`;
-           
-        // Enhanced notification options matching push notification style
-        self.registration.showNotification(title, {
-            body: message,
-            icon: '/static/icons/icon-192x192.png',  // Same icon as push notifications
-            badge: '/static/icons/bus-simple-solid.png', // Same badge as push notifications
+        // Always show the current/intended status
+        self.registration.showNotification('Status geändert', {
+            body: `${participantName} ist jetzt: ${intendedStatus ? 'Angemeldet ✅' : 'Abgemeldet ❌'}`,
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/bus-simple-solid.png',
             tag: `status-change-${participantId}-${Date.now()}`,
             requireInteraction: false,
             renotify: true
         });
+        
     } catch (error) {
-        // Also enhance error notification
-        self.registration.showNotification('Netzwerkfehler ⚠️', {
-            body: `Verbindung zum Server fehlgeschlagen für ${participantName} ⚠️ Bitte Änderung in der App durchführen.`,
+        self.registration.showNotification('Fehler ⚠️', {
+            body: `Status für ${participantName} konnte nicht geändert werden ⚠️ Bitte Änderung in der App durchführen.`,
             icon: '/static/icons/icon-192x192.png',
             badge: '/static/icons/bus-simple-solid.png',
             tag: `status-change-error-${participantId}-${Date.now()}`,
@@ -201,6 +205,7 @@ async function handleStatusToggle(data) {
         });
     }
 }
+
 
 
 async function fetchWithAuth(url, options = {}) {

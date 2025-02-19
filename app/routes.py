@@ -983,6 +983,25 @@ def get_participant_weekday_status(participant_id, weekday):
     status = getattr(participant, weekday, True)
     return jsonify({"status": status})
 
+
+@bp.route("/api/participation/<int:participant_id>/status")
+@require_auth
+def get_participant_current_status(participant_id):
+    date = request.args.get('date')
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Get calendar entry for this specific date
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=date,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    # Return calendar status if it exists, otherwise return default True
+    return jsonify({
+        "status": calendar_entry.status if calendar_entry else True
+    })
+
 #################################
 #################################
 
