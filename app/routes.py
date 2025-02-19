@@ -1662,21 +1662,28 @@ def broadcast_notification():
 def update_pwa_status():
     data = request.get_json()
     is_installed = data.get('is_installed', False)
-    
+    user_agent = data.get('user_agent')
+
     # Get current token
     token = request.cookies.get('auth_token')
     auth_token = AuthToken.query.filter_by(id=token).first_or_404()
-    
-    # Only update if status changed
-    if auth_token.is_pwa_installed != is_installed:
+
+    # Track changes for logging
+    status_changed = auth_token.is_pwa_installed != is_installed
+    agent_changed = auth_token.client_info != user_agent
+
+    # Update token information
+    if status_changed or agent_changed:
         auth_token.is_pwa_installed = is_installed
+        auth_token.client_info = user_agent
         auth_token.pwa_status_updated_at = get_current_time()
         db.session.commit()
-        
+
         current_app.logger.info(
-            f"Updated PWA status for token {auth_token.token_identifier}: {is_installed}"
+            f"Updated PWA status for token {auth_token.token_identifier}: "
+            f"installed={is_installed}, agent={user_agent}"
         )
-    
+
     return jsonify({"success": True})
 
 

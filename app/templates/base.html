@@ -617,14 +617,14 @@ window.PWAManager = {
             // iOS standalone check
             if (navigator.standalone) {
                 this.status.isInstalled = true;
-                await this.sendStatusToBackend(true);
+                await this.sendStatusToBackend(true, navigator.userAgent);
                 return this.status;
             }
             
             // Android/Desktop PWA check
             if (window.matchMedia('(display-mode: standalone)').matches) {
                 this.status.isInstalled = true;
-                await this.sendStatusToBackend(true);
+                await this.sendStatusToBackend(true, navigator.userAgent);
                 return this.status;
             }
             
@@ -633,21 +633,21 @@ window.PWAManager = {
                 window.navigator.userAgent.includes('iPhone')) {
                 if (window.navigator.standalone === true) {
                     this.status.isInstalled = true;
-                    await this.sendStatusToBackend(true);
+                    await this.sendStatusToBackend(true, navigator.userAgent);
                     return this.status;
                 }
             }
             
             // Not installed - handle setup
             this.status.isInstalled = false;
-            await this.sendStatusToBackend(false);
+            await this.sendStatusToBackend(false, navigator.userAgent);
             await this.setupIOSAutoLogin();
             return this.status;
             
         } catch (error) {
             console.log('[PWA-MANAGER] Check failed:', error);
             this.status.isInstalled = false;
-            await this.sendStatusToBackend(false);
+            await this.sendStatusToBackend(false, navigator.userAgent);
             return this.status;
         }
     },
@@ -656,7 +656,10 @@ window.PWAManager = {
         await fetchWithAuth('/api/pwa-status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_installed: status })
+            body: JSON.stringify({ 
+                is_installed: status,
+                user_agent: userAgent 
+            })
         });
     },
 
