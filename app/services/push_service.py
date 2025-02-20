@@ -108,6 +108,7 @@ class PushService:
                 'endpoint': subscription.endpoint,
                 'client_info': subscription.auth_token.client_info
             }
+            enhanced_notification_data['attempted_send'] = True
 
             # Rest of the method remains the same until log creation
             log_entry = PushNotificationLog(
@@ -187,105 +188,142 @@ class PushService:
         """Prepare and send individual schedule notifications for each participant"""
         target_date = get_current_date()
         weekday = WEEKDAY_MAPPING[target_date.weekday()]
-        
         subscriptions = self.get_subscriptions()
         results = []
-        
+
         for subscription in subscriptions:
             participants = Participant.query.filter(
                 Participant.id.in_(subscription.participant_ids),
                 Participant.walking_bus_id == self.walking_bus_id
             ).all()
-            
+
             for participant in participants:
                 normally_attends = getattr(participant, weekday, True)
                 
-                if normally_attends:
-                    calendar_entry = CalendarStatus.query.filter_by(
-                        participant_id=participant.id,
-                        date=target_date,
-                        walking_bus_id=self.walking_bus_id
-                    ).first()
-                    
-                    is_attending = calendar_entry.status if calendar_entry else normally_attends
-                    
-                    weather_info = WeatherCalculation.query.filter_by(
-                        walking_bus_id=self.walking_bus_id,
-                        date=target_date
-                    ).first()
-
-                    bus_override = WalkingBusOverride.query.filter_by(
-                        walking_bus_id=self.walking_bus_id,
-                        date=target_date
-                    ).first()
-
-                    daily_note = DailyNote.query.filter_by(
-                        walking_bus_id=self.walking_bus_id,
-                        date=target_date
-                    ).first()
-
-                    if bus_override and not bus_override.is_active:
-                        status_message = f"❌ Heute kein Walking Bus ❌\nGrund: {bus_override.reason}"
-                    else:
-                        base_message = (
-                            f"{participant.name} ist für heute angemeldet ✅"
-                            if is_attending
-                            else f"{participant.name} ist für heute abgemeldet ❌"
-                        )
-                        
-                        message_parts = [base_message]
-                        
-                        if weather_info:
-                            weather_message = "Es bleibt trocken ☀️"
-                            if weather_info.precipitation > 0.5:
-                                weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
-                            elif weather_info.precipitation > 0:
-                                weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
-                            message_parts.append(weather_message)
-                        
-                        if daily_note:
-                            message_parts.append(f"Hinweis: {daily_note.note}")
-                            
-                        status_message = "\n".join(message_parts)
-
-                    notification_data = {
-                        'title': 'Walking Bus Erinnerung',
-                        'body': status_message,
-                        'data': {
-                            'type': 'schedule_reminder',
-                            'participantId': participant.id,
-                            'participantName': participant.name,
-                            'currentStatus': is_attending,
-                            'date': target_date.isoformat()
-                        },
-                        'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
-                        'actions': [
-                            {
-                                'action': 'okay',
-                                'title': 'OK'
-                            }
-                        ] if bus_override and not bus_override.is_active else [
-                            {
-                                'action': 'toggle_status',
-                                'title': 'Abmelden' if is_attending else 'Anmelden'
-                            },
-                            {
-                                'action': 'okay',
-                                'title': 'OK'
-                            }
-                        ],
-                        'requireInteraction': True
+                # Create base log entry for each check
+                log_entry = PushNotificationLog(
+                    walking_bus_id=self.walking_bus_id,
+                    subscription_id=subscription.id,
+                    notification_type='schedule_reminder',
+                    success=True,
+                    status_code=200,
+                    notification_data={
+                        'participant_id': participant.id,
+                        'participant_name': participant.name,
+                        'attempted_send': False,
+                        'weekday': weekday,
+                        'normally_attends': normally_attends
                     }
+                )
+
+                if not normally_attends:
+                    log_entry.notification_data['reason'] = f"Keine Teilnahme am {weekday}"
+                    db.session.add(log_entry)
+                    db.session.commit()
+                    continue
+
+                # Get calendar status
+                calendar_entry = CalendarStatus.query.filter_by(
+                    participant_id=participant.id,
+                    date=target_date,
+                    walking_bus_id=self.walking_bus_id
+                ).first()
+                
+                is_attending = calendar_entry.status if calendar_entry else normally_attends
+                
+                # Get additional info
+                weather_info = WeatherCalculation.query.filter_by(
+                    walking_bus_id=self.walking_bus_id,
+                    date=target_date
+                ).first()
+
+                bus_override = WalkingBusOverride.query.filter_by(
+                    walking_bus_id=self.walking_bus_id,
+                    date=target_date
+                ).first()
+
+                daily_note = DailyNote.query.filter_by(
+                    walking_bus_id=self.walking_bus_id,
+                    date=target_date
+                ).first()
+
+                # Build message
+                if bus_override and not bus_override.is_active:
+                    status_message = f"❌ Heute kein Walking Bus ❌\nGrund: {bus_override.reason}"
+                else:
+                    base_message = (
+                        f"{participant.name} ist für heute angemeldet ✅"
+                        if is_attending
+                        else f"{participant.name} ist für heute abgemeldet ❌"
+                    )
                     
-                    success, error = self.send_notification(subscription, notification_data)
-                    results.append({
-                        'subscription_id': subscription.id,
-                        'participant': participant.name,
-                        'status': 'attending' if is_attending else 'not_attending',
-                        'success': success,
-                        'error': error
-                    })
-        
+                    message_parts = [base_message]
+                    
+                    if weather_info:
+                        weather_message = "Es bleibt trocken ☀️"
+                        if weather_info.precipitation > 0.5:
+                            weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
+                        elif weather_info.precipitation > 0:
+                            weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
+                        message_parts.append(weather_message)
+                    
+                    if daily_note:
+                        message_parts.append(f"Hinweis: {daily_note.note}")
+                        
+                    status_message = "\n".join(message_parts)
+
+                notification_data = {
+                    'title': 'Walking Bus Erinnerung',
+                    'body': status_message,
+                    'data': {
+                        'type': 'schedule_reminder',
+                        'participantId': participant.id,
+                        'participantName': participant.name,
+                        'currentStatus': is_attending,
+                        'date': target_date.isoformat()
+                    },
+                    'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
+                    'actions': [
+                        {
+                            'action': 'okay',
+                            'title': 'OK'
+                        }
+                    ] if bus_override and not bus_override.is_active else [
+                        {
+                            'action': 'toggle_status',
+                            'title': 'Abmelden' if is_attending else 'Anmelden'
+                        },
+                        {
+                            'action': 'okay',
+                            'title': 'OK'
+                        }
+                    ],
+                    'requireInteraction': True
+                }
+
+                # Mark as attempted before sending
+                log_entry.notification_data['attempted_send'] = True
+                log_entry.notification_data['message'] = status_message
+                db.session.add(log_entry)
+                db.session.commit()
+
+                current_app.logger.info(f"""
+                    [PUSH][DEBUG] Created log entry:
+                    - Participant: {participant.id}
+                    - Attempted: {log_entry.notification_data.get('attempted_send')}
+                    - Data: {log_entry.notification_data}
+                """)
+                
+                # Send notification
+                success, error = self.send_notification(subscription, notification_data)
+                results.append({
+                    'subscription_id': subscription.id,
+                    'participant': participant.name,
+                    'status': 'attending' if is_attending else 'not_attending',
+                    'success': success,
+                    'error': error
+                })
+
         cleanup_result = self.cleanup_expired_subscriptions()
         
         return {

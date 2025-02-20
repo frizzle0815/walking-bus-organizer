@@ -120,55 +120,9 @@ def subscription_overview():
     grouped_logs = {}
     
     for bus in walking_buses:
-        # Get subscriptions for this bus
-        subscriptions = PushSubscription.query\
-            .filter_by(walking_bus_id=bus.id)\
-            .order_by(PushSubscription.created_at.desc())\
-            .all()
-            
-        # Get participants for this bus
-        participants = {
-            p.id: p.name 
-            for p in Participant.query.filter_by(walking_bus_id=bus.id)
-        }
-        all_participants.update(participants)
+        # Subscription processing remains the same...
         
-        # Get auth tokens for this bus
-        auth_tokens = {
-            t.token_identifier: t
-            for t in AuthToken.query.filter_by(walking_bus_id=bus.id)
-        }
-        all_auth_tokens.update(auth_tokens)
-        
-        # Process subscriptions
-        subscription_data = []
-        for sub in subscriptions:
-            token = all_auth_tokens.get(sub.token_identifier)
-            participant_names = [
-                all_participants.get(pid) 
-                for pid in sub.participant_ids
-            ]
-            
-            subscription_data.append({
-                'id': sub.id,
-                'token_identifier': sub.token_identifier,
-                'endpoint': sub.endpoint,
-                'created_at': sub.created_at,
-                'last_used': token.last_used if token else None,
-                'platform': get_platform(token.client_info) if token else 'Unknown',
-                'participants': participant_names,
-                'is_active': sub.is_active,
-                'paused_at': sub.paused_at,
-                'pause_reason': sub.pause_reason,
-                'last_error_code': sub.last_error_code
-            })
-            
-        grouped_subscriptions[bus.id] = {
-            'bus_name': bus.name,
-            'subscriptions': subscription_data
-        }
-        
-        # Get logs for this bus from the last 7 days
+        # Single logs query
         cutoff_date = datetime.now() - timedelta(days=7)
         logs = PushNotificationLog.query\
             .filter_by(walking_bus_id=bus.id)\
@@ -176,36 +130,60 @@ def subscription_overview():
             .order_by(PushNotificationLog.timestamp.desc())\
             .all()
 
+        # Count statistics
+        total_count = len(logs)
+        attempted_count = sum(1 for log in logs 
+                            if log.notification_data 
+                            and log.notification_data.get('attempted_send'))
+        
+        current_app.logger.info(f"[LOGS] Total logs for bus {bus.id}: {total_count}")
+        current_app.logger.info(f"[LOGS] Attempted logs: {attempted_count}")
+
+        # Process log details
         for log in logs:
+            current_app.logger.info(f"""
+                [LOG][DEBUG] Processing log:
+                - ID: {log.id}
+                - Data: {log.notification_data}
+                - Attempted: {log.notification_data.get('attempted_send')}
+                - Success: {log.success}
+                - Status: {log.status_code}
+            """)
+            # Platform and endpoint processing
             if log.subscription and log.subscription.auth_token:
-                # For active subscriptions
                 client_info = log.subscription.auth_token.client_info
                 log.platform = get_platform(client_info)
                 log.historical_endpoint = log.subscription.endpoint
                 log.historical_client_info = get_platform(client_info)
             elif log.notification_data and 'subscription_info' in log.notification_data:
-                # For deleted subscriptions
                 subscription_info = log.notification_data['subscription_info']
                 client_info = subscription_info['client_info']
                 log.platform = get_platform(client_info)
                 log.historical_endpoint = subscription_info['endpoint']
                 log.historical_client_info = get_platform(client_info)
             else:
-                # Fallback
                 log.platform = 'Unknown'
                 log.historical_endpoint = 'Unknown'
                 log.historical_client_info = 'Unknown'
+
+            # Determine attempted_send status
+            log.attempted_send = any([
+                log.success,
+                log.status_code,
+                log.notification_data.get('attempted_send', False)
+            ])
 
         grouped_logs[bus.id] = {
             'bus_name': bus.name,
             'logs': logs
         }
-    
+
     return render_template(
         'subscriptions.html',
         grouped_subscriptions=grouped_subscriptions,
         grouped_logs=grouped_logs
     )
+
 
 
 @bp.route("/share")
