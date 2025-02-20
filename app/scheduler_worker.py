@@ -40,7 +40,7 @@ def init_scheduler(app):
         
         executors = {
             'default': ProcessPoolExecutor(
-                max_workers=3
+                max_workers=1  # no more than one to avoid race conditions
             )
         }
         
@@ -85,80 +85,111 @@ def handle_schedule_change(app, data):
 
 
 def update_walking_bus_notifications(app, walking_bus_id=None):
+    """Update notification schedules for walking buses with concurrency control"""
+    lock_key = f"schedule_update_lock_{walking_bus_id or 'all'}"
     logger.info(f"[SCHEDULER] Starting update_walking_bus_notifications with walking_bus_id: {walking_bus_id}")
-    
-    with app.app_context():
-        query = WalkingBus.query
-        if walking_bus_id:
-            query = query.filter_by(id=walking_bus_id)
-        buses = query.all()
 
-        for bus in buses:
-            try:
-                logger.info(f"[SCHEDULER] Processing bus {bus.id} ({bus.name})")
-                schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
-                
-                if not schedule:
-                    logger.warning(f"[SCHEDULER] No schedule found for bus {bus.id}, skipping")
+    with app.app_context():
+        try:
+            # Try to acquire lock with 5 minute timeout
+            if not redis_client.set(lock_key, "1", ex=300, nx=True):
+                logger.info(f"[SCHEDULER] Schedule update already in progress for bus {walking_bus_id}")
+                return
+
+            # Query buses with optional filter
+            query = WalkingBus.query
+            if walking_bus_id:
+                query = query.filter_by(id=walking_bus_id)
+            buses = query.all()
+
+            for bus in buses:
+                try:
+                    logger.info(f"[SCHEDULER] Processing bus {bus.id} ({bus.name})")
+                    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
+                    
+                    if not schedule:
+                        logger.warning(f"[SCHEDULER] No schedule found for bus {bus.id}, skipping")
+                        continue
+
+                    weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 
+                               'friday', 'saturday', 'sunday']
+                    
+                    for day in weekdays:
+                        job_id = f'notify_bus_{bus.id}_{day}'
+                        
+                        # Handle inactive days
+                        if not getattr(schedule, day):
+                            try:
+                                scheduler.remove_job(job_id)
+                                SchedulerJob.query.filter_by(job_id=job_id).delete()
+                            except Exception as e:
+                                logger.debug(f"[SCHEDULER] No job to remove for {job_id}: {str(e)}")
+                            continue
+                            
+                        start_time = getattr(schedule, f"{day}_start")
+                        if not start_time:
+                            continue
+                            
+                        notification_time = (
+                            datetime.combine(datetime.today(), start_time) - 
+                            timedelta(minutes=55)
+                        ).time()
+                        
+                        # Create or update job
+                        try:
+                            job = scheduler.add_job(
+                                send_walking_bus_notifications,
+                                'cron',
+                                day_of_week=day[:3],
+                                hour=notification_time.hour,
+                                minute=notification_time.minute,
+                                args=[bus.id],
+                                id=job_id,
+                                replace_existing=True
+                            )
+                            
+                            # Update database record if scheduler is running
+                            if scheduler.running:
+                                scheduler_job = SchedulerJob.query.filter_by(job_id=job_id).first()
+                                if not scheduler_job:
+                                    scheduler_job = SchedulerJob(
+                                        walking_bus_id=bus.id,
+                                        job_id=job_id,
+                                        job_type='walking_bus_notification',
+                                        next_run_time=job.next_run_time
+                                    )
+                                    db.session.add(scheduler_job)
+                                else:
+                                    scheduler_job.next_run_time = job.next_run_time
+                                    
+                        except Exception as e:
+                            logger.error(f"[SCHEDULER] Failed to update job {job_id}: {str(e)}")
+                            continue
+                    
+                    # Commit changes for each bus
+                    db.session.commit()
+                    
+                except Exception as e:
+                    logger.error(f"[SCHEDULER] Error processing bus {bus.id}: {str(e)}")
+                    db.session.rollback()
                     continue
 
-                weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 
-                           'friday', 'saturday', 'sunday']
-                           
-                for day in weekdays:
-                    job_id = f'notify_bus_{bus.id}_{day}'
-                    
-                    # Skip if day is inactive
-                    if not getattr(schedule, day):
-                        try:
-                            scheduler.remove_job(job_id)
-                            SchedulerJob.query.filter_by(job_id=job_id).delete()
-                        except:
-                            pass
-                        continue
-                        
-                    start_time = getattr(schedule, f"{day}_start")
-                    if not start_time:
-                        continue
-                        
-                    notification_time = (
-                        datetime.combine(datetime.today(), start_time) - 
-                        timedelta(minutes=55)
-                    ).time()
-                    
-                    # Create job
-                    job = scheduler.add_job(
-                        send_walking_bus_notifications,
-                        'cron',
-                        day_of_week=day[:3],
-                        hour=notification_time.hour,
-                        minute=notification_time.minute,
-                        args=[bus.id],
-                        id=job_id,
-                        replace_existing=True
-                    )
-                    
-                    # Update database record only if scheduler is running
-                    if scheduler.running:
-                        scheduler_job = SchedulerJob.query.filter_by(job_id=job_id).first()
-                        if not scheduler_job:
-                            scheduler_job = SchedulerJob(
-                                walking_bus_id=bus.id,
-                                job_id=job_id,
-                                job_type='walking_bus_notification',
-                                next_run_time=job.next_run_time
-                            )
-                            db.session.add(scheduler_job)
-                        else:
-                            scheduler_job.next_run_time = job.next_run_time
-                    
-                db.session.commit()
-                
+            logger.info("[SCHEDULER] Finished update_walking_bus_notifications successfully")
+            
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Critical error in update_walking_bus_notifications: {str(e)}")
+            db.session.rollback()
+            raise
+            
+        finally:
+            # Always clean up the lock
+            redis_client.delete(lock_key)
+            
+            # Ensure session is cleaned up
+            try:
+                db.session.remove()
             except Exception as e:
-                logger.error(f"[SCHEDULER] Error processing bus {bus.id}: {str(e)}")
-                continue
-
-    logger.info("[SCHEDULER] Finished update_walking_bus_notifications")
+                logger.error(f"[SCHEDULER] Error cleaning up session: {str(e)}")
 
 
 
@@ -166,12 +197,20 @@ def send_walking_bus_notifications(bus_id):
     """Execute notifications for a specific walking bus"""
     logger.info(f"[SCHEDULER] Starting notifications for bus {bus_id}")
     
+    # Create lock key specific to this bus
+    lock_key = f"walking_bus_lock_{bus_id}"
+    
     # Create app context since this runs in a separate thread
     app = create_app()
 
     with app.app_context():
         try:
-            # Try weather update but continue if it fails
+            # Try to acquire lock with 5 minute expiry
+            if not redis_client.set(lock_key, "1", ex=300, nx=True):
+                logger.info(f"[SCHEDULER] Bus {bus_id} already being processed")
+                return False
+                
+            # Execute existing notification logic
             try:
                 weather_service = WeatherService()
                 update_result = weather_service.update_weather()
@@ -180,9 +219,7 @@ def send_walking_bus_notifications(bus_id):
                 logger.info("[SCHEDULER] Weather update completed successfully")
             except Exception as e:
                 logger.error(f"[SCHEDULER] Weather update failed: {str(e)}")
-                # Continue with notifications despite weather error
             
-            # Now send notifications with fresh weather data
             push_service = PushService(bus_id)
             result = push_service.prepare_schedule_notifications()
             logger.info(f"[SCHEDULER] Notification completed for bus {bus_id}: {result}")
@@ -191,8 +228,10 @@ def send_walking_bus_notifications(bus_id):
         except Exception as e:
             logger.error(f"[SCHEDULER] Error sending notifications for bus {bus_id}: {str(e)}")
             return False
+            
         finally:
-            # Ensure cleanup
+            # Always clean up the lock
+            redis_client.delete(lock_key)
             db.session.remove()
 
 
