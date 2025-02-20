@@ -184,10 +184,10 @@
                             </td>
                             <td>{{ log.timestamp.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>
-                                {% if log.notification_type == 'test' and log.notification_data.data.participantIds %}
-                                    <span class="badge bg-info me-1">{{ log.notification_data.data.participantIds[0] }}</span>
-                                {% elif log.notification_type == 'schedule_reminder' and log.notification_data.data.participantId %}
-                                    <span class="badge bg-info me-1">{{ log.notification_data.data.participantId }}</span>
+                                {% if log.participant_names %}
+                                    {% for name in log.participant_names %}
+                                        <span class="badge bg-info me-1">{{ log.participant_name }}</span>
+                                    {% endfor %}
                                 {% elif log.notification_type == 'broadcast' %}
                                     <span class="badge bg-warning">Broadcast</span>
                                 {% else %}
