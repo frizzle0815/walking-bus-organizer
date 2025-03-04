@@ -15,8 +15,12 @@ import json
 import os
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger('scheduler')
+
+if logger.handlers:
+    logger.handlers = []
+logger.addHandler(logging.StreamHandler())
 
 redis_url = os.environ.get('REDIS_URL')
 redis_client = Redis.from_url(redis_url)
