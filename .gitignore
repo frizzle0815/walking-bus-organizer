@@ -4,6 +4,8 @@ venv/*
 .vscode/*
 app/__pycache__/*
 app/services/__pycache__/*
+registration_app/__pycache__/*
+registration_app/services/__pycache__/*
 howtos.txt
 logs/*
 data/*

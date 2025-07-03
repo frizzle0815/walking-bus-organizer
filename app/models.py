@@ -238,3 +238,40 @@ class PushNotificationLog(db.Model):
     # Relationships
     subscription = db.relationship('PushSubscription', backref='notification_logs')
 
+
+class Prospect(db.Model):
+    """Interessenten für Walking Bus Registrierung"""
+    __tablename__ = 'prospects'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    address = db.Column(db.String(200), nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
+    email = db.Column(db.String(100), nullable=True)
+    
+    # Geocoding-Daten
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
+    geocoded_address = db.Column(db.String(200), nullable=True)
+    
+    # Metadaten
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    status = db.Column(db.String(20), default='active')  # active, contacted, enrolled, declined
+    notes = db.Column(db.Text, nullable=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'address': self.address,
+            'phone': self.phone,
+            'email': self.email,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'geocoded_address': self.geocoded_address,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'status': self.status,
+            'notes': self.notes
+        }
+

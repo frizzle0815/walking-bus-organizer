@@ -69,6 +69,23 @@ services:
     volumes:
       - vapid_keys:/app/data
 
+  registration:
+    build: 
+      context: .
+      dockerfile: Dockerfile.registration
+    ports:
+      - "8001:5001"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=production
+      - PORT=5001
+    volumes:
+      - ./registration_app:/app/registration_app
+
 volumes:
   postgres_data:
   vapid_keys:
