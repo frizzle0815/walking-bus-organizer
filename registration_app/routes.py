@@ -109,7 +109,12 @@ def get_prospects():
                     'phone': prospect.phone,
                     'latitude': prospect.latitude,
                     'longitude': prospect.longitude,
-                    'created_at': prospect.created_at.isoformat()
+                    'created_at': prospect.created_at.isoformat(),
+                    'notes': prospect.notes,
+                    'route_id': prospect.route_id,
+                    'route_name': prospect.route.name if prospect.route else None,
+                    'route_color': prospect.route.color if prospect.route else None,
+                    'route_preference': prospect.route_preference
                 })
         
         return jsonify(map_data), 200
@@ -123,10 +128,29 @@ def get_prospect(prospect_id):
     """API-Endpunkt für einen spezifischen Interessenten"""
     try:
         prospect = Prospect.query.get_or_404(prospect_id)
-        return jsonify(prospect.to_dict()), 200
+        
+        prospect_data = {
+            'id': prospect.id,
+            'name': prospect.name,
+            'address': prospect.address,
+            'phone': prospect.phone,
+            'email': prospect.email,
+            'status': prospect.status,
+            'created_at': prospect.created_at.isoformat(),
+            'notes': prospect.notes,
+            'route_id': prospect.route_id,
+            'route_name': prospect.route.name if prospect.route else None,
+            'route_color': prospect.route.color if prospect.route else None,
+            'route_preference': prospect.route_preference,
+            'latitude': prospect.latitude,
+            'longitude': prospect.longitude,
+            'geocoded_address': prospect.geocoded_address
+        }
+        
+        return jsonify(prospect_data), 200
         
     except Exception as e:
-        current_app.logger.error(f"Fehler beim Abrufen des Interessenten: {str(e)}")
+        current_app.logger.error(f"[MAP][ERROR] Fehler beim Abrufen des Interessenten: {str(e)}")
         return jsonify({'error': 'Interessent nicht gefunden'}), 404
 
 @bp.route('/api/prospects/<int:prospect_id>/status', methods=['PUT'])

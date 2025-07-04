@@ -87,6 +87,30 @@
     </div>
 </div>
 
+<!-- Interessenten-Liste -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card shadow">
+            <div class="card-header bg-info text-white">
+                <h4 class="card-title mb-0">
+                    <i class="fas fa-list me-2"></i>
+                    Interessenten nach Routen
+                </h4>
+            </div>
+            <div class="card-body">
+                <div id="prospectsListContainer">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Lade Interessenten...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Lade Interessenten...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Prospect Details Modal -->
 <div class="modal fade" id="prospectModal" tabindex="-1">
     <div class="modal-dialog">
@@ -189,26 +213,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            // Marker für jeden Interessenten
+            // Marker nur für Interessenten mit Koordinaten
             prospects.forEach(prospect => {
-                const marker = L.marker([prospect.latitude, prospect.longitude], {
-                    icon: L.divIcon({
-                        className: 'prospect-marker',
-                        html: '<div style="background: #007bff; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-user" style="font-size: 10px;"></i></div>',
-                        iconSize: [20, 20]
+                if (prospect.latitude && prospect.longitude) {
+                    const marker = L.marker([prospect.latitude, prospect.longitude], {
+                        icon: L.divIcon({
+                            className: 'prospect-marker',
+                            html: '<div style="background: #007bff; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-user" style="font-size: 10px;"></i></div>',
+                            iconSize: [20, 20]
+                        })
                     })
-                })
-                .bindPopup(`
-                    <div class="text-center">
-                        <strong>${prospect.name}</strong><br>
-                        <small class="text-muted">${prospect.address}</small><br>
-                        <button class="btn btn-sm btn-primary mt-2" onclick="showProspectDetails(${prospect.id})">
-                            <i class="fas fa-info-circle me-1"></i>Details
-                        </button>
-                    </div>
-                `);
-                
-                prospectLayer.addLayer(marker);
+                    .bindPopup(`
+                        <div class="text-center">
+                            <strong>${prospect.name}</strong><br>
+                            <small class="text-muted">${prospect.address}</small><br>
+                            <button class="btn btn-sm btn-primary mt-2" onclick="showProspectDetails(${prospect.id})">
+                                <i class="fas fa-info-circle me-1"></i>Details
+                            </button>
+                        </div>
+                    `);
+                    
+                    prospectLayer.addLayer(marker);
+                }
             });
             
             console.log('[MAP][PROSPECTS] Interessenten geladen:', prospects.length);
@@ -263,7 +289,189 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('[MAP][ERROR] Fehler beim Laden der Routen:', error);
         }
     }
+
+    // Interessenten-Liste nach Routen gruppiert anzeigen
+    function renderProspectsList() {
+        console.log('[MAP][LIST] Erstelle Interessenten-Liste');
+        
+        if (prospects.length === 0) {
+            prospectsListContainer.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">Keine Interessenten vorhanden</h5>
+                    <p class="text-muted">Es sind noch keine Interessenten registriert.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Gruppierung nach Routen
+        const routeGroups = {};
+        const unassignedProspects = [];
+        
+        prospects.forEach(prospect => {
+            console.log('[MAP][LIST] Verarbeite Interessent:', prospect.name, 'Route ID:', prospect.route_id, 'Route Name:', prospect.route_name);
+            
+            if (prospect.route_id && prospect.route_name) {
+                if (!routeGroups[prospect.route_id]) {
+                    routeGroups[prospect.route_id] = {
+                        name: prospect.route_name,
+                        color: prospect.route_color || '#007bff',
+                        prospects: []
+                    };
+                }
+                routeGroups[prospect.route_id].prospects.push(prospect);
+            } else if (prospect.route_preference) {
+                // Interessenten mit Routenpräferenz aber ohne zugewiesene Route
+                if (!routeGroups['preference']) {
+                    routeGroups['preference'] = {
+                        name: 'Keine Routenpräferenz angegeben',
+                        color: '#ffc107',
+                        prospects: []
+                    };
+                }
+                routeGroups['preference'].prospects.push(prospect);
+            } else {
+                unassignedProspects.push(prospect);
+            }
+        });
+        
+        let html = '';
+        
+        // Routen-Gruppen anzeigen
+        Object.keys(routeGroups).forEach(routeId => {
+            const group = routeGroups[routeId];
+            html += `
+                <div class="mb-4">
+                    <h5 class="border-bottom pb-2">
+                        <span style="color: ${group.color}; font-size: 1.2em;">●</span>
+                        ${group.name}
+                        <span class="badge bg-secondary ms-2">${group.prospects.length}</span>
+                    </h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th><i class="fas fa-user me-1"></i>Name</th>
+                                    <th><i class="fas fa-phone me-1"></i>Telefon</th>
+                                    <th><i class="fas fa-calendar me-1"></i>Registriert am</th>
+                                    <th><i class="fas fa-info-circle me-1"></i>Status</th>
+                                    <th>Aktionen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+            
+            group.prospects.forEach(prospect => {
+                const registrationDate = new Date(prospect.created_at).toLocaleDateString('de-DE');
+                const statusBadge = getStatusBadge(prospect.status);
+                
+                html += `
+                    <tr>
+                        <td>
+                            <strong>${prospect.name}</strong>
+                            <br><small class="text-muted">${prospect.address}</small>
+                            ${prospect.route_preference ? `<br><small class="text-info"><i class="fas fa-info-circle me-1"></i>${prospect.route_preference}</small>` : ''}
+                        </td>
+                        <td>
+                            <a href="tel:${prospect.phone}" class="text-decoration-none">
+                                <i class="fas fa-phone me-1"></i>${prospect.phone}
+                            </a>
+                        </td>
+                        <td>${registrationDate}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="showProspectDetails(${prospect.id})" title="Details anzeigen">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // Nicht zugewiesene Interessenten anzeigen
+        if (unassignedProspects.length > 0) {
+            html += `
+                <div class="mb-4">
+                    <h5 class="border-bottom pb-2">
+                        <i class="fas fa-question-circle text-warning me-2"></i>
+                        Nicht zugewiesene Interessenten
+                        <span class="badge bg-warning ms-2">${unassignedProspects.length}</span>
+                    </h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th><i class="fas fa-user me-1"></i>Name</th>
+                                    <th><i class="fas fa-phone me-1"></i>Telefon</th>
+                                    <th><i class="fas fa-calendar me-1"></i>Registriert am</th>
+                                    <th><i class="fas fa-info-circle me-1"></i>Status</th>
+                                    <th>Aktionen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+            
+            unassignedProspects.forEach(prospect => {
+                const registrationDate = new Date(prospect.created_at).toLocaleDateString('de-DE');
+                const statusBadge = getStatusBadge(prospect.status);
+                
+                html += `
+                    <tr>
+                        <td>
+                            <strong>${prospect.name}</strong>
+                            <br><small class="text-muted">${prospect.address}</small>
+                        </td>
+                        <td>
+                            <a href="tel:${prospect.phone}" class="text-decoration-none">
+                                <i class="fas fa-phone me-1"></i>${prospect.phone}
+                            </a>
+                        </td>
+                        <td>${registrationDate}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="showProspectDetails(${prospect.id})" title="Details anzeigen">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+        
+        prospectsListContainer.innerHTML = html;
+        console.log('[MAP][LIST] Interessenten-Liste erstellt - Routen-Gruppen:', Object.keys(routeGroups).length, 'Nicht zugewiesen:', unassignedProspects.length);
+    }
     
+    // Hilfsfunktion für Status-Badge
+    function getStatusBadge(status) {
+        switch(status) {
+            case 'active':
+                return '<span class="badge bg-success"><i class="fas fa-check me-1"></i>Aktiv</span>';
+            case 'inactive':
+                return '<span class="badge bg-secondary"><i class="fas fa-pause me-1"></i>Inaktiv</span>';
+            case 'pending':
+                return '<span class="badge bg-warning"><i class="fas fa-clock me-1"></i>Wartend</span>';
+            default:
+                return '<span class="badge bg-light text-dark"><i class="fas fa-question me-1"></i>Unbekannt</span>';
+        }
+    }
+
     // Karte auf alle Elemente ausrichten
     function fitMapToContent() {
         const allLayers = [];
@@ -394,6 +602,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function loadAllData() {
         await Promise.all([loadProspects(), loadRoutes()]);
         fitMapToContent();
+        renderProspectsList(); // Liste nach dem Laden der Daten erstellen
     }
     
     // Initial laden
