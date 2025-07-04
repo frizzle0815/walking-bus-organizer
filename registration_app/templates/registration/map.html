@@ -9,25 +9,57 @@
             <div class="card-header bg-primary text-white">
                 <h3 class="card-title mb-0">
                     <i class="fas fa-map me-2"></i>
-                    Interessenten-Karte
+                    Interessenten-Karte & Routen
                 </h3>
             </div>
             <div class="card-body">
                 <div class="row mb-3">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
-                            <strong>Übersicht:</strong> 
-                            Hier sehen Sie alle registrierten Interessenten auf der Karte.
+                            <strong>Interessenten:</strong> 
                             <span id="prospectCount" class="badge bg-primary ms-2">0</span>
                         </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
+                        <div class="alert alert-success">
+                            <i class="fas fa-route me-2"></i>
+                            <strong>Routen:</strong> 
+                            <span id="routeCount" class="badge bg-success ms-2">0</span>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
                         <div class="d-grid gap-2">
                             <a href="{{ url_for('registration.index') }}" class="btn btn-success">
                                 <i class="fas fa-user-plus me-2"></i>
                                 Neue Registrierung
                             </a>
+                            <a href="{{ url_for('registration.routes_view') }}" class="btn btn-warning">
+                                <i class="fas fa-route me-2"></i>
+                                Routen verwalten
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Karten-Steuerung -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body py-2">
+                                <div class="form-check form-switch d-inline-block me-3">
+                                    <input class="form-check-input" type="checkbox" id="showProspects" checked>
+                                    <label class="form-check-label" for="showProspects">
+                                        <i class="fas fa-users me-1"></i>Interessenten anzeigen
+                                    </label>
+                                </div>
+                                <div class="form-check form-switch d-inline-block">
+                                    <input class="form-check-input" type="checkbox" id="showRoutes" checked>
+                                    <label class="form-check-label" for="showRoutes">
+                                        <i class="fas fa-route me-1"></i>Routen anzeigen
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -37,12 +69,15 @@
                 <div class="mt-3">
                     <h5>Legende:</h5>
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-3">
                             <span class="badge bg-primary me-2">●</span> Registrierte Interessenten
+                        </div>
+                        <div class="col-md-3">
+                            <span style="color: #FF0000; font-weight: bold;">━━━</span> Walking Bus Routen
                         </div>
                         <div class="col-md-6">
                             <small class="text-muted">
-                                Klicken Sie auf einen Marker für weitere Informationen
+                                Klicken Sie auf Marker/Routen für weitere Informationen
                             </small>
                         </div>
                     </div>
@@ -72,11 +107,34 @@
         </div>
     </div>
 </div>
+
+<!-- Route Details Modal -->
+<div class="modal fade" id="routeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-route me-2"></i>
+                    Route Details
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="routeDetails">
+                <!-- Wird dynamisch gefüllt -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('[MAP][INIT] Initialisiere Karte mit Interessenten und Routen');
+    
     // Karte initialisieren (zentriert auf Deutschland)
     const map = L.map('map').setView([51.1657, 10.4515], 6);
     
@@ -86,71 +144,151 @@ document.addEventListener('DOMContentLoaded', function() {
     }).addTo(map);
     
     const prospectModal = new bootstrap.Modal(document.getElementById('prospectModal'));
+    const routeModal = new bootstrap.Modal(document.getElementById('routeModal'));
     const prospectCount = document.getElementById('prospectCount');
+    const routeCount = document.getElementById('routeCount');
+    
+    // Layer-Gruppen für bessere Kontrolle
+    const prospectLayer = L.layerGroup().addTo(map);
+    const routeLayer = L.layerGroup().addTo(map);
+    
+    let prospects = [];
+    let routes = [];
+    
+    // Toggle-Handler für Anzeige-Optionen
+    document.getElementById('showProspects').addEventListener('change', function() {
+        if (this.checked) {
+            map.addLayer(prospectLayer);
+        } else {
+            map.removeLayer(prospectLayer);
+        }
+    });
+    
+    document.getElementById('showRoutes').addEventListener('change', function() {
+        if (this.checked) {
+            map.addLayer(routeLayer);
+        } else {
+            map.removeLayer(routeLayer);
+        }
+    });
     
     // Interessenten laden und auf Karte anzeigen
     async function loadProspects() {
         try {
+            console.log('[MAP][PROSPECTS] Lade Interessenten');
             const response = await axios.get('/api/prospects');
-            const prospects = response.data;
+            prospects = response.data;
             
             prospectCount.textContent = prospects.length;
             
+            // Bestehende Marker entfernen
+            prospectLayer.clearLayers();
+            
             if (prospects.length === 0) {
-                const noDataAlert = document.createElement('div');
-                noDataAlert.className = 'alert alert-warning mt-3';
-                noDataAlert.innerHTML = `
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Keine Daten:</strong> Es sind noch keine Interessenten registriert.
-                `;
-                document.querySelector('.card-body').appendChild(noDataAlert);
+                console.log('[MAP][PROSPECTS] Keine Interessenten vorhanden');
                 return;
             }
             
             // Marker für jeden Interessenten
-            const markers = [];
             prospects.forEach(prospect => {
-                const marker = L.marker([prospect.latitude, prospect.longitude])
-                    .bindPopup(`
+                const marker = L.marker([prospect.latitude, prospect.longitude], {
+                    icon: L.divIcon({
+                        className: 'prospect-marker',
+                        html: '<div style="background: #007bff; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-user" style="font-size: 10px;"></i></div>',
+                        iconSize: [20, 20]
+                    })
+                })
+                .bindPopup(`
+                    <div class="text-center">
+                        <strong>${prospect.name}</strong><br>
+                        <small class="text-muted">${prospect.address}</small><br>
+                        <button class="btn btn-sm btn-primary mt-2" onclick="showProspectDetails(${prospect.id})">
+                            <i class="fas fa-info-circle me-1"></i>Details
+                        </button>
+                    </div>
+                `);
+                
+                prospectLayer.addLayer(marker);
+            });
+            
+            console.log('[MAP][PROSPECTS] Interessenten geladen:', prospects.length);
+            
+        } catch (error) {
+            console.error('[MAP][ERROR] Fehler beim Laden der Interessenten:', error);
+        }
+    }
+    
+    // Routen laden und auf Karte anzeigen
+    async function loadRoutes() {
+        try {
+            console.log('[MAP][ROUTES] Lade Routen');
+            const response = await axios.get('/api/routes');
+            routes = response.data;
+            
+            routeCount.textContent = routes.length;
+            
+            // Bestehende Routen entfernen
+            routeLayer.clearLayers();
+            
+            if (routes.length === 0) {
+                console.log('[MAP][ROUTES] Keine Routen vorhanden');
+                return;
+            }
+            
+            // Routen auf Karte anzeigen
+            routes.forEach(route => {
+                if (route.waypoints && route.waypoints.length >= 2) {
+                    const polyline = L.polyline(route.waypoints, {
+                        color: route.color,
+                        weight: 4,
+                        opacity: 0.8
+                    }).bindPopup(`
                         <div class="text-center">
-                            <strong>${prospect.name}</strong><br>
-                            <small class="text-muted">${prospect.address}</small><br>
-                            <button class="btn btn-sm btn-primary mt-2" onclick="showProspectDetails(${prospect.id})">
+                            <strong>${route.name}</strong><br>
+                            <small class="text-muted">${route.description || 'Keine Beschreibung'}</small><br>
+                            <small class="text-muted">${route.waypoints.length} Wegpunkte</small><br>
+                            <button class="btn btn-sm btn-success mt-2" onclick="showRouteDetails(${route.id})">
                                 <i class="fas fa-info-circle me-1"></i>Details
                             </button>
                         </div>
-                    `)
-                    .addTo(map);
-                
-                markers.push(marker);
+                    `);
+                    
+                    routeLayer.addLayer(polyline);
+                }
             });
             
-            // Karte auf alle Marker ausrichten
-            if (markers.length > 0) {
-                const group = new L.featureGroup(markers);
-                map.fitBounds(group.getBounds().pad(0.1));
-                
-                // Zoom-Level begrenzen
-                if (map.getZoom() > 15) {
-                    map.setZoom(15);
-                }
-            }
+            console.log('[MAP][ROUTES] Routen geladen:', routes.length);
             
         } catch (error) {
-            console.error('Fehler beim Laden der Interessenten:', error);
-            const errorAlert = document.createElement('div');
-            errorAlert.className = 'alert alert-danger mt-3';
-            errorAlert.innerHTML = `
-                <i class="fas fa-exclamation-circle me-2"></i>
-                <strong>Fehler:</strong> Interessenten konnten nicht geladen werden.
-            `;
-            document.querySelector('.card-body').appendChild(errorAlert);
+            console.error('[MAP][ERROR] Fehler beim Laden der Routen:', error);
+        }
+    }
+    
+    // Karte auf alle Elemente ausrichten
+    function fitMapToContent() {
+        const allLayers = [];
+        
+        // Interessenten hinzufügen
+        prospectLayer.eachLayer(layer => allLayers.push(layer));
+        
+        // Routen hinzufügen
+        routeLayer.eachLayer(layer => allLayers.push(layer));
+        
+        if (allLayers.length > 0) {
+            const group = new L.featureGroup(allLayers);
+            map.fitBounds(group.getBounds().pad(0.1));
+            
+            // Zoom-Level begrenzen
+            if (map.getZoom() > 15) {
+                map.setZoom(15);
+            }
         }
     }
     
     // Interessent Details anzeigen
     window.showProspectDetails = async function(prospectId) {
         try {
+            console.log('[MAP][PROSPECTS] Zeige Details für Interessent:', prospectId);
             const response = await axios.get(`/api/prospects/${prospectId}`);
             const prospect = response.data;
             
@@ -200,13 +338,67 @@ document.addEventListener('DOMContentLoaded', function() {
             prospectModal.show();
             
         } catch (error) {
-            console.error('Fehler beim Laden der Details:', error);
+            console.error('[MAP][ERROR] Fehler beim Laden der Details:', error);
             alert('Details konnten nicht geladen werden.');
         }
     };
     
-    // Interessenten laden
-    loadProspects();
+    // Route Details anzeigen
+    window.showRouteDetails = function(routeId) {
+        const route = routes.find(r => r.id === routeId);
+        if (!route) return;
+        
+        console.log('[MAP][ROUTES] Zeige Route Details:', route.name);
+        
+        document.getElementById('routeDetails').innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-route me-2"></i>Name:</h6>
+                    <p>${route.name}</p>
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-palette me-2"></i>Farbe:</h6>
+                    <p><span style="color: ${route.color}; font-size: 1.5em;">●</span> ${route.color}</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-map-marker-alt me-2"></i>Wegpunkte:</h6>
+                    <p>${route.waypoints ? route.waypoints.length : 0}</p>
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-calendar me-2"></i>Erstellt:</h6>
+                    <p>${new Date(route.created_at).toLocaleDateString('de-DE')}</p>
+                </div>
+            </div>
+            ${route.description ? `
+                <div class="row">
+                    <div class="col-12">
+                        <h6><i class="fas fa-comment me-2"></i>Beschreibung:</h6>
+                        <p>${route.description}</p>
+                    </div>
+                </div>
+            ` : ''}
+            <div class="row">
+                <div class="col-12">
+                    <h6><i class="fas fa-info-circle me-2"></i>Status:</h6>
+                    <span class="badge bg-${route.is_active ? 'success' : 'secondary'}">${route.is_active ? 'Aktiv' : 'Inaktiv'}</span>
+                </div>
+            </div>
+        `;
+        
+        routeModal.show();
+    };
+    
+    // Daten laden und Karte anpassen
+    async function loadAllData() {
+        await Promise.all([loadProspects(), loadRoutes()]);
+        fitMapToContent();
+    }
+    
+    // Initial laden
+    loadAllData();
 });
 </script>
 {% endblock %}
+

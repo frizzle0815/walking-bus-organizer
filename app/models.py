@@ -248,6 +248,10 @@ class Prospect(db.Model):
     address = db.Column(db.String(200), nullable=False)
     phone = db.Column(db.String(20), nullable=False)
     email = db.Column(db.String(100), nullable=True)
+
+    # Neue Route-Referenz
+    route_id = db.Column(db.Integer, db.ForeignKey('routes.id'), nullable=True)
+    route_preference = db.Column(db.String(100), nullable=True)  # Für "Weiß ich noch nicht"
     
     # Geocoding-Daten
     latitude = db.Column(db.Float, nullable=True)
@@ -259,6 +263,9 @@ class Prospect(db.Model):
     updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
     status = db.Column(db.String(20), default='active')  # active, contacted, enrolled, declined
     notes = db.Column(db.Text, nullable=True)
+
+    # Relationship
+    route = db.relationship('Route', backref='prospects')
     
     def to_dict(self):
         return {
@@ -267,6 +274,9 @@ class Prospect(db.Model):
             'address': self.address,
             'phone': self.phone,
             'email': self.email,
+            'route_id': self.route_id,
+            'route_preference': self.route_preference,
+            'route_name': self.route.name if self.route else self.route_preference,
             'latitude': self.latitude,
             'longitude': self.longitude,
             'geocoded_address': self.geocoded_address,
@@ -275,3 +285,24 @@ class Prospect(db.Model):
             'notes': self.notes
         }
 
+class Route(db.Model):
+    __tablename__ = 'routes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    color = db.Column(db.String(7), default='#FF0000')  # Hex-Farbe
+    waypoints = db.Column(db.JSON)  # Liste von [lat, lng] Koordinaten
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'color': self.color,
+            'waypoints': self.waypoints,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }

@@ -57,6 +57,23 @@
                         </div>
                     </div>
 
+                    <!-- Neue Route-Auswahl -->
+                    <div class="form-floating mb-3">
+                        <select class="form-select" id="route_selection" name="route_selection" required>
+                            <option value="">Bitte wählen Sie eine Route...</option>
+                            <option value="unknown">-- Weiß ich noch nicht --</option>
+                            {% for route in routes %}
+                            <option value="{{ route.id }}">{{ route.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <label for="route_selection">
+                            <i class="fas fa-route me-2"></i>Interessierte Route *
+                        </label>
+                        <div class="form-text">
+                            Wählen Sie die Walking Bus Route, für die Sie sich interessieren
+                        </div>
+                    </div>
+
                     <div class="form-floating mb-4">
                         <textarea class="form-control" id="notes" name="notes" rows="3"></textarea>
                         <label for="notes">
@@ -110,12 +127,16 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('[INDEX.html][INIT] Registrierungsformular initialisiert');
+    
     const form = document.getElementById('registrationForm');
     const submitBtn = document.getElementById('submitBtn');
     const successModal = new bootstrap.Modal(document.getElementById('successModal'));
     
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
+        
+        console.log('[INDEX.html][SUBMIT] Formular wird gesendet...');
         
         // Button deaktivieren
         submitBtn.disabled = true;
@@ -128,12 +149,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 phone: formData.get('phone'),
                 email: formData.get('email'),
                 address: formData.get('address'),
-                notes: formData.get('notes')
+                notes: formData.get('notes'),
+                route_selection: formData.get('route_selection')
             };
+            
+            console.log('[INDEX.html][DATA] Formulardaten:', data);
             
             const response = await axios.post('/api/register', data);
             
             if (response.status === 201) {
+                console.log('[INDEX.html][SUCCESS] Registrierung erfolgreich:', response.data);
+                
                 // Erfolg
                 const result = response.data;
                 const geocodingResult = document.getElementById('geocodingResult');
@@ -159,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 successModal.show();
             }
         } catch (error) {
-            console.error('Registrierung fehlgeschlagen:', error);
+            console.error('[INDEX.html][ERROR] Registrierung fehlgeschlagen:', error);
             
             let errorMessage = 'Ein unbekannter Fehler ist aufgetreten.';
             if (error.response && error.response.data && error.response.data.error) {

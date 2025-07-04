@@ -1,0 +1,424 @@
+{% extends "registration/base.html" %}
+
+{% block title %}Routen verwalten - Walking Bus{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow">
+            <div class="card-header bg-warning text-dark">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-route me-2"></i>
+                    Routen verwalten
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Aktive Routen:</strong> 
+                            <span id="routeCount" class="badge bg-primary ms-2">0</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-success" onclick="startRouteCreation()">
+                                <i class="fas fa-plus me-2"></i>
+                                Neue Route erstellen
+                            </button>
+                            <a href="{{ url_for('registration.map_view') }}" class="btn btn-primary">
+                                <i class="fas fa-map me-2"></i>
+                                Zur Karte
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Route Creation Mode -->
+                <div id="routeCreationPanel" class="card mb-3" style="display: none;">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-plus me-2"></i>
+                            Neue Route erstellen
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="routeForm">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="routeName" class="form-label">Name der Route *</label>
+                                        <input type="text" class="form-control" id="routeName" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="routeColor" class="form-label">Farbe</label>
+                                        <input type="color" class="form-control form-control-color" id="routeColor" value="#FF0000">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="routeDescription" class="form-label">Beschreibung</label>
+                                <textarea class="form-control" id="routeDescription" rows="2"></textarea>
+                            </div>
+                            <div class="alert alert-info">
+                                <i class="fas fa-mouse-pointer me-2"></i>
+                                <strong>Anleitung:</strong> Klicken Sie auf die Karte, um Wegpunkte für die Route zu setzen. Mindestens 2 Punkte erforderlich.
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-success" disabled id="saveRouteBtn">
+                                    <i class="fas fa-save me-2"></i>
+                                    Route speichern
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelRouteCreation()">
+                                    <i class="fas fa-times me-2"></i>
+                                    Abbrechen
+                                </button>
+                                <button type="button" class="btn btn-warning" onclick="clearWaypoints()">
+                                    <i class="fas fa-trash me-2"></i>
+                                    Wegpunkte löschen
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Karte -->
+                <div id="map" class="map-container mb-3"></div>
+
+                <!-- Routen Liste -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Vorhandene Routen
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="routesList">
+                            <!-- Wird dynamisch gefüllt -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Route Details Modal -->
+<div class="modal fade" id="routeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="fas fa-route me-2"></i>
+                    Route Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="routeDetails">
+                <!-- Wird dynamisch gefüllt -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" id="deleteRouteBtn">
+                    <i class="fas fa-trash me-2"></i>
+                    Route löschen
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('[ROUTES][INIT] Initialisiere Routenverwaltung');
+    
+    // Karte initialisieren
+    const map = L.map('map').setView([51.1657, 10.4515], 6);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    
+    // Variablen für Route-Erstellung
+    let isCreatingRoute = false;
+    let currentWaypoints = [];
+    let waypointMarkers = [];
+    let previewPolyline = null;
+    let routes = [];
+    let routePolylines = [];
+    
+    const routeModal = new bootstrap.Modal(document.getElementById('routeModal'));
+    const routeCount = document.getElementById('routeCount');
+    const routesList = document.getElementById('routesList');
+    
+    // Route-Erstellung starten
+    window.startRouteCreation = function() {
+        console.log('[ROUTES][CREATE] Starte Route-Erstellung');
+        isCreatingRoute = true;
+        document.getElementById('routeCreationPanel').style.display = 'block';
+        clearWaypoints();
+        
+        // Karten-Click Handler
+        map.on('click', onMapClick);
+    };
+    
+    // Route-Erstellung abbrechen
+    window.cancelRouteCreation = function() {
+        console.log('[ROUTES][CREATE] Breche Route-Erstellung ab');
+        isCreatingRoute = false;
+        document.getElementById('routeCreationPanel').style.display = 'none';
+        clearWaypoints();
+        map.off('click', onMapClick);
+    };
+    
+    // Wegpunkte löschen
+    window.clearWaypoints = function() {
+        console.log('[ROUTES][CREATE] Lösche Wegpunkte');
+        currentWaypoints = [];
+        waypointMarkers.forEach(marker => map.removeLayer(marker));
+        waypointMarkers = [];
+        if (previewPolyline) {
+            map.removeLayer(previewPolyline);
+            previewPolyline = null;
+        }
+        document.getElementById('saveRouteBtn').disabled = true;
+    };
+    
+    // Karten-Click Handler
+    function onMapClick(e) {
+        if (!isCreatingRoute) return;
+        
+        console.log('[ROUTES][CREATE] Wegpunkt hinzugefügt:', e.latlng);
+        currentWaypoints.push([e.latlng.lat, e.latlng.lng]);
+        
+        // Marker hinzufügen
+        const marker = L.marker([e.latlng.lat, e.latlng.lng], {
+            icon: L.divIcon({
+                className: 'waypoint-marker',
+                html: `<div style="background: #28a745; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold;">${currentWaypoints.length}</div>`,
+                iconSize: [25, 25]
+            })
+        }).addTo(map);
+        
+        waypointMarkers.push(marker);
+        
+        // Vorschau-Linie aktualisieren
+        if (currentWaypoints.length >= 2) {
+            if (previewPolyline) {
+                map.removeLayer(previewPolyline);
+            }
+            
+            const color = document.getElementById('routeColor').value;
+            previewPolyline = L.polyline(currentWaypoints, {
+                color: color,
+                weight: 4,
+                opacity: 0.7,
+                dashArray: '10, 10'
+            }).addTo(map);
+            
+            document.getElementById('saveRouteBtn').disabled = false;
+        }
+    }
+    
+    // Route speichern
+    document.getElementById('routeForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const routeData = {
+            name: document.getElementById('routeName').value,
+            description: document.getElementById('routeDescription').value,
+            color: document.getElementById('routeColor').value,
+            waypoints: currentWaypoints
+        };
+        
+        console.log('[ROUTES][SAVE] Speichere Route:', routeData);
+        
+        try {
+            const response = await axios.post('/api/routes', routeData);
+            
+            if (response.status === 201) {
+                console.log('[ROUTES][SAVE] Route erfolgreich gespeichert');
+                alert('Route erfolgreich erstellt!');
+                cancelRouteCreation();
+                loadRoutes();
+                
+                // Form zurücksetzen
+                document.getElementById('routeForm').reset();
+                document.getElementById('routeColor').value = '#FF0000';
+            }
+        } catch (error) {
+            console.error('[ROUTES][ERROR] Fehler beim Speichern:', error);
+            alert('Fehler beim Speichern der Route: ' + (error.response?.data?.error || error.message));
+        }
+    });
+    
+    // Routen laden
+    async function loadRoutes() {
+        try {
+            console.log('[ROUTES][LOAD] Lade Routen');
+            const response = await axios.get('/api/routes');
+            routes = response.data;
+            
+            routeCount.textContent = routes.length;
+            
+            // Bestehende Routen von Karte entfernen
+            routePolylines.forEach(polyline => map.removeLayer(polyline));
+            routePolylines = [];
+            
+            // Routen auf Karte anzeigen
+            routes.forEach(route => {
+                if (route.waypoints && route.waypoints.length >= 2) {
+                    const polyline = L.polyline(route.waypoints, {
+                        color: route.color,
+                        weight: 4,
+                        opacity: 0.8
+                    }).bindPopup(`
+                        <div class="text-center">
+                            <strong>${route.name}</strong><br>
+                            <small class="text-muted">${route.description || 'Keine Beschreibung'}</small><br>
+                            <button class="btn btn-sm btn-warning mt-2" onclick="showRouteDetails(${route.id})">
+                                <i class="fas fa-info-circle me-1"></i>Details
+                            </button>
+                        </div>
+                    `).addTo(map);
+                    
+                    routePolylines.push(polyline);
+                }
+            });
+            
+            // Routen-Liste aktualisieren
+            updateRoutesList();
+            
+        } catch (error) {
+            console.error('[ROUTES][ERROR] Fehler beim Laden der Routen:', error);
+            routesList.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    Fehler beim Laden der Routen.
+                </div>
+            `;
+        }
+    }
+    
+    // Routen-Liste aktualisieren
+    function updateRoutesList() {
+        if (routes.length === 0) {
+            routesList.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Noch keine Routen vorhanden. Erstellen Sie Ihre erste Route!
+                </div>
+            `;
+            return;
+        }
+        
+        routesList.innerHTML = routes.map(route => `
+            <div class="card mb-2">
+                <div class="card-body py-2">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h6 class="mb-1">
+                                <span style="color: ${route.color}; font-size: 1.2em;">●</span>
+                                ${route.name}
+                            </h6>
+                            <small class="text-muted">${route.description || 'Keine Beschreibung'}</small>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">
+                                ${route.waypoints ? route.waypoints.length : 0} Wegpunkte
+                            </small>
+                        </div>
+                        <div class="col-md-3 text-end">
+                            <button class="btn btn-sm btn-outline-warning" onclick="showRouteDetails(${route.id})">
+                                <i class="fas fa-info-circle"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Route Details anzeigen
+    window.showRouteDetails = function(routeId) {
+        const route = routes.find(r => r.id === routeId);
+        if (!route) return;
+        
+        console.log('[ROUTES][DETAILS] Zeige Route Details:', route.name);
+        
+        document.getElementById('routeDetails').innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-route me-2"></i>Name:</h6>
+                    <p>${route.name}</p>
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-palette me-2"></i>Farbe:</h6>
+                    <p><span style="color: ${route.color}; font-size: 1.5em;">●</span> ${route.color}</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-map-marker-alt me-2"></i>Wegpunkte:</h6>
+                    <p>${route.waypoints ? route.waypoints.length : 0}</p>
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-calendar me-2"></i>Erstellt:</h6>
+                    <p>${new Date(route.created_at).toLocaleDateString('de-DE')}</p>
+                </div>
+            </div>
+            ${route.description ? `
+                <div class="row">
+                    <div class="col-12">
+                        <h6><i class="fas fa-comment me-2"></i>Beschreibung:</h6>
+                        <p>${route.description}</p>
+                    </div>
+                </div>
+            ` : ''}
+            <div class="row">
+                <div class="col-12">
+                    <h6><i class="fas fa-info-circle me-2"></i>Status:</h6>
+                    <span class="badge bg-${route.is_active ? 'success' : 'secondary'}">${route.is_active ? 'Aktiv' : 'Inaktiv'}</span>
+                </div>
+            </div>
+        `;
+        
+        // Delete Button Event Handler
+        document.getElementById('deleteRouteBtn').onclick = function() {
+            if (confirm(`Möchten Sie die Route "${route.name}" wirklich löschen?`)) {
+                deleteRoute(route.id);
+            }
+        };
+        
+        routeModal.show();
+    };
+    
+    // Route löschen
+    async function deleteRoute(routeId) {
+        try {
+            console.log('[ROUTES][DELETE] Lösche Route:', routeId);
+            const response = await axios.delete(`/api/routes/${routeId}`);
+            
+            if (response.status === 200) {
+                console.log('[ROUTES][DELETE] Route erfolgreich gelöscht');
+                alert('Route erfolgreich gelöscht!');
+                routeModal.hide();
+                loadRoutes();
+            }
+        } catch (error) {
+            console.error('[ROUTES][ERROR] Fehler beim Löschen:', error);
+            alert('Fehler beim Löschen der Route: ' + (error.response?.data?.error || error.message));
+        }
+    }
+    
+    // Initial laden
+    loadRoutes();
+});
+</script>
+{% endblock %}

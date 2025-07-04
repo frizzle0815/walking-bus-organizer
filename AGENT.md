@@ -3,6 +3,7 @@
 ## Commands
 - **Run**: `flask run` or `python migrate_and_run.py`
 - **Docker**: `docker-compose up`  
+- **Migrations**: `flask db migrate -m "(what changed)"`  
 - **Database**: `flask db upgrade` (migrations)
 - **No dedicated test suite found** - mainly manual testing through web interface
 
@@ -12,6 +13,7 @@
 - **Key modules**: `models.py` (SQLAlchemy ORM), `routes.py` (API endpoints), `services/` (business logic)
 - **Real-time features**: Server-Sent Events (SSE), Redis pub/sub, push notifications
 - **PWA support**: Service worker, offline capability, mobile-first design
+- **Production enviroment**: gunicorn with several workers
 
 ## Code Style
 - **Python**: Snake_case for variables/functions, PascalCase for classes
