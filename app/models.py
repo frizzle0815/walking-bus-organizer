@@ -239,51 +239,85 @@ class PushNotificationLog(db.Model):
     subscription = db.relationship('PushSubscription', backref='notification_logs')
 
 
+class WalkingBusRoute(db.Model):
+    """Walking Bus Routen für die Registrierungs-App"""
+    __tablename__ = 'walking_bus_routes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    route_coordinates = db.Column(db.JSON, nullable=False)  # Array von [lat, lon] Koordinaten
+    color = db.Column(db.String(7), default='#3388ff')  # Hex-Farbcode
+    is_active = db.Column(db.Boolean, default=True)
+    
+    # Metadaten
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    
+    # Relationship zu Prospects
+    prospects = db.relationship('Prospect', backref='walking_bus_route', lazy=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'route_coordinates': self.route_coordinates,
+            'color': self.color,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'prospect_count': len(self.prospects)
+        }
+
+
 class Prospect(db.Model):
     """Interessenten für Walking Bus Registrierung"""
     __tablename__ = 'prospects'
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    address = db.Column(db.String(200), nullable=False)
+    child_name = db.Column(db.String(100), nullable=False)  # Name des Kindes
+    school_class = db.Column(db.String(5), nullable=False)  # z.B. "1A", "2B", "3C", "4D"
     phone = db.Column(db.String(20), nullable=False)
     email = db.Column(db.String(100), nullable=True)
-
-    # Neue Route-Referenz
-    route_id = db.Column(db.Integer, db.ForeignKey('routes.id'), nullable=True)
-    route_preference = db.Column(db.String(100), nullable=True)  # Für "Weiß ich noch nicht"
     
-    # Geocoding-Daten
-    latitude = db.Column(db.Float, nullable=True)
-    longitude = db.Column(db.Float, nullable=True)
-    geocoded_address = db.Column(db.String(200), nullable=True)
+    # Geocoding-Daten (nur Koordinaten, keine Klartext-Adresse)
+    latitude = db.Column(db.Float, nullable=False)
+    longitude = db.Column(db.Float, nullable=False)
+    
+    # Walking Bus Route Zuordnung
+    walking_bus_route_id = db.Column(db.Integer, db.ForeignKey('walking_bus_routes.id'), nullable=False)
     
     # Metadaten
     created_at = db.Column(db.DateTime, default=get_current_time)
     updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
     status = db.Column(db.String(20), default='active')  # active, contacted, enrolled, declined
     notes = db.Column(db.Text, nullable=True)
-
-    # Relationship
-    route = db.relationship('Route', backref='prospects')
     
-    def to_dict(self):
-        return {
+    def to_dict(self, include_sensitive=False):
+        """
+        Gibt Prospect-Daten zurück
+        include_sensitive: Wenn True, werden sensible Daten wie Telefon/Email eingeschlossen
+        """
+        data = {
             'id': self.id,
-            'name': self.name,
-            'address': self.address,
-            'phone': self.phone,
-            'email': self.email,
-            'route_id': self.route_id,
-            'route_preference': self.route_preference,
-            'route_name': self.route.name if self.route else self.route_preference,
-            'latitude': self.latitude,
-            'longitude': self.longitude,
-            'geocoded_address': self.geocoded_address,
+            'child_name': self.child_name,
+            'school_class': self.school_class,
+            'walking_bus_route_id': self.walking_bus_route_id,
+            'walking_bus_route_name': self.walking_bus_route.name if self.walking_bus_route else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'status': self.status,
-            'notes': self.notes
         }
+        
+        if include_sensitive:
+            data.update({
+                'phone': self.phone,
+                'email': self.email,
+                'latitude': self.latitude,
+                'longitude': self.longitude,
+                'notes': self.notes
+            })
+        
+        return data
 
 class Route(db.Model):
     __tablename__ = 'routes'

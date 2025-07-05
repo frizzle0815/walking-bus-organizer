@@ -83,6 +83,8 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - FLASK_ENV=production
       - PORT=5001
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SCHOOL_COORDINATES=${SCHOOL_COORDINATES:-52.5200,13.4050}
     volumes:
       - ./registration_app:/app/registration_app
 

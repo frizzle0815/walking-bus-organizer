@@ -1,153 +1,208 @@
 {% extends "registration/base.html" %}
 
-{% block title %}Karte - Walking Bus Registrierung{% endblock %}
+{% block title %}Walking Bus Registrierung{% endblock %}
 
 {% block content %}
 <div class="row">
+    <!-- Admin Login Panel (nur wenn nicht angemeldet) -->
+    <div id="adminLoginPanel" class="col-12 mb-3" style="display: none;">
+        <div class="alert alert-info">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Admin-Berechtigung:</strong> Für erweiterte Funktionen anmelden
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#adminLoginModal">
+                        <i class="fas fa-sign-in-alt me-2"></i>Admin-Login
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Status Panel (nur wenn angemeldet) -->
+    <div id="adminStatusPanel" class="col-12 mb-3" style="display: none;">
+        <div class="alert alert-success">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <i class="fas fa-user-shield me-2"></i>
+                    <strong>Admin-Modus aktiv:</strong> Erweiterte Funktionen verfügbar
+                </div>
+                <div class="col-md-4">
+                    <div class="btn-group" role="group">
+                        <a href="/routes" class="btn btn-sm btn-warning">
+                            <i class="fas fa-route me-2"></i>Routen verwalten
+                        </a>
+                        <button id="adminLogoutBtn" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-sign-out-alt me-2"></i>Abmelden
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="col-12">
         <div class="card shadow">
             <div class="card-header bg-primary text-white">
-                <h3 class="card-title mb-0">
-                    <i class="fas fa-map me-2"></i>
-                    Interessenten-Karte & Routen
-                </h3>
-            </div>
-            <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            <strong>Interessenten:</strong> 
-                            <span id="prospectCount" class="badge bg-primary ms-2">0</span>
-                        </div>
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-map me-2"></i>
+                            Walking Bus Übersicht
+                        </h3>
                     </div>
-                    <div class="col-md-4">
-                        <div class="alert alert-success">
-                            <i class="fas fa-route me-2"></i>
-                            <strong>Routen:</strong> 
-                            <span id="routeCount" class="badge bg-success ms-2">0</span>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="d-grid gap-2">
-                            <a href="{{ url_for('registration.index') }}" class="btn btn-success">
-                                <i class="fas fa-user-plus me-2"></i>
-                                Neue Registrierung
-                            </a>
-                            <a href="{{ url_for('registration.routes_view') }}" class="btn btn-warning">
-                                <i class="fas fa-route me-2"></i>
-                                Routen verwalten
-                            </a>
-                        </div>
+                    <div class="col-md-4 text-end">
+                        <a href="/register" class="btn btn-success">
+                            <i class="fas fa-user-plus me-2"></i>
+                            Jetzt anmelden
+                        </a>
                     </div>
                 </div>
-
-                <!-- Karten-Steuerung -->
+            </div>
+            <div class="card-body">
                 <div class="row mb-3">
                     <div class="col-12">
-                        <div class="card">
-                            <div class="card-body py-2">
-                                <div class="form-check form-switch d-inline-block me-3">
-                                    <input class="form-check-input" type="checkbox" id="showProspects" checked>
-                                    <label class="form-check-label" for="showProspects">
-                                        <i class="fas fa-users me-1"></i>Interessenten anzeigen
-                                    </label>
-                                </div>
-                                <div class="form-check form-switch d-inline-block">
-                                    <input class="form-check-input" type="checkbox" id="showRoutes" checked>
-                                    <label class="form-check-label" for="showRoutes">
-                                        <i class="fas fa-route me-1"></i>Routen anzeigen
-                                    </label>
-                                </div>
-                            </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Walking Bus System:</strong> 
+                            Sicher und umweltfreundlich zur Schule! Hier sehen Sie alle geplanten Routen und aktuellen Anmeldungen.
+                            <span id="prospectCount" class="badge bg-primary ms-2">0 Anmeldungen</span>
                         </div>
                     </div>
                 </div>
 
-                <div id="map" class="map-container"></div>
+                <!-- Karte -->
+                <div id="map" class="map-container mb-4"></div>
 
-                <div class="mt-3">
-                    <h5>Legende:</h5>
-                    <div class="row">
-                        <div class="col-md-3">
-                            <span class="badge bg-primary me-2">●</span> Registrierte Interessenten
-                        </div>
-                        <div class="col-md-3">
-                            <span style="color: #FF0000; font-weight: bold;">━━━</span> Walking Bus Routen
-                        </div>
-                        <div class="col-md-6">
-                            <small class="text-muted">
-                                Klicken Sie auf Marker/Routen für weitere Informationen
-                            </small>
+                <!-- Legende -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6>Legende:</h6>
+                        <div class="d-flex flex-wrap gap-3">
+                            <span><i class="fas fa-school text-danger me-1"></i> Schule</span>
+                            <span><i class="fas fa-route text-primary me-1"></i> Walking Bus Routen</span>
+                            <span id="adminLegend" style="display: none;"><i class="fas fa-map-marker-alt text-success me-1"></i> Teilnehmer-Standorte</span>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- Interessenten-Liste -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card shadow">
-            <div class="card-header bg-info text-white">
-                <h4 class="card-title mb-0">
-                    <i class="fas fa-list me-2"></i>
-                    Interessenten nach Routen
-                </h4>
-            </div>
-            <div class="card-body">
-                <div id="prospectsListContainer">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Lade Interessenten...</span>
-                        </div>
-                        <p class="mt-2 text-muted">Lade Interessenten...</p>
-                    </div>
+                <!-- Anmeldungen Tabelle -->
+                <h5 class="mb-3">
+                    <i class="fas fa-list me-2"></i>Aktuelle Anmeldungen
+                </h5>
+                
+                <div id="routeTabs">
+                    <!-- Tabs werden dynamisch erstellt -->
+                </div>
+                
+                <div id="routeTabContent" class="tab-content mt-3">
+                    <!-- Tab-Inhalte werden dynamisch erstellt -->
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Prospect Details Modal -->
-<div class="modal fade" id="prospectModal" tabindex="-1">
+<!-- Admin Login Modal -->
+<div class="modal fade" id="adminLoginModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">
-                    <i class="fas fa-user me-2"></i>
-                    Interessent Details
+                    <i class="fas fa-sign-in-alt me-2"></i>
+                    Admin-Login
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body" id="prospectDetails">
-                <!-- Wird dynamisch gefüllt -->
+            <div class="modal-body">
+                <form id="adminLoginForm">
+                    <div class="form-floating mb-3">
+                        <input type="password" class="form-control" id="adminPassword" required>
+                        <label for="adminPassword">
+                            <i class="fas fa-key me-2"></i>Admin-Passwort
+                        </label>
+                    </div>
+                    <div id="loginError" class="alert alert-danger" style="display: none;"></div>
+                </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="submit" form="adminLoginForm" class="btn btn-primary">
+                    <i class="fas fa-sign-in-alt me-2"></i>Anmelden
+                </button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Route Details Modal -->
-<div class="modal fade" id="routeModal" tabindex="-1">
-    <div class="modal-dialog">
+<!-- Edit Prospect Modal (Admin only) -->
+<div class="modal fade" id="editProspectModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header bg-success text-white">
+            <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title">
-                    <i class="fas fa-route me-2"></i>
-                    Route Details
+                    <i class="fas fa-edit me-2"></i>
+                    Teilnehmer bearbeiten
                 </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body" id="routeDetails">
-                <!-- Wird dynamisch gefüllt -->
+            <div class="modal-body">
+                <form id="editProspectForm">
+                    <input type="hidden" id="editProspectId">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="editChildName" required>
+                                <label for="editChildName">Name des Kindes</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="editSchoolClass" required>
+                                    <option value="">Bitte wählen...</option>
+                                </select>
+                                <label for="editSchoolClass">Klasse</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="tel" class="form-control" id="editPhone" required>
+                                <label for="editPhone">Telefonnummer</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="email" class="form-control" id="editEmail">
+                                <label for="editEmail">E-Mail (optional)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-floating mb-3">
+                        <select class="form-select" id="editWalkingBusRoute" required>
+                            <option value="">Bitte wählen...</option>
+                        </select>
+                        <label for="editWalkingBusRoute">Walking Bus Route</label>
+                    </div>
+                    <div class="form-floating mb-3">
+                        <textarea class="form-control" id="editAddress" placeholder="Neue Adresse (optional)"></textarea>
+                        <label for="editAddress">Neue Adresse (optional)</label>
+                        <div class="form-text">Nur ausfüllen wenn sich die Adresse geändert hat</div>
+                    </div>
+                    <div class="form-floating mb-3">
+                        <textarea class="form-control" id="editNotes"></textarea>
+                        <label for="editNotes">Anmerkungen</label>
+                    </div>
+                </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="submit" form="editProspectForm" class="btn btn-warning">
+                    <i class="fas fa-save me-2"></i>Speichern
+                </button>
             </div>
         </div>
     </div>
@@ -157,457 +212,387 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('[MAP][INIT] Initialisiere Karte mit Interessenten und Routen');
-    
-    // Karte initialisieren (zentriert auf Deutschland)
-    const map = L.map('map').setView([51.1657, 10.4515], 6);
-    
-    // OpenStreetMap Tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
-    
-    const prospectModal = new bootstrap.Modal(document.getElementById('prospectModal'));
-    const routeModal = new bootstrap.Modal(document.getElementById('routeModal'));
-    const prospectCount = document.getElementById('prospectCount');
-    const routeCount = document.getElementById('routeCount');
-    
-    // Layer-Gruppen für bessere Kontrolle
-    const prospectLayer = L.layerGroup().addTo(map);
-    const routeLayer = L.layerGroup().addTo(map);
-    
+    // Globale Variablen
+    let map;
+    let isAdmin = false;
+    let config = {};
     let prospects = [];
     let routes = [];
     
-    // Toggle-Handler für Anzeige-Optionen
-    document.getElementById('showProspects').addEventListener('change', function() {
-        if (this.checked) {
-            map.addLayer(prospectLayer);
-        } else {
-            map.removeLayer(prospectLayer);
-        }
-    });
+    // Modals
+    const adminLoginModal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
+    const editProspectModal = new bootstrap.Modal(document.getElementById('editProspectModal'));
     
-    document.getElementById('showRoutes').addEventListener('change', function() {
-        if (this.checked) {
-            map.addLayer(routeLayer);
-        } else {
-            map.removeLayer(routeLayer);
-        }
-    });
+    // Initialisierung
+    async function init() {
+        await loadConfig();
+        await checkAdminStatus();
+        initMap();
+        await loadData();
+        updateUI();
+    }
     
-    // Interessenten laden und auf Karte anzeigen
-    async function loadProspects() {
+    // Konfiguration laden
+    async function loadConfig() {
         try {
-            console.log('[MAP][PROSPECTS] Lade Interessenten');
-            const response = await axios.get('/api/prospects');
-            prospects = response.data;
-            
-            prospectCount.textContent = prospects.length;
-            
-            // Bestehende Marker entfernen
-            prospectLayer.clearLayers();
-            
-            if (prospects.length === 0) {
-                console.log('[MAP][PROSPECTS] Keine Interessenten vorhanden');
-                return;
-            }
-            
-            // Marker nur für Interessenten mit Koordinaten
-            prospects.forEach(prospect => {
-                if (prospect.latitude && prospect.longitude) {
-                    const marker = L.marker([prospect.latitude, prospect.longitude], {
-                        icon: L.divIcon({
-                            className: 'prospect-marker',
-                            html: '<div style="background: #007bff; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-user" style="font-size: 10px;"></i></div>',
-                            iconSize: [20, 20]
-                        })
-                    })
-                    .bindPopup(`
-                        <div class="text-center">
-                            <strong>${prospect.name}</strong><br>
-                            <small class="text-muted">${prospect.address}</small><br>
-                            <button class="btn btn-sm btn-primary mt-2" onclick="showProspectDetails(${prospect.id})">
-                                <i class="fas fa-info-circle me-1"></i>Details
-                            </button>
-                        </div>
-                    `);
-                    
-                    prospectLayer.addLayer(marker);
-                }
-            });
-            
-            console.log('[MAP][PROSPECTS] Interessenten geladen:', prospects.length);
-            
+            const response = await axios.get('/api/config');
+            config = response.data;
         } catch (error) {
-            console.error('[MAP][ERROR] Fehler beim Laden der Interessenten:', error);
+            console.error('Fehler beim Laden der Konfiguration:', error);
         }
     }
     
-    // Routen laden und auf Karte anzeigen
-    async function loadRoutes() {
+    // Admin-Status prüfen
+    async function checkAdminStatus() {
         try {
-            console.log('[MAP][ROUTES] Lade Routen');
-            const response = await axios.get('/api/routes');
-            routes = response.data;
-            
-            routeCount.textContent = routes.length;
-            
-            // Bestehende Routen entfernen
-            routeLayer.clearLayers();
-            
-            if (routes.length === 0) {
-                console.log('[MAP][ROUTES] Keine Routen vorhanden');
-                return;
-            }
-            
-            // Routen auf Karte anzeigen
-            routes.forEach(route => {
-                if (route.waypoints && route.waypoints.length >= 2) {
-                    const polyline = L.polyline(route.waypoints, {
-                        color: route.color,
-                        weight: 4,
-                        opacity: 0.8
-                    }).bindPopup(`
-                        <div class="text-center">
-                            <strong>${route.name}</strong><br>
-                            <small class="text-muted">${route.description || 'Keine Beschreibung'}</small><br>
-                            <small class="text-muted">${route.waypoints.length} Wegpunkte</small><br>
-                            <button class="btn btn-sm btn-success mt-2" onclick="showRouteDetails(${route.id})">
-                                <i class="fas fa-info-circle me-1"></i>Details
-                            </button>
-                        </div>
-                    `);
-                    
-                    routeLayer.addLayer(polyline);
-                }
-            });
-            
-            console.log('[MAP][ROUTES] Routen geladen:', routes.length);
-            
+            const response = await axios.get('/api/auth/status');
+            isAdmin = response.data.is_admin;
         } catch (error) {
-            console.error('[MAP][ERROR] Fehler beim Laden der Routen:', error);
+            console.error('Fehler beim Prüfen des Admin-Status:', error);
         }
     }
-
-    // Interessenten-Liste nach Routen gruppiert anzeigen
-    function renderProspectsList() {
-        console.log('[MAP][LIST] Erstelle Interessenten-Liste');
+    
+    // Karte initialisieren
+    function initMap() {
+        const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
+        map = L.map('map').setView([schoolLat, schoolLon], 13);
         
-        if (prospects.length === 0) {
-            prospectsListContainer.innerHTML = `
-                <div class="text-center py-4">
-                    <i class="fas fa-users fa-3x text-muted mb-3"></i>
-                    <h5 class="text-muted">Keine Interessenten vorhanden</h5>
-                    <p class="text-muted">Es sind noch keine Interessenten registriert.</p>
-                </div>
-            `;
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Schul-Marker
+        L.marker([schoolLat, schoolLon], {
+            icon: L.divIcon({
+                html: '<i class="fas fa-school" style="color: red; font-size: 24px;"></i>',
+                iconSize: [30, 30],
+                className: 'custom-div-icon'
+            })
+        }).addTo(map).bindPopup('<strong>Schule</strong><br>Ziel aller Walking Bus Routen');
+    }
+    
+    // Daten laden
+    async function loadData() {
+        try {
+            const [routesResponse, prospectsResponse] = await Promise.all([
+                axios.get('/api/routes'),
+                axios.get('/api/prospects')
+            ]);
+            
+            routes = routesResponse.data;
+            prospects = prospectsResponse.data;
+            
+            displayRoutes();
+            displayProspects();
+            createProspectTabs();
+            
+        } catch (error) {
+            console.error('Fehler beim Laden der Daten:', error);
+        }
+    }
+    
+    // Routen auf Karte anzeigen
+    function displayRoutes() {
+        routes.forEach(route => {
+            if (route.route_coordinates && route.route_coordinates.length > 0) {
+                L.polyline(route.route_coordinates, {
+                    color: route.color,
+                    weight: 4,
+                    opacity: 0.8
+                }).addTo(map).bindPopup(`<strong>${route.name}</strong><br>${route.description || ''}`);
+            }
+        });
+    }
+    
+    // Teilnehmer auf Karte anzeigen (nur Admin)
+    function displayProspects() {
+        if (!isAdmin) return;
+        
+        prospects.forEach(prospect => {
+            if (prospect.latitude && prospect.longitude) {
+                L.marker([prospect.latitude, prospect.longitude], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-child" style="color: green; font-size: 16px;"></i>',
+                        iconSize: [20, 20],
+                        className: 'custom-div-icon'
+                    })
+                }).addTo(map).bindPopup(`
+                    <strong>${prospect.child_name}</strong><br>
+                    Klasse: ${prospect.school_class}<br>
+                    Route: ${prospect.walking_bus_route_name}<br>
+                    <small>Tel: ${prospect.phone}</small>
+                `);
+            }
+        });
+    }
+    
+    // Teilnehmer-Tabs erstellen
+    function createProspectTabs() {
+        const routeTabs = document.getElementById('routeTabs');
+        const routeTabContent = document.getElementById('routeTabContent');
+        
+        // Tabs zurücksetzen
+        routeTabs.innerHTML = '';
+        routeTabContent.innerHTML = '';
+        
+        if (routes.length === 0) {
+            routeTabs.innerHTML = '<p class="text-muted">Noch keine Routen verfügbar.</p>';
             return;
         }
         
-        // Gruppierung nach Routen
-        const routeGroups = {};
-        const unassignedProspects = [];
+        // Tab-Navigation erstellen
+        let tabsHtml = '<ul class="nav nav-tabs" role="tablist">';
+        routes.forEach((route, index) => {
+            const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
+            tabsHtml += `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link ${index === 0 ? 'active' : ''}" 
+                            id="route-${route.id}-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#route-${route.id}" 
+                            type="button" role="tab">
+                        ${route.name} 
+                        <span class="badge bg-secondary ms-2">${routeProspects.length}</span>
+                    </button>
+                </li>
+            `;
+        });
+        tabsHtml += '</ul>';
+        routeTabs.innerHTML = tabsHtml;
         
-        prospects.forEach(prospect => {
-            console.log('[MAP][LIST] Verarbeite Interessent:', prospect.name, 'Route ID:', prospect.route_id, 'Route Name:', prospect.route_name);
+        // Tab-Inhalte erstellen
+        routes.forEach((route, index) => {
+            const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
             
-            if (prospect.route_id && prospect.route_name) {
-                if (!routeGroups[prospect.route_id]) {
-                    routeGroups[prospect.route_id] = {
-                        name: prospect.route_name,
-                        color: prospect.route_color || '#007bff',
-                        prospects: []
-                    };
-                }
-                routeGroups[prospect.route_id].prospects.push(prospect);
-            } else if (prospect.route_preference) {
-                // Interessenten mit Routenpräferenz aber ohne zugewiesene Route
-                if (!routeGroups['preference']) {
-                    routeGroups['preference'] = {
-                        name: 'Keine Routenpräferenz angegeben',
-                        color: '#ffc107',
-                        prospects: []
-                    };
-                }
-                routeGroups['preference'].prospects.push(prospect);
+            let tableHtml = `
+                <div class="tab-pane fade ${index === 0 ? 'show active' : ''}" 
+                     id="route-${route.id}" role="tabpanel">
+            `;
+            
+            if (routeProspects.length === 0) {
+                tableHtml += '<p class="text-muted">Noch keine Anmeldungen für diese Route.</p>';
             } else {
-                unassignedProspects.push(prospect);
+                tableHtml += `
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Name des Kindes</th>
+                                    <th>Klasse</th>
+                                    <th>Anmeldung</th>
+                `;
+                
+                if (isAdmin) {
+                    tableHtml += `
+                                    <th>Telefon</th>
+                                    <th>E-Mail</th>
+                                    <th>Aktionen</th>
+                    `;
+                }
+                
+                tableHtml += '</tr></thead><tbody>';
+                
+                routeProspects.forEach(prospect => {
+                    tableHtml += `
+                        <tr>
+                            <td><strong>${prospect.child_name}</strong></td>
+                            <td><span class="badge bg-info">${prospect.school_class}</span></td>
+                            <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
+                    `;
+                    
+                    if (isAdmin) {
+                        tableHtml += `
+                            <td><a href="tel:${prospect.phone}">${prospect.phone}</a></td>
+                            <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-warning" onclick="editProspect(${prospect.id})">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_name}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        `;
+                    }
+                    
+                    tableHtml += '</tr>';
+                });
+                
+                tableHtml += '</tbody></table></div>';
             }
+            
+            tableHtml += '</div>';
+            routeTabContent.innerHTML += tableHtml;
         });
         
-        let html = '';
-        
-        // Routen-Gruppen anzeigen
-        Object.keys(routeGroups).forEach(routeId => {
-            const group = routeGroups[routeId];
-            html += `
-                <div class="mb-4">
-                    <h5 class="border-bottom pb-2">
-                        <span style="color: ${group.color}; font-size: 1.2em;">●</span>
-                        ${group.name}
-                        <span class="badge bg-secondary ms-2">${group.prospects.length}</span>
-                    </h5>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th><i class="fas fa-user me-1"></i>Name</th>
-                                    <th><i class="fas fa-phone me-1"></i>Telefon</th>
-                                    <th><i class="fas fa-calendar me-1"></i>Registriert am</th>
-                                    <th><i class="fas fa-info-circle me-1"></i>Status</th>
-                                    <th>Aktionen</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-            `;
-            
-            group.prospects.forEach(prospect => {
-                const registrationDate = new Date(prospect.created_at).toLocaleDateString('de-DE');
-                const statusBadge = getStatusBadge(prospect.status);
-                
-                html += `
-                    <tr>
-                        <td>
-                            <strong>${prospect.name}</strong>
-                            <br><small class="text-muted">${prospect.address}</small>
-                            ${prospect.route_preference ? `<br><small class="text-info"><i class="fas fa-info-circle me-1"></i>${prospect.route_preference}</small>` : ''}
-                        </td>
-                        <td>
-                            <a href="tel:${prospect.phone}" class="text-decoration-none">
-                                <i class="fas fa-phone me-1"></i>${prospect.phone}
-                            </a>
-                        </td>
-                        <td>${registrationDate}</td>
-                        <td>${statusBadge}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="showProspectDetails(${prospect.id})" title="Details anzeigen">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            
-            html += `
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        });
-        
-        // Nicht zugewiesene Interessenten anzeigen
-        if (unassignedProspects.length > 0) {
-            html += `
-                <div class="mb-4">
-                    <h5 class="border-bottom pb-2">
-                        <i class="fas fa-question-circle text-warning me-2"></i>
-                        Nicht zugewiesene Interessenten
-                        <span class="badge bg-warning ms-2">${unassignedProspects.length}</span>
-                    </h5>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th><i class="fas fa-user me-1"></i>Name</th>
-                                    <th><i class="fas fa-phone me-1"></i>Telefon</th>
-                                    <th><i class="fas fa-calendar me-1"></i>Registriert am</th>
-                                    <th><i class="fas fa-info-circle me-1"></i>Status</th>
-                                    <th>Aktionen</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-            `;
-            
-            unassignedProspects.forEach(prospect => {
-                const registrationDate = new Date(prospect.created_at).toLocaleDateString('de-DE');
-                const statusBadge = getStatusBadge(prospect.status);
-                
-                html += `
-                    <tr>
-                        <td>
-                            <strong>${prospect.name}</strong>
-                            <br><small class="text-muted">${prospect.address}</small>
-                        </td>
-                        <td>
-                            <a href="tel:${prospect.phone}" class="text-decoration-none">
-                                <i class="fas fa-phone me-1"></i>${prospect.phone}
-                            </a>
-                        </td>
-                        <td>${registrationDate}</td>
-                        <td>${statusBadge}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="showProspectDetails(${prospect.id})" title="Details anzeigen">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            
-            html += `
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
-        
-        prospectsListContainer.innerHTML = html;
-        console.log('[MAP][LIST] Interessenten-Liste erstellt - Routen-Gruppen:', Object.keys(routeGroups).length, 'Nicht zugewiesen:', unassignedProspects.length);
+        // Gesamt-Counter aktualisieren
+        document.getElementById('prospectCount').textContent = `${prospects.length} Anmeldungen`;
     }
     
-    // Hilfsfunktion für Status-Badge
-    function getStatusBadge(status) {
-        switch(status) {
-            case 'active':
-                return '<span class="badge bg-success"><i class="fas fa-check me-1"></i>Aktiv</span>';
-            case 'inactive':
-                return '<span class="badge bg-secondary"><i class="fas fa-pause me-1"></i>Inaktiv</span>';
-            case 'pending':
-                return '<span class="badge bg-warning"><i class="fas fa-clock me-1"></i>Wartend</span>';
-            default:
-                return '<span class="badge bg-light text-dark"><i class="fas fa-question me-1"></i>Unbekannt</span>';
-        }
-    }
-
-    // Karte auf alle Elemente ausrichten
-    function fitMapToContent() {
-        const allLayers = [];
+    // UI basierend auf Admin-Status aktualisieren
+    function updateUI() {
+        const adminLoginPanel = document.getElementById('adminLoginPanel');
+        const adminStatusPanel = document.getElementById('adminStatusPanel');
+        const adminLegend = document.getElementById('adminLegend');
         
-        // Interessenten hinzufügen
-        prospectLayer.eachLayer(layer => allLayers.push(layer));
-        
-        // Routen hinzufügen
-        routeLayer.eachLayer(layer => allLayers.push(layer));
-        
-        if (allLayers.length > 0) {
-            const group = new L.featureGroup(allLayers);
-            map.fitBounds(group.getBounds().pad(0.1));
-            
-            // Zoom-Level begrenzen
-            if (map.getZoom() > 15) {
-                map.setZoom(15);
-            }
+        if (isAdmin) {
+            adminLoginPanel.style.display = 'none';
+            adminStatusPanel.style.display = 'block';
+            adminLegend.style.display = 'inline';
+        } else {
+            adminLoginPanel.style.display = 'block';
+            adminStatusPanel.style.display = 'none';
+            adminLegend.style.display = 'none';
         }
     }
     
-    // Interessent Details anzeigen
-    window.showProspectDetails = async function(prospectId) {
+    // Admin Login
+    document.getElementById('adminLoginForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const password = document.getElementById('adminPassword').value;
+        const errorDiv = document.getElementById('loginError');
+        
         try {
-            console.log('[MAP][PROSPECTS] Zeige Details für Interessent:', prospectId);
+            const response = await axios.post('/api/auth/login', { password });
+            
+            if (response.status === 200) {
+                isAdmin = true;
+                adminLoginModal.hide();
+                document.getElementById('adminPassword').value = '';
+                errorDiv.style.display = 'none';
+                
+                // UI aktualisieren und Daten neu laden
+                updateUI();
+                await loadData();
+                
+                // Alert
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-success alert-dismissible fade show mt-3';
+                alert.innerHTML = `
+                    <i class="fas fa-check-circle me-2"></i>
+                    <strong>Erfolgreich angemeldet!</strong> Admin-Funktionen sind jetzt verfügbar.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                document.querySelector('.container').insertBefore(alert, document.querySelector('.row'));
+            }
+        } catch (error) {
+            errorDiv.textContent = error.response?.data?.error || 'Login fehlgeschlagen';
+            errorDiv.style.display = 'block';
+        }
+    });
+    
+    // Admin Logout
+    document.getElementById('adminLogoutBtn').addEventListener('click', async function() {
+        try {
+            await axios.post('/api/auth/logout');
+            isAdmin = false;
+            updateUI();
+            await loadData();
+            
+            // Page reload für saubere Darstellung
+            location.reload();
+        } catch (error) {
+            console.error('Logout-Fehler:', error);
+        }
+    });
+    
+    // Teilnehmer bearbeiten
+    window.editProspect = async function(prospectId) {
+        try {
             const response = await axios.get(`/api/prospects/${prospectId}`);
             const prospect = response.data;
             
-            document.getElementById('prospectDetails').innerHTML = `
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-user me-2"></i>Name:</h6>
-                        <p>${prospect.name}</p>
-                    </div>
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-phone me-2"></i>Telefon:</h6>
-                        <p><a href="tel:${prospect.phone}">${prospect.phone}</a></p>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-envelope me-2"></i>E-Mail:</h6>
-                        <p>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : 'Keine E-Mail angegeben'}</p>
-                    </div>
-                    <div class="col-md-6">
-                        <h6><i class="fas fa-calendar me-2"></i>Registriert:</h6>
-                        <p>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</p>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-12">
-                        <h6><i class="fas fa-map-marker-alt me-2"></i>Adresse:</h6>
-                        <p>${prospect.address}</p>
-                    </div>
-                </div>
-                ${prospect.notes ? `
-                    <div class="row">
-                        <div class="col-12">
-                            <h6><i class="fas fa-comment me-2"></i>Anmerkungen:</h6>
-                            <p>${prospect.notes}</p>
-                        </div>
-                    </div>
-                ` : ''}
-                <div class="row">
-                    <div class="col-12">
-                        <h6><i class="fas fa-info-circle me-2"></i>Status:</h6>
-                        <span class="badge bg-${prospect.status === 'active' ? 'success' : 'secondary'}">${prospect.status}</span>
-                    </div>
-                </div>
-            `;
+            // Formular füllen
+            document.getElementById('editProspectId').value = prospect.id;
+            document.getElementById('editChildName').value = prospect.child_name;
+            document.getElementById('editSchoolClass').value = prospect.school_class;
+            document.getElementById('editPhone').value = prospect.phone;
+            document.getElementById('editEmail').value = prospect.email || '';
+            document.getElementById('editWalkingBusRoute').value = prospect.walking_bus_route_id;
+            document.getElementById('editNotes').value = prospect.notes || '';
             
-            prospectModal.show();
+            // Dropdown-Optionen laden
+            loadEditFormOptions();
             
+            editProspectModal.show();
         } catch (error) {
-            console.error('[MAP][ERROR] Fehler beim Laden der Details:', error);
-            alert('Details konnten nicht geladen werden.');
+            alert('Fehler beim Laden der Teilnehmer-Daten');
         }
     };
     
-    // Route Details anzeigen
-    window.showRouteDetails = function(routeId) {
-        const route = routes.find(r => r.id === routeId);
-        if (!route) return;
+    // Edit-Form Optionen laden
+    function loadEditFormOptions() {
+        // Schulklassen
+        const classSelect = document.getElementById('editSchoolClass');
+        config.school_classes.forEach(schoolClass => {
+            if (!classSelect.querySelector(`option[value="${schoolClass}"]`)) {
+                const option = document.createElement('option');
+                option.value = schoolClass;
+                option.textContent = schoolClass;
+                classSelect.appendChild(option);
+            }
+        });
         
-        console.log('[MAP][ROUTES] Zeige Route Details:', route.name);
-        
-        document.getElementById('routeDetails').innerHTML = `
-            <div class="row">
-                <div class="col-md-6">
-                    <h6><i class="fas fa-route me-2"></i>Name:</h6>
-                    <p>${route.name}</p>
-                </div>
-                <div class="col-md-6">
-                    <h6><i class="fas fa-palette me-2"></i>Farbe:</h6>
-                    <p><span style="color: ${route.color}; font-size: 1.5em;">●</span> ${route.color}</p>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-6">
-                    <h6><i class="fas fa-map-marker-alt me-2"></i>Wegpunkte:</h6>
-                    <p>${route.waypoints ? route.waypoints.length : 0}</p>
-                </div>
-                <div class="col-md-6">
-                    <h6><i class="fas fa-calendar me-2"></i>Erstellt:</h6>
-                    <p>${new Date(route.created_at).toLocaleDateString('de-DE')}</p>
-                </div>
-            </div>
-            ${route.description ? `
-                <div class="row">
-                    <div class="col-12">
-                        <h6><i class="fas fa-comment me-2"></i>Beschreibung:</h6>
-                        <p>${route.description}</p>
-                    </div>
-                </div>
-            ` : ''}
-            <div class="row">
-                <div class="col-12">
-                    <h6><i class="fas fa-info-circle me-2"></i>Status:</h6>
-                    <span class="badge bg-${route.is_active ? 'success' : 'secondary'}">${route.is_active ? 'Aktiv' : 'Inaktiv'}</span>
-                </div>
-            </div>
-        `;
-        
-        routeModal.show();
-    };
-    
-    // Daten laden und Karte anpassen
-    async function loadAllData() {
-        await Promise.all([loadProspects(), loadRoutes()]);
-        fitMapToContent();
-        renderProspectsList(); // Liste nach dem Laden der Daten erstellen
+        // Walking Bus Routen
+        const routeSelect = document.getElementById('editWalkingBusRoute');
+        routes.forEach(route => {
+            if (!routeSelect.querySelector(`option[value="${route.id}"]`)) {
+                const option = document.createElement('option');
+                option.value = route.id;
+                option.textContent = route.name;
+                routeSelect.appendChild(option);
+            }
+        });
     }
     
-    // Initial laden
-    loadAllData();
+    // Teilnehmer speichern
+    document.getElementById('editProspectForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const prospectId = document.getElementById('editProspectId').value;
+        const data = {
+            child_name: document.getElementById('editChildName').value,
+            school_class: document.getElementById('editSchoolClass').value,
+            phone: document.getElementById('editPhone').value,
+            email: document.getElementById('editEmail').value,
+            walking_bus_route_id: parseInt(document.getElementById('editWalkingBusRoute').value),
+            notes: document.getElementById('editNotes').value,
+            address: document.getElementById('editAddress').value
+        };
+        
+        try {
+            await axios.put(`/api/prospects/${prospectId}`, data);
+            editProspectModal.hide();
+            await loadData();
+            
+            alert('Teilnehmer erfolgreich aktualisiert');
+        } catch (error) {
+            const errorMsg = error.response?.data?.error || 'Aktualisierung fehlgeschlagen';
+            alert('Fehler: ' + errorMsg);
+        }
+    });
+    
+    // Teilnehmer löschen
+    window.deleteProspect = async function(prospectId, childName) {
+        if (!confirm(`Möchten Sie ${childName} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+            return;
+        }
+        
+        try {
+            await axios.delete(`/api/prospects/${prospectId}`);
+            await loadData();
+            
+            alert('Teilnehmer erfolgreich gelöscht');
+        } catch (error) {
+            alert('Fehler beim Löschen');
+        }
+    };
+    
+    // App starten
+    init();
 });
 </script>
 {% endblock %}
-

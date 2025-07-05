@@ -18,6 +18,9 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
+    # Session-Konfiguration für Admin-Login
+    app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 Stunde
+    
     # Logging
     logging.basicConfig(level=logging.INFO)
     app.logger.setLevel(logging.INFO)
@@ -30,6 +33,6 @@ def create_app():
     app.register_blueprint(bp)
     
     # Import models für Initialisierung
-    from app.models import Prospect
+    from app.models import Prospect, WalkingBusRoute
     
     return app

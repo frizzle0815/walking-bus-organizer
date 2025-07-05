@@ -1,0 +1,216 @@
+{% extends "registration/base.html" %}
+
+{% block title %}Registrierung - Walking Bus{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-user-plus me-2"></i>
+                    Interessenten-Registrierung
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Willkommen!</strong> 
+                    Registrieren Sie sich hier als Interessent für den Walking Bus. 
+                    Wir nehmen dann Kontakt mit Ihnen auf.
+                </div>
+
+                <form id="registrationForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="name" name="name" required>
+                                <label for="name">
+                                    <i class="fas fa-user me-2"></i>Name des Kindes *
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="tel" class="form-control" id="phone" name="phone" required>
+                                <label for="phone">
+                                    <i class="fas fa-phone me-2"></i>Handynummer *
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-floating mb-3">
+                        <input type="email" class="form-control" id="email" name="email">
+                        <label for="email">
+                            <i class="fas fa-envelope me-2"></i>E-Mail (optional)
+                        </label>
+                    </div>
+
+                    <div class="form-floating mb-3">
+                        <textarea class="form-control" id="address" name="address" required></textarea>
+                        <label for="address">
+                            <i class="fas fa-map-marker-alt me-2"></i>Vollständige Adresse *
+                        </label>
+                        <div class="form-text">
+                            Bitte geben Sie Ihre vollständige Adresse ein (Straße, Hausnummer, PLZ, Ort). Dies wird nicht öffentlich gespeichert!
+                        </div>
+                    </div>
+
+                    <!-- Neue Route-Auswahl -->
+                    <div class="form-floating mb-3">
+                        <select class="form-select" id="route_selection" name="route_selection" required>
+                            <option value="">Bitte wählen Sie eine Route...</option>
+                            <option value="unknown">-- Weiß ich noch nicht --</option>
+                            {% for route in routes %}
+                            <option value="{{ route.id }}">{{ route.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <label for="route_selection">
+                            <i class="fas fa-route me-2"></i>Interessierte Route *
+                        </label>
+                        <div class="form-text">
+                            Wählen Sie die Walking Bus Route, für die Sie sich interessieren
+                        </div>
+                    </div>
+
+                    <div class="form-floating mb-4">
+                        <textarea class="form-control" id="notes" name="notes" rows="3"></textarea>
+                        <label for="notes">
+                            <i class="fas fa-comment me-2"></i>Anmerkungen (optional)
+                        </label>
+                        <div class="form-text">
+                            Besondere Wünsche oder Informationen
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                            <i class="fas fa-paper-plane me-2"></i>
+                            Registrierung senden
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Erfolgs-Modal -->
+        <div class="modal fade" id="successModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-check-circle me-2"></i>
+                            Registrierung erfolgreich
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>Vielen Dank für Ihre Registrierung!</strong></p>
+                        <p>Wir haben Ihre Daten erhalten und werden uns in Kürze bei Ihnen melden.</p>
+                        <div id="geocodingResult" class="mt-3"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                        <a href="{{ url_for('registration.map_view') }}" class="btn btn-primary">
+                            <i class="fas fa-map me-2"></i>
+                            Karte anzeigen
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('[INDEX.html][INIT] Registrierungsformular initialisiert');
+    
+    const form = document.getElementById('registrationForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+    
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        console.log('[INDEX.html][SUBMIT] Formular wird gesendet...');
+        
+        // Button deaktivieren
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Wird gesendet...';
+        
+        try {
+            const formData = new FormData(form);
+            const data = {
+                name: formData.get('name'),
+                phone: formData.get('phone'),
+                email: formData.get('email'),
+                address: formData.get('address'),
+                notes: formData.get('notes'),
+                route_selection: formData.get('route_selection')
+            };
+            
+            console.log('[INDEX.html][DATA] Formulardaten:', data);
+            
+            const response = await axios.post('/api/register', data);
+            
+            if (response.status === 201) {
+                console.log('[INDEX.html][SUCCESS] Registrierung erfolgreich:', response.data);
+                
+                // Erfolg
+                const result = response.data;
+                const geocodingResult = document.getElementById('geocodingResult');
+                
+                if (result.geocoded) {
+                    geocodingResult.innerHTML = `
+                        <div class="alert alert-success">
+                            <i class="fas fa-map-marker-alt me-2"></i>
+                            Ihre Adresse wurde erfolgreich auf der Karte lokalisiert.
+                        </div>
+                    `;
+                } else {
+                    geocodingResult.innerHTML = `
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Ihre Adresse konnte nicht automatisch lokalisiert werden, 
+                            aber Ihre Registrierung wurde gespeichert.
+                        </div>
+                    `;
+                }
+                
+                form.reset();
+                successModal.show();
+            }
+        } catch (error) {
+            console.error('[INDEX.html][ERROR] Registrierung fehlgeschlagen:', error);
+            
+            let errorMessage = 'Ein unbekannter Fehler ist aufgetreten.';
+            if (error.response && error.response.data && error.response.data.error) {
+                errorMessage = error.response.data.error;
+            }
+            
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger mt-3';
+            alert.innerHTML = `
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <strong>Fehler:</strong> ${errorMessage}
+            `;
+            
+            form.appendChild(alert);
+            
+            // Alert nach 5 Sekunden entfernen
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        } finally {
+            // Button wieder aktivieren
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Registrierung senden';
+        }
+    });
+});
+</script>
+{% endblock %}

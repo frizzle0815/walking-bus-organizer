@@ -1,94 +1,163 @@
 {% extends "registration/base.html" %}
 
-{% block title %}Registrierung - Walking Bus{% endblock %}
+{% block title %}Anmeldung - Walking Bus{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
+        <!-- Zurück-Button -->
+        <div class="mb-3">
+            <a href="/" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-2"></i>Zurück zur Übersicht
+            </a>
+        </div>
+
         <div class="card shadow">
-            <div class="card-header bg-primary text-white">
+            <div class="card-header bg-success text-white">
                 <h3 class="card-title mb-0">
                     <i class="fas fa-user-plus me-2"></i>
-                    Interessenten-Registrierung
+                    Walking Bus Anmeldung
                 </h3>
             </div>
             <div class="card-body">
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle me-2"></i>
                     <strong>Willkommen!</strong> 
-                    Registrieren Sie sich hier als Interessent für den Walking Bus. 
-                    Wir nehmen dann Kontakt mit Ihnen auf.
+                    Melden Sie Ihr Kind hier für den Walking Bus an. Nach der Anmeldung nehmen wir Kontakt mit Ihnen auf.
                 </div>
 
                 <form id="registrationForm">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-floating mb-3">
-                                <input type="text" class="form-control" id="name" name="name" required>
-                                <label for="name">
-                                    <i class="fas fa-user me-2"></i>Name des Kindes *
-                                </label>
+                    <!-- Kind-Informationen -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-child me-2"></i>Informationen zum Kind</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="childName" name="child_name" required>
+                                        <label for="childName">
+                                            <i class="fas fa-user me-2"></i>Name des Kindes *
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <select class="form-select" id="schoolClass" name="school_class" required>
+                                            <option value="">Bitte wählen...</option>
+                                            {% for class_name in school_classes %}
+                                            <option value="{{ class_name }}">{{ class_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <label for="schoolClass">
+                                            <i class="fas fa-graduation-cap me-2"></i>Klasse *
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
-                            <div class="form-floating mb-3">
-                                <input type="tel" class="form-control" id="phone" name="phone" required>
-                                <label for="phone">
-                                    <i class="fas fa-phone me-2"></i>Handynummer *
-                                </label>
+                    </div>
+
+                    <!-- Kontakt-Informationen -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-phone me-2"></i>Kontakt-Informationen</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="tel" class="form-control" id="phone" name="phone" required>
+                                        <label for="phone">
+                                            <i class="fas fa-phone me-2"></i>Handynummer *
+                                        </label>
+                                        <div class="form-text">
+                                            Für wichtige Mitteilungen und Notfälle
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="email" class="form-control" id="email" name="email">
+                                        <label for="email">
+                                            <i class="fas fa-envelope me-2"></i>E-Mail (optional)
+                                        </label>
+                                        <div class="form-text">
+                                            Für weitere Kommunikation
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="form-floating mb-3">
-                        <input type="email" class="form-control" id="email" name="email">
-                        <label for="email">
-                            <i class="fas fa-envelope me-2"></i>E-Mail (optional)
-                        </label>
-                    </div>
+                    <!-- Adresse und Route -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Adresse und Route</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-floating mb-3">
+                                <textarea class="form-control" id="address" name="address" required style="height: 80px;"></textarea>
+                                <label for="address">
+                                    <i class="fas fa-home me-2"></i>Vollständige Adresse *
+                                </label>
+                                <div class="form-text">
+                                    Bitte geben Sie Ihre vollständige Adresse ein (Straße, Hausnummer, PLZ, Ort).
+                                    Diese wird nur zur Routenplanung verwendet.
+                                </div>
+                            </div>
 
-                    <div class="form-floating mb-3">
-                        <textarea class="form-control" id="address" name="address" required></textarea>
-                        <label for="address">
-                            <i class="fas fa-map-marker-alt me-2"></i>Vollständige Adresse *
-                        </label>
-                        <div class="form-text">
-                            Bitte geben Sie Ihre vollständige Adresse ein (Straße, Hausnummer, PLZ, Ort). Dies wird nicht öffentlich gespeichert!
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="walkingBusRoute" name="walking_bus_route_id" required>
+                                    <option value="">Bitte wählen...</option>
+                                    {% for route in walking_bus_routes %}
+                                    <option value="{{ route.id }}">{{ route.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <label for="walkingBusRoute">
+                                    <i class="fas fa-route me-2"></i>Walking Bus Route *
+                                </label>
+                                <div class="form-text">
+                                    Wählen Sie die Route, die für Sie am besten geeignet ist
+                                </div>
+                            </div>
+
+                            <!-- Route Details -->
+                            <div id="routeDetails" class="alert alert-light" style="display: none;">
+                                <h6><i class="fas fa-info-circle me-2"></i>Route-Informationen:</h6>
+                                <div id="routeDescription"></div>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Neue Route-Auswahl -->
-                    <div class="form-floating mb-3">
-                        <select class="form-select" id="route_selection" name="route_selection" required>
-                            <option value="">Bitte wählen Sie eine Route...</option>
-                            <option value="unknown">-- Weiß ich noch nicht --</option>
-                            {% for route in routes %}
-                            <option value="{{ route.id }}">{{ route.name }}</option>
-                            {% endfor %}
-                        </select>
-                        <label for="route_selection">
-                            <i class="fas fa-route me-2"></i>Interessierte Route *
-                        </label>
-                        <div class="form-text">
-                            Wählen Sie die Walking Bus Route, für die Sie sich interessieren
-                        </div>
-                    </div>
+                    <!-- Datenschutz und Absenden -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="dataProtection" required>
+                                <label class="form-check-label" for="dataProtection">
+                                    <strong>Datenschutz:</strong> Ich stimme zu, dass meine Angaben zur Kontaktaufnahme 
+                                    und Routenplanung gespeichert werden. Die Adresse wird nur in Form von Koordinaten 
+                                    gespeichert. *
+                                </label>
+                            </div>
 
-                    <div class="form-floating mb-4">
-                        <textarea class="form-control" id="notes" name="notes" rows="3"></textarea>
-                        <label for="notes">
-                            <i class="fas fa-comment me-2"></i>Anmerkungen (optional)
-                        </label>
-                        <div class="form-text">
-                            Besondere Wünsche oder Informationen
-                        </div>
-                    </div>
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Wichtig:</strong> Nach der Anmeldung prüfen wir Ihre Adresse automatisch. 
+                                Falls die Adresse nicht gefunden werden kann, erhalten Sie eine Fehlermeldung 
+                                und können die Eingabe korrigieren.
+                            </div>
 
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
-                            <i class="fas fa-paper-plane me-2"></i>
-                            Registrierung senden
-                        </button>
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-success btn-lg" id="submitBtn">
+                                    <i class="fas fa-paper-plane me-2"></i>
+                                    Anmeldung senden
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -101,21 +170,61 @@
                     <div class="modal-header bg-success text-white">
                         <h5 class="modal-title">
                             <i class="fas fa-check-circle me-2"></i>
-                            Registrierung erfolgreich
+                            Anmeldung erfolgreich
                         </h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <p><strong>Vielen Dank für Ihre Registrierung!</strong></p>
-                        <p>Wir haben Ihre Daten erhalten und werden uns in Kürze bei Ihnen melden.</p>
-                        <div id="geocodingResult" class="mt-3"></div>
+                        <p><strong>Vielen Dank für die Anmeldung!</strong></p>
+                        <p>Die Anmeldung für <strong id="successChildName"></strong> wurde erfolgreich übermittelt.</p>
+                        <p>Wir haben Ihre Daten erhalten und werden uns in Kürze bei Ihnen melden, um die nächsten Schritte zu besprechen.</p>
+                        
+                        <div class="alert alert-success">
+                            <i class="fas fa-map-marker-alt me-2"></i>
+                            Ihre Adresse wurde erfolgreich lokalisiert und der gewählten Route zugeordnet.
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
-                        <a href="{{ url_for('registration.map_view') }}" class="btn btn-primary">
+                        <a href="/" class="btn btn-primary">
                             <i class="fas fa-map me-2"></i>
-                            Karte anzeigen
+                            Zur Übersicht
                         </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fehler-Modal -->
+        <div class="modal fade" id="errorModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Adresse nicht gefunden
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>Die eingegebene Adresse konnte nicht gefunden werden.</strong></p>
+                        <p>Bitte überprüfen Sie Ihre Eingabe und versuchen Sie es erneut.</p>
+                        
+                        <div class="alert alert-warning">
+                            <i class="fas fa-lightbulb me-2"></i>
+                            <strong>Tipps:</strong>
+                            <ul class="mb-0">
+                                <li>Verwenden Sie die vollständige Adresse mit PLZ und Ort</li>
+                                <li>Überprüfen Sie die Schreibweise</li>
+                                <li>Beispiel: "Musterstraße 123, 12345 Musterstadt"</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                            <i class="fas fa-edit me-2"></i>
+                            Adresse korrigieren
+                        </button>
                     </div>
                 </div>
             </div>
@@ -127,89 +236,146 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('[INDEX.html][INIT] Registrierungsformular initialisiert');
-    
     const form = document.getElementById('registrationForm');
     const submitBtn = document.getElementById('submitBtn');
     const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+    const errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
+    const routeSelect = document.getElementById('walkingBusRoute');
+    const routeDetails = document.getElementById('routeDetails');
+    const routeDescription = document.getElementById('routeDescription');
     
+    // Route-Details anzeigen wenn Route gewählt wird
+    routeSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        
+        if (this.value) {
+            // Hier könnten wir zusätzliche Route-Informationen via API laden
+            routeDescription.innerHTML = `
+                <strong>${selectedOption.text}</strong><br>
+                <small class="text-muted">Weitere Details zur Route erhalten Sie nach der Anmeldung.</small>
+            `;
+            routeDetails.style.display = 'block';
+        } else {
+            routeDetails.style.display = 'none';
+        }
+    });
+    
+    // Form-Validation
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        console.log('[INDEX.html][SUBMIT] Formular wird gesendet...');
-        
         // Button deaktivieren
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Wird gesendet...';
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Wird verarbeitet...';
+        
+        // Alle Alerts entfernen
+        document.querySelectorAll('.alert-danger').forEach(alert => alert.remove());
         
         try {
             const formData = new FormData(form);
             const data = {
-                name: formData.get('name'),
+                child_name: formData.get('child_name'),
+                school_class: formData.get('school_class'),
                 phone: formData.get('phone'),
                 email: formData.get('email'),
                 address: formData.get('address'),
-                notes: formData.get('notes'),
-                route_selection: formData.get('route_selection')
+                walking_bus_route_id: parseInt(formData.get('walking_bus_route_id'))
             };
-            
-            console.log('[INDEX.html][DATA] Formulardaten:', data);
             
             const response = await axios.post('/api/register', data);
             
             if (response.status === 201) {
-                console.log('[INDEX.html][SUCCESS] Registrierung erfolgreich:', response.data);
-                
                 // Erfolg
-                const result = response.data;
-                const geocodingResult = document.getElementById('geocodingResult');
-                
-                if (result.geocoded) {
-                    geocodingResult.innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="fas fa-map-marker-alt me-2"></i>
-                            Ihre Adresse wurde erfolgreich auf der Karte lokalisiert.
-                        </div>
-                    `;
-                } else {
-                    geocodingResult.innerHTML = `
-                        <div class="alert alert-warning">
-                            <i class="fas fa-exclamation-triangle me-2"></i>
-                            Ihre Adresse konnte nicht automatisch lokalisiert werden, 
-                            aber Ihre Registrierung wurde gespeichert.
-                        </div>
-                    `;
-                }
-                
+                document.getElementById('successChildName').textContent = data.child_name;
                 form.reset();
+                routeDetails.style.display = 'none';
                 successModal.show();
             }
         } catch (error) {
-            console.error('[INDEX.html][ERROR] Registrierung fehlgeschlagen:', error);
+            console.error('Registrierung fehlgeschlagen:', error);
             
-            let errorMessage = 'Ein unbekannter Fehler ist aufgetreten.';
-            if (error.response && error.response.data && error.response.data.error) {
-                errorMessage = error.response.data.error;
+            if (error.response && error.response.data && error.response.data.geocoding_failed) {
+                // Geocoding-Fehler - spezielles Modal
+                errorModal.show();
+            } else {
+                // Allgemeiner Fehler
+                let errorMessage = 'Ein unbekannter Fehler ist aufgetreten.';
+                if (error.response && error.response.data && error.response.data.error) {
+                    errorMessage = error.response.data.error;
+                }
+                
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-danger mt-3';
+                alert.innerHTML = `
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Fehler:</strong> ${errorMessage}
+                `;
+                
+                form.insertBefore(alert, form.firstChild);
+                
+                // Alert nach 10 Sekunden entfernen
+                setTimeout(() => {
+                    alert.remove();
+                }, 10000);
+                
+                // Zur Adresse scrollen falls Geocoding-Problem
+                if (errorMessage.includes('Adresse')) {
+                    document.getElementById('address').scrollIntoView({ behavior: 'smooth' });
+                    document.getElementById('address').focus();
+                }
             }
-            
-            const alert = document.createElement('div');
-            alert.className = 'alert alert-danger mt-3';
-            alert.innerHTML = `
-                <i class="fas fa-exclamation-circle me-2"></i>
-                <strong>Fehler:</strong> ${errorMessage}
-            `;
-            
-            form.appendChild(alert);
-            
-            // Alert nach 5 Sekunden entfernen
-            setTimeout(() => {
-                alert.remove();
-            }, 5000);
         } finally {
             // Button wieder aktivieren
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Registrierung senden';
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Anmeldung senden';
         }
+    });
+    
+    // Form-Validierung in Echtzeit
+    const requiredFields = ['childName', 'schoolClass', 'phone', 'address', 'walkingBusRoute'];
+    
+    requiredFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.addEventListener('blur', function() {
+                validateField(this);
+            });
+            
+            field.addEventListener('input', function() {
+                // Entferne Fehler-Styling während der Eingabe
+                this.classList.remove('is-invalid');
+            });
+        }
+    });
+    
+    function validateField(field) {
+        const isValid = field.checkValidity();
+        
+        if (isValid) {
+            field.classList.remove('is-invalid');
+            field.classList.add('is-valid');
+        } else {
+            field.classList.remove('is-valid');
+            field.classList.add('is-valid');
+        }
+        
+        return isValid;
+    }
+    
+    // Telefonnummer-Formatierung
+    document.getElementById('phone').addEventListener('input', function(e) {
+        // Einfache Formatierung für deutsche Handynummern
+        let value = e.target.value.replace(/\D/g, '');
+        
+        if (value.length > 11) {
+            value = value.slice(0, 11);
+        }
+        
+        if (value.length > 3) {
+            value = value.replace(/(\d{4})(\d{3})(\d{4})/, '$1 $2 $3');
+        }
+        
+        e.target.value = value;
     });
 });
 </script>
