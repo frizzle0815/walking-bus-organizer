@@ -115,12 +115,13 @@
                                     {% for route in walking_bus_routes %}
                                     <option value="{{ route.id }}">{{ route.name }}</option>
                                     {% endfor %}
+                                    <option value="interest_only">🔍 Nur Interesse anmelden (ich weiß noch nicht, welche Route passt)</option>
                                 </select>
                                 <label for="walkingBusRoute">
-                                    <i class="fas fa-route me-2"></i>Walking Bus Route *
+                                    <i class="fas fa-route me-2"></i>Walking Bus Option *
                                 </label>
                                 <div class="form-text">
-                                    Wählen Sie die Route, die für Sie am besten geeignet ist
+                                    Wählen Sie eine bestehende Route oder melden Sie Ihr generelles Interesse an
                                 </div>
                             </div>
 
@@ -248,8 +249,18 @@ document.addEventListener('DOMContentLoaded', function() {
     routeSelect.addEventListener('change', function() {
         const selectedOption = this.options[this.selectedIndex];
         
-        if (this.value) {
-            // Hier könnten wir zusätzliche Route-Informationen via API laden
+        if (this.value === 'interest_only') {
+            routeDescription.innerHTML = `
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Nur Interesse anmelden</strong><br>
+                    Sie wissen noch nicht, welche Route für Sie geeignet ist? Kein Problem!<br>
+                    <small>Nach Ihrer Anmeldung schauen wir gemeinsam, welche Möglichkeiten es gibt 
+                    oder ob sich eine neue Route mit anderen Interessenten bilden lässt.</small>
+                </div>
+            `;
+            routeDetails.style.display = 'block';
+        } else if (this.value) {
             routeDescription.innerHTML = `
                 <strong>${selectedOption.text}</strong><br>
                 <small class="text-muted">Weitere Details zur Route erhalten Sie nach der Anmeldung.</small>

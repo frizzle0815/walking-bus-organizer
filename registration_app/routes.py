@@ -78,7 +78,7 @@ def register_prospect():
         data = request.get_json()
         
         # Validierung
-        required_fields = ['child_name', 'school_class', 'phone', 'address', 'walking_bus_route_id']
+        required_fields = ['child_name', 'school_class', 'phone', 'address']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field} ist erforderlich'}), 400
@@ -87,10 +87,14 @@ def register_prospect():
         if data['school_class'] not in SCHOOL_CLASSES:
             return jsonify({'error': 'Ungültige Schulklasse'}), 400
             
-        # Route validieren
-        route = WalkingBusRoute.query.get(data['walking_bus_route_id'])
-        if not route or not route.is_active:
-            return jsonify({'error': 'Ungültige Walking Bus Route'}), 400
+        # Route validieren (kann null sein für "Nur Interesse")
+        walking_bus_route_id = data.get('walking_bus_route_id')
+        if walking_bus_route_id and walking_bus_route_id != 'interest_only':
+            route = WalkingBusRoute.query.get(walking_bus_route_id)
+            if not route or not route.is_active:
+                return jsonify({'error': 'Ungültige Walking Bus Route'}), 400
+        else:
+            walking_bus_route_id = None  # "Nur Interesse anmelden"
         
         # Geocoding durchführen
         geocoding_service = GeocodingService()
@@ -110,7 +114,7 @@ def register_prospect():
             email=data.get('email', ''),
             latitude=lat,
             longitude=lon,
-            walking_bus_route_id=data['walking_bus_route_id']
+            walking_bus_route_id=walking_bus_route_id
         )
         
         db.session.add(prospect)
@@ -224,9 +228,14 @@ def delete_prospect(prospect_id):
 # Walking Bus Routes API
 @bp.route('/api/routes', methods=['GET'])
 def get_routes():
-    """API-Endpunkt für alle aktiven Walking Bus Routen"""
+    """API-Endpunkt für alle Walking Bus Routen (mit Admin-Filter)"""
     try:
-        routes = WalkingBusRoute.query.filter_by(is_active=True).all()
+        # Für Admin: alle Routen, für Public: nur aktive
+        if is_admin():
+            routes = WalkingBusRoute.query.all()
+        else:
+            routes = WalkingBusRoute.query.filter_by(is_active=True).all()
+            
         route_data = [route.to_dict() for route in routes]
         return jsonify(route_data), 200
         

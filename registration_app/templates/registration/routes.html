@@ -5,37 +5,42 @@
 {% block head %}
 <style>
     .route-editor {
-        height: 600px;
+        height: 500px;
         border: 1px solid #dee2e6;
         border-radius: 0.375rem;
     }
     .route-list-item {
         cursor: pointer;
-        transition: background-color 0.2s;
+        transition: all 0.2s;
+        border-left: 4px solid transparent;
     }
     .route-list-item:hover {
         background-color: #f8f9fa;
+        border-left-color: #6c757d;
     }
     .route-list-item.active {
         background-color: #e3f2fd;
-        border-left: 4px solid #2196f3;
+        border-left-color: #2196f3;
     }
-    .color-picker-btn {
-        width: 40px;
-        height: 40px;
-        border: 2px solid #dee2e6;
-        border-radius: 50%;
-        cursor: pointer;
+    .route-list-item.inactive {
+        opacity: 0.6;
+        background-color: #f5f5f5;
     }
-    .drawing-controls {
+    .drawing-info {
         position: absolute;
         top: 10px;
-        right: 10px;
+        left: 10px;
         z-index: 1000;
-        background: white;
+        background: rgba(255, 255, 255, 0.95);
         border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        max-width: 300px;
+    }
+    .route-info-panel {
+        background: #f8f9fa;
+        border-radius: 0.375rem;
+        padding: 1rem;
     }
 </style>
 {% endblock %}
@@ -50,34 +55,54 @@
 </div>
 
 <div id="routeManagement" style="display: none;">
-    <div class="row">
-        <!-- Zurück-Button -->
-        <div class="col-12 mb-3">
-            <a href="/" class="btn btn-outline-secondary">
-                <i class="fas fa-arrow-left me-2"></i>Zurück zur Übersicht
-            </a>
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="fas fa-route me-2"></i>Routenverwaltung</h2>
+                    <p class="text-muted mb-0">Walking Bus Routen erstellen und verwalten</p>
+                </div>
+                <div>
+                    <a href="/" class="btn btn-outline-secondary me-2">
+                        <i class="fas fa-arrow-left me-2"></i>Zurück zur Übersicht
+                    </a>
+                    <button class="btn btn-success" id="createNewRouteBtn">
+                        <i class="fas fa-plus me-2"></i>Neue Route erstellen
+                    </button>
+                </div>
+            </div>
         </div>
+    </div>
 
+    <div class="row">
         <!-- Route-Liste -->
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header bg-primary text-white">
-                    <div class="row align-items-center">
-                        <div class="col-8">
-                            <h5 class="mb-0">
-                                <i class="fas fa-route me-2"></i>Routen
-                            </h5>
-                        </div>
-                        <div class="col-4 text-end">
-                            <button class="btn btn-success btn-sm" id="addRouteBtn">
-                                <i class="fas fa-plus"></i>
-                            </button>
-                        </div>
-                    </div>
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>Routen-Liste
+                    </h5>
                 </div>
                 <div class="card-body p-0">
                     <div id="routeList" class="list-group list-group-flush">
                         <!-- Routen werden hier eingefügt -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Aktuelle Route Info -->
+            <div id="currentRouteInfo" class="mt-3" style="display: none;">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h6 class="mb-0">
+                            <i class="fas fa-info-circle me-2"></i>Route-Informationen
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="routeInfoContent">
+                            <!-- Route-Details werden hier angezeigt -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -87,24 +112,35 @@
         <div class="col-md-8">
             <div class="card">
                 <div class="card-header bg-secondary text-white">
-                    <h5 class="mb-0">
-                        <i class="fas fa-map me-2"></i>Routen-Editor
-                        <span id="currentRouteName" class="badge bg-primary ms-2"></span>
-                    </h5>
+                    <div class="row align-items-center">
+                        <div class="col-8">
+                            <h5 class="mb-0">
+                                <i class="fas fa-map me-2"></i>Karten-Editor
+                                <span id="currentRouteName" class="badge bg-primary ms-2"></span>
+                            </h5>
+                        </div>
+                        <div class="col-4 text-end">
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-light btn-sm" id="drawModeBtn" title="Route zeichnen">
+                                    <i class="fas fa-pencil-alt"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-light btn-sm" id="clearDrawingBtn" title="Zeichnung löschen">
+                                    <i class="fas fa-eraser"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="card-body p-0 position-relative">
-                    <!-- Zeichen-Controls -->
-                    <div class="drawing-controls">
-                        <div class="btn-group-vertical" role="group">
-                            <button type="button" class="btn btn-outline-primary btn-sm" id="drawModeBtn" title="Route zeichnen">
-                                <i class="fas fa-pencil-alt"></i>
-                            </button>
-                            <button type="button" class="btn btn-outline-warning btn-sm" id="editModeBtn" title="Route bearbeiten">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button type="button" class="btn btn-outline-danger btn-sm" id="clearRouteBtn" title="Route löschen">
-                                <i class="fas fa-trash"></i>
-                            </button>
+                    <!-- Zeichen-Hinweise -->
+                    <div id="drawingInfo" class="drawing-info" style="display: none;">
+                        <div class="d-flex align-items-start">
+                            <i class="fas fa-info-circle text-info me-2 mt-1"></i>
+                            <div>
+                                <strong>Zeichnen-Modus aktiv</strong><br>
+                                <small>Klicken Sie auf die Karte, um Wegpunkte zu setzen.<br>
+                                Die Route wird automatisch verbunden.</small>
+                            </div>
                         </div>
                     </div>
                     
@@ -114,55 +150,80 @@
         </div>
     </div>
 
-    <!-- Route-Details -->
-    <div class="row mt-4">
+    <!-- Route-Bearbeitung -->
+    <div class="row mt-4" id="routeEditSection" style="display: none;">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-info text-white">
+                <div class="card-header bg-warning text-dark">
                     <h5 class="mb-0">
-                        <i class="fas fa-cog me-2"></i>Route-Details
+                        <i class="fas fa-edit me-2"></i>Route bearbeiten
                     </h5>
                 </div>
                 <div class="card-body">
-                    <form id="routeDetailsForm">
-                        <input type="hidden" id="routeId">
+                    <form id="routeEditForm">
+                        <input type="hidden" id="editRouteId">
                         <div class="row">
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <div class="form-floating mb-3">
-                                    <input type="text" class="form-control" id="routeName" required>
-                                    <label for="routeName">Route-Name</label>
+                                    <input type="text" class="form-control" id="editRouteName" required>
+                                    <label for="editRouteName">
+                                        <i class="fas fa-tag me-2"></i>Route-Name
+                                    </label>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="form-floating mb-3">
-                                    <input type="color" class="form-control form-control-color" id="routeColor" value="#3388ff">
-                                    <label for="routeColor">Farbe</label>
+                                    <input type="color" class="form-control form-control-color" id="editRouteColor" value="#3388ff">
+                                    <label for="editRouteColor">
+                                        <i class="fas fa-palette me-2"></i>Farbe
+                                    </label>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <div class="form-check form-switch mt-3">
-                                    <input class="form-check-input" type="checkbox" id="routeActive" checked>
-                                    <label class="form-check-label" for="routeActive">
-                                        Route aktiv
+                                    <input class="form-check-input" type="checkbox" id="editRouteActive" checked>
+                                    <label class="form-check-label" for="editRouteActive">
+                                        <i class="fas fa-toggle-on me-2"></i>Route aktiv
                                     </label>
                                 </div>
                             </div>
                         </div>
                         <div class="form-floating mb-3">
-                            <textarea class="form-control" id="routeDescription" style="height: 100px;"></textarea>
-                            <label for="routeDescription">Beschreibung (optional)</label>
+                            <textarea class="form-control" id="editRouteDescription" style="height: 80px;"></textarea>
+                            <label for="editRouteDescription">
+                                <i class="fas fa-comment me-2"></i>Beschreibung (optional)
+                            </label>
                         </div>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <button type="submit" class="btn btn-primary" id="saveRouteBtn" disabled>
-                                    <i class="fas fa-save me-2"></i>Route speichern
+                        
+                        <div class="route-info-panel mb-3">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <small class="text-muted">Wegpunkte:</small>
+                                    <div id="waypointCount" class="fw-bold">0</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <small class="text-muted">Anmeldungen:</small>
+                                    <div id="prospectCount" class="fw-bold">0</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <small class="text-muted">Status:</small>
+                                    <div id="routeStatusDisplay" class="fw-bold">Aktiv</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <button type="submit" class="btn btn-primary me-2">
+                                    <i class="fas fa-save me-2"></i>Speichern
+                                </button>
+                                <button type="button" class="btn btn-secondary" id="cancelEditBtn">
+                                    <i class="fas fa-times me-2"></i>Abbrechen
                                 </button>
                             </div>
-                            <div class="col-md-6 text-end">
-                                <button type="button" class="btn btn-danger" id="deleteRouteBtn" disabled>
-                                    <i class="fas fa-trash me-2"></i>Route löschen
-                                </button>
-                            </div>
+                            <button type="button" class="btn btn-danger" id="deleteRouteBtn">
+                                <i class="fas fa-trash me-2"></i>Route löschen
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -192,6 +253,39 @@
         </div>
     </div>
 </div>
+
+<!-- Lösch-Bestätigung Modal -->
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Route löschen
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong>Möchten Sie diese Route wirklich löschen?</strong></p>
+                <div id="deleteWarning" class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Achtung:</strong> Diese Aktion kann nicht rückgängig gemacht werden.
+                </div>
+                <div id="prospectWarning" class="alert alert-danger" style="display: none;">
+                    <i class="fas fa-users me-2"></i>
+                    <strong>Diese Route hat noch Anmeldungen!</strong><br>
+                    <span id="prospectList"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+                    <i class="fas fa-trash me-2"></i>Endgültig löschen
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -200,12 +294,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Globale Variablen
     let map;
     let routes = [];
+    let prospects = [];
     let currentRoute = null;
     let currentPolyline = null;
     let drawingMode = false;
-    let editingMode = false;
     let drawnPoints = [];
     let config = {};
+    
+    // Modals
+    const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
     
     // Initialisierung
     async function init() {
@@ -236,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function initializeRouteManagement() {
         await loadConfig();
         initMap();
-        await loadRoutes();
+        await loadData();
         setupEventListeners();
     }
     
@@ -272,15 +369,22 @@ document.addEventListener('DOMContentLoaded', function() {
         map.on('click', onMapClick);
     }
     
-    // Routen laden
-    async function loadRoutes() {
+    // Daten laden
+    async function loadData() {
         try {
-            const response = await axios.get('/api/routes');
-            routes = response.data;
+            const [routesResponse, prospectsResponse] = await Promise.all([
+                axios.get('/api/routes'),
+                axios.get('/api/prospects')
+            ]);
+            
+            routes = routesResponse.data;
+            prospects = prospectsResponse.data;
+            
             updateRouteList();
             displayRoutesOnMap();
+            
         } catch (error) {
-            console.error('Fehler beim Laden der Routen:', error);
+            console.error('Fehler beim Laden der Daten:', error);
         }
     }
     
@@ -300,17 +404,24 @@ document.addEventListener('DOMContentLoaded', function() {
         
         routeList.innerHTML = '';
         routes.forEach(route => {
+            const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
+            
             const item = document.createElement('div');
-            item.className = 'list-group-item list-group-item-action route-list-item';
+            item.className = `list-group-item list-group-item-action route-list-item ${!route.is_active ? 'inactive' : ''}`;
             item.dataset.routeId = route.id;
             
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div class="d-flex align-items-center">
-                        <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: ${route.color}; border-radius: 3px;"></div>
+                        <div class="me-3">
+                            <div style="width: 20px; height: 20px; background-color: ${route.color}; border-radius: 3px; border: 1px solid #ccc;"></div>
+                        </div>
                         <div>
-                            <strong>${route.name}</strong>
-                            <br><small class="text-muted">${route.prospect_count} Anmeldungen</small>
+                            <div class="fw-bold">${route.name}</div>
+                            <small class="text-muted">
+                                ${routeProspects.length} Anmeldungen
+                                ${route.description ? ` • ${route.description.substring(0, 30)}...` : ''}
+                            </small>
                         </div>
                     </div>
                     <div>
@@ -340,11 +451,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (route.route_coordinates && route.route_coordinates.length > 0) {
                 const polyline = L.polyline(route.route_coordinates, {
                     color: route.color,
-                    weight: 4,
-                    opacity: 0.6
+                    weight: 3,
+                    opacity: route.is_active ? 0.7 : 0.4,
+                    dashArray: route.is_active ? null : '5, 10'
                 }).addTo(map);
                 
-                polyline.bindPopup(`<strong>${route.name}</strong><br>${route.description || ''}`);
+                polyline.bindPopup(`
+                    <strong>${route.name}</strong><br>
+                    ${route.description || 'Keine Beschreibung'}<br>
+                    <small>Status: ${route.is_active ? 'Aktiv' : 'Inaktiv'}</small>
+                `);
             }
         });
     }
@@ -359,27 +475,60 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         document.querySelector(`[data-route-id="${route.id}"]`).classList.add('active');
         
-        // Route-Details laden
-        loadRouteDetails(route);
+        // Route-Details anzeigen
+        showRouteDetails(route);
         
         // Route auf Karte hervorheben
         highlightRouteOnMap(route);
         
-        // Buttons aktivieren
-        document.getElementById('saveRouteBtn').disabled = false;
-        document.getElementById('deleteRouteBtn').disabled = false;
+        // Edit-Bereich anzeigen
+        showEditSection(route);
         
         // Current route name anzeigen
         document.getElementById('currentRouteName').textContent = route.name;
     }
     
-    // Route-Details laden
-    function loadRouteDetails(route) {
-        document.getElementById('routeId').value = route.id;
-        document.getElementById('routeName').value = route.name;
-        document.getElementById('routeDescription').value = route.description || '';
-        document.getElementById('routeColor').value = route.color;
-        document.getElementById('routeActive').checked = route.is_active;
+    // Route-Details anzeigen
+    function showRouteDetails(route) {
+        const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
+        
+        document.getElementById('routeInfoContent').innerHTML = `
+            <div class="mb-2">
+                <strong>Name:</strong> ${route.name}
+            </div>
+            <div class="mb-2">
+                <strong>Anmeldungen:</strong> ${routeProspects.length}
+            </div>
+            <div class="mb-2">
+                <strong>Status:</strong> 
+                <span class="badge ${route.is_active ? 'bg-success' : 'bg-secondary'}">
+                    ${route.is_active ? 'Aktiv' : 'Inaktiv'}
+                </span>
+            </div>
+            <div class="mb-2">
+                <strong>Wegpunkte:</strong> ${route.route_coordinates ? route.route_coordinates.length : 0}
+            </div>
+            ${route.description ? `<div class="mb-2"><strong>Beschreibung:</strong><br><small>${route.description}</small></div>` : ''}
+        `;
+        
+        document.getElementById('currentRouteInfo').style.display = 'block';
+    }
+    
+    // Edit-Bereich anzeigen
+    function showEditSection(route) {
+        document.getElementById('editRouteId').value = route.id;
+        document.getElementById('editRouteName').value = route.name;
+        document.getElementById('editRouteDescription').value = route.description || '';
+        document.getElementById('editRouteColor').value = route.color;
+        document.getElementById('editRouteActive').checked = route.is_active;
+        
+        // Statistiken aktualisieren
+        const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
+        document.getElementById('waypointCount').textContent = route.route_coordinates ? route.route_coordinates.length : 0;
+        document.getElementById('prospectCount').textContent = routeProspects.length;
+        document.getElementById('routeStatusDisplay').textContent = route.is_active ? 'Aktiv' : 'Inaktiv';
+        
+        document.getElementById('routeEditSection').style.display = 'block';
     }
     
     // Route auf Karte hervorheben
@@ -400,21 +549,27 @@ document.addEventListener('DOMContentLoaded', function() {
             // Karte auf Route zentrieren
             map.fitBounds(currentPolyline.getBounds(), { padding: [20, 20] });
         }
+        
+        drawnPoints = route.route_coordinates ? [...route.route_coordinates] : [];
     }
     
     // Event Listeners
     function setupEventListeners() {
         // Neue Route
-        document.getElementById('addRouteBtn').addEventListener('click', createNewRoute);
+        document.getElementById('createNewRouteBtn').addEventListener('click', createNewRoute);
         
         // Zeichnen-Modi
         document.getElementById('drawModeBtn').addEventListener('click', toggleDrawMode);
-        document.getElementById('editModeBtn').addEventListener('click', toggleEditMode);
-        document.getElementById('clearRouteBtn').addEventListener('click', clearCurrentRoute);
+        document.getElementById('clearDrawingBtn').addEventListener('click', clearDrawing);
         
         // Route speichern/löschen
-        document.getElementById('routeDetailsForm').addEventListener('submit', saveRoute);
-        document.getElementById('deleteRouteBtn').addEventListener('click', deleteRoute);
+        document.getElementById('routeEditForm').addEventListener('submit', saveRoute);
+        document.getElementById('deleteRouteBtn').addEventListener('click', showDeleteConfirmation);
+        document.getElementById('confirmDeleteBtn').addEventListener('click', deleteRoute);
+        document.getElementById('cancelEditBtn').addEventListener('click', cancelEdit);
+        
+        // Farbe-Änderung in Echtzeit
+        document.getElementById('editRouteColor').addEventListener('change', updateRouteColor);
     }
     
     // Neue Route erstellen
@@ -429,16 +584,14 @@ document.addEventListener('DOMContentLoaded', function() {
         };
         
         currentRoute = newRoute;
-        loadRouteDetails(newRoute);
+        drawnPoints = [];
+        
+        // Route auswählen
+        selectRoute(newRoute);
         
         // Drawing mode aktivieren
-        drawnPoints = [];
         drawingMode = true;
         updateDrawingButtons();
-        
-        document.getElementById('saveRouteBtn').disabled = false;
-        document.getElementById('deleteRouteBtn').disabled = true;
-        document.getElementById('currentRouteName').textContent = 'Neue Route';
         
         // Bestehende Hervorhebung entfernen
         if (currentPolyline) {
@@ -450,34 +603,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Zeichenmodus umschalten
     function toggleDrawMode() {
         drawingMode = !drawingMode;
-        editingMode = false;
-        drawnPoints = [];
         updateDrawingButtons();
-        
-        if (currentPolyline && !drawingMode) {
-            // Gezeichnete Punkte in aktueller Route speichern
-            if (currentRoute) {
-                currentRoute.route_coordinates = currentPolyline.getLatLngs().map(latlng => [latlng.lat, latlng.lng]);
-            }
-        }
     }
     
-    // Bearbeitungsmodus umschalten
-    function toggleEditMode() {
-        editingMode = !editingMode;
-        drawingMode = false;
-        updateDrawingButtons();
-        
-        // TODO: Implementiere Route-Bearbeitung (Punkte verschieben)
-        if (editingMode) {
-            alert('Bearbeitungsmodus noch nicht implementiert');
-            editingMode = false;
-            updateDrawingButtons();
-        }
-    }
-    
-    // Aktuelle Route löschen
-    function clearCurrentRoute() {
+    // Zeichnung löschen
+    function clearDrawing() {
         if (currentPolyline) {
             map.removeLayer(currentPolyline);
             currentPolyline = null;
@@ -485,19 +615,24 @@ document.addEventListener('DOMContentLoaded', function() {
         drawnPoints = [];
         if (currentRoute) {
             currentRoute.route_coordinates = [];
+            document.getElementById('waypointCount').textContent = '0';
         }
     }
     
     // Drawing-Buttons aktualisieren
     function updateDrawingButtons() {
         const drawBtn = document.getElementById('drawModeBtn');
-        const editBtn = document.getElementById('editModeBtn');
+        const drawingInfo = document.getElementById('drawingInfo');
         
-        drawBtn.classList.toggle('btn-primary', !drawingMode);
-        drawBtn.classList.toggle('btn-success', drawingMode);
-        
-        editBtn.classList.toggle('btn-warning', !editingMode);
-        editBtn.classList.toggle('btn-success', editingMode);
+        if (drawingMode) {
+            drawBtn.classList.remove('btn-outline-light');
+            drawBtn.classList.add('btn-warning');
+            drawingInfo.style.display = 'block';
+        } else {
+            drawBtn.classList.remove('btn-warning');
+            drawBtn.classList.add('btn-outline-light');
+            drawingInfo.style.display = 'none';
+        }
     }
     
     // Karten-Klick
@@ -512,13 +647,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         currentPolyline = L.polyline(drawnPoints, {
-            color: document.getElementById('routeColor').value,
+            color: document.getElementById('editRouteColor').value,
             weight: 6,
             opacity: 1.0
         }).addTo(map);
         
         // Route-Koordinaten aktualisieren
         currentRoute.route_coordinates = drawnPoints.slice();
+        document.getElementById('waypointCount').textContent = drawnPoints.length;
+    }
+    
+    // Route-Farbe aktualisieren
+    function updateRouteColor() {
+        if (currentPolyline) {
+            currentPolyline.setStyle({ color: this.value });
+        }
     }
     
     // Route speichern
@@ -528,11 +671,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!currentRoute) return;
         
         const routeData = {
-            name: document.getElementById('routeName').value,
-            description: document.getElementById('routeDescription').value,
-            color: document.getElementById('routeColor').value,
-            is_active: document.getElementById('routeActive').checked,
-            route_coordinates: currentRoute.route_coordinates
+            name: document.getElementById('editRouteName').value,
+            description: document.getElementById('editRouteDescription').value,
+            color: document.getElementById('editRouteColor').value,
+            is_active: document.getElementById('editRouteActive').checked,
+            route_coordinates: currentRoute.route_coordinates || []
         };
         
         try {
@@ -544,7 +687,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Routes neu laden
-            await loadRoutes();
+            await loadData();
             
             // Neu erstellte/aktualisierte Route auswählen
             const savedRoute = response.data;
@@ -553,54 +696,105 @@ document.addEventListener('DOMContentLoaded', function() {
                 selectRoute(routeInList);
             }
             
-            alert('Route erfolgreich gespeichert');
+            // Zeichenmodus ausschalten
+            drawingMode = false;
+            updateDrawingButtons();
+            
+            showAlert('Route erfolgreich gespeichert', 'success');
             
         } catch (error) {
             console.error('Fehler beim Speichern:', error);
-            alert('Fehler beim Speichern der Route');
+            showAlert('Fehler beim Speichern der Route', 'danger');
         }
+    }
+    
+    // Lösch-Bestätigung anzeigen
+    function showDeleteConfirmation() {
+        if (!currentRoute || currentRoute.id === 'new') return;
+        
+        const routeProspects = prospects.filter(p => p.walking_bus_route_id === currentRoute.id);
+        const prospectWarning = document.getElementById('prospectWarning');
+        const prospectList = document.getElementById('prospectList');
+        
+        if (routeProspects.length > 0) {
+            prospectWarning.style.display = 'block';
+            prospectList.textContent = `${routeProspects.length} Anmeldungen betroffen: ${routeProspects.map(p => p.child_name).join(', ')}`;
+        } else {
+            prospectWarning.style.display = 'none';
+        }
+        
+        deleteConfirmModal.show();
     }
     
     // Route löschen
     async function deleteRoute() {
         if (!currentRoute || currentRoute.id === 'new') return;
         
-        if (!confirm(`Route "${currentRoute.name}" wirklich löschen?`)) return;
-        
         try {
             await axios.delete(`/api/routes/${currentRoute.id}`);
             
+            // Modal schließen
+            deleteConfirmModal.hide();
+            
             // Routes neu laden
-            await loadRoutes();
+            await loadData();
             
             // Auswahl zurücksetzen
-            currentRoute = null;
-            if (currentPolyline) {
-                map.removeLayer(currentPolyline);
-                currentPolyline = null;
-            }
+            cancelEdit();
             
-            // Form zurücksetzen
-            document.getElementById('routeDetailsForm').reset();
-            document.getElementById('saveRouteBtn').disabled = true;
-            document.getElementById('deleteRouteBtn').disabled = true;
-            document.getElementById('currentRouteName').textContent = '';
-            
-            alert('Route erfolgreich gelöscht');
+            showAlert('Route erfolgreich gelöscht', 'success');
             
         } catch (error) {
             console.error('Fehler beim Löschen:', error);
             const errorMsg = error.response?.data?.error || 'Fehler beim Löschen der Route';
-            alert(errorMsg);
+            showAlert(errorMsg, 'danger');
         }
     }
     
-    // Farbe-Änderung in Echtzeit
-    document.getElementById('routeColor').addEventListener('change', function() {
+    // Edit abbrechen
+    function cancelEdit() {
+        currentRoute = null;
         if (currentPolyline) {
-            currentPolyline.setStyle({ color: this.value });
+            map.removeLayer(currentPolyline);
+            currentPolyline = null;
         }
-    });
+        drawnPoints = [];
+        drawingMode = false;
+        updateDrawingButtons();
+        
+        // UI zurücksetzen
+        document.getElementById('routeEditSection').style.display = 'none';
+        document.getElementById('currentRouteInfo').style.display = 'none';
+        document.getElementById('currentRouteName').textContent = '';
+        
+        // Route-Auswahl entfernen
+        document.querySelectorAll('.route-list-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Alle Routen wieder anzeigen
+        displayRoutesOnMap();
+    }
+    
+    // Alert anzeigen
+    function showAlert(message, type) {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; max-width: 300px;';
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(alert);
+        
+        // Alert nach 5 Sekunden entfernen
+        setTimeout(() => {
+            if (alert.parentNode) {
+                alert.remove();
+            }
+        }, 5000);
+    }
     
     // App starten
     init();
