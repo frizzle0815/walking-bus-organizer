@@ -29,3 +29,4 @@
 - Calendar-based participation planning with overrides
 - Weather integration and holiday detection
 - Push notifications for mobile devices
+- Mobile first strategy

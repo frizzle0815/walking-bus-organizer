@@ -284,8 +284,8 @@ class Prospect(db.Model):
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     
-    # Walking Bus Route Zuordnung
-    walking_bus_route_id = db.Column(db.Integer, db.ForeignKey('walking_bus_routes.id'), nullable=False)
+    # Walking Bus Route Zuordnung (nullable für "Nur Interesse")
+    walking_bus_route_id = db.Column(db.Integer, db.ForeignKey('walking_bus_routes.id'), nullable=True)
     
     # Metadaten
     created_at = db.Column(db.DateTime, default=get_current_time)
@@ -303,7 +303,7 @@ class Prospect(db.Model):
             'child_name': self.child_name,
             'school_class': self.school_class,
             'walking_bus_route_id': self.walking_bus_route_id,
-            'walking_bus_route_name': self.walking_bus_route.name if self.walking_bus_route else None,
+            'walking_bus_route_name': self.walking_bus_route.name if self.walking_bus_route else 'Nur Interesse',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'status': self.status,
         }
