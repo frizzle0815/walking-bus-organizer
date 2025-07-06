@@ -230,10 +230,29 @@ document.addEventListener('DOMContentLoaded', function() {
     let config = {};
     let prospects = [];
     let routes = [];
+    let prospectMarkers = {}; // Neue Variable für Marker-Referenzen
     
     // Modals
     const adminLoginModal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
     const editProspectModal = new bootstrap.Modal(document.getElementById('editProspectModal'));
+    
+    // Globale Funktion für Marker-Hervorhebung
+    // 1. highlightProspectOnMap() vereinfachen - NUR Popup öffnen
+    window.highlightProspectOnMap = function(prospectId) {
+        console.log('[MAP.html][HIGHLIGHT] Popup öffnen für Prospect ID:', prospectId);
+        
+        if (!isAdmin || !prospectMarkers[prospectId]) {
+            console.log('[MAP.html][HIGHLIGHT] Kein Marker gefunden oder nicht Admin');
+            return;
+        }
+        
+        // Nur Popup öffnen - KEINE Marker-Änderungen
+        const marker = prospectMarkers[prospectId];
+        marker.openPopup();
+    };
+
+
+
     
     // Initialisierung
     async function init() {
@@ -276,7 +295,20 @@ document.addEventListener('DOMContentLoaded', function() {
         // Schul-Marker
         L.marker([schoolLat, schoolLon], {
             icon: L.divIcon({
-                html: '<i class="fas fa-school" style="color: green; font-size: 18px;"></i>',
+                html: `
+                    <div style="
+                        background-color: white;
+                        border-radius: 50%;
+                        width: 28px;
+                        height: 28px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 0 2px rgba(0,0,0,0.3);
+                    ">
+                        <i class="fas fa-school" style="color: red; font-size: 16px;"></i>
+                    </div>
+                `,
                 iconSize: [30, 30],
                 className: 'custom-div-icon'
             })
@@ -295,7 +327,12 @@ document.addEventListener('DOMContentLoaded', function() {
             prospects = prospectsResponse.data;
             
             displayRoutes();
-            displayProspects();
+            
+            // Prospects nur anzeigen wenn noch keine Marker existieren
+            if (Object.keys(prospectMarkers).length === 0) {
+                displayProspects();
+            }
+            
             createProspectTabs();
             
         } catch (error) {
@@ -317,19 +354,36 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Teilnehmer auf Karte anzeigen (nur Admin)
+    // Teilnehmer auf Karte anzeigen (nur Admin) - VEREINFACHTE VERSION
+    // 1. displayProspects() komplett ersetzen - KEINE Marker löschen
     function displayProspects() {
         console.log('[MAP.html][ADMIN] Teilnehmer auf Karte anzeigen');
         if (!isAdmin) return;
         
+        // NUR neue Marker hinzufügen, bestehende NICHT löschen
         prospects.forEach(prospect => {
-            if (prospect.latitude && prospect.longitude) {
+            // Prüfen ob Marker bereits existiert
+            if (prospect.latitude && prospect.longitude && !prospectMarkers[prospect.id]) {
                 // Vollständigen Namen zusammensetzen
                 const childName = `${prospect.child_first_name || ''} ${prospect.child_last_name || ''}`.trim();
                 
-                L.marker([prospect.latitude, prospect.longitude], {
+                const marker = L.marker([prospect.latitude, prospect.longitude], {
                     icon: L.divIcon({
-                        html: '<i class="fas fa-child" style="color: green; font-size: 16px;"></i>',
-                        iconSize: [20, 20],
+                        html: `
+                            <div style="
+                                background-color: white;
+                                border-radius: 50%;
+                                width: 28px;
+                                height: 28px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                box-shadow: 0 0 2px rgba(0,0,0,0.3);
+                            ">
+                                <i class="fas fa-person" style="color: green; font-size: 16px;"></i>
+                            </div>
+                        `,
+                        iconSize: [28, 28],
                         className: 'custom-div-icon'
                     })
                 }).addTo(map).bindPopup(`
@@ -338,11 +392,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     Route: ${prospect.walking_bus_route_name || 'Nur Interesse'}<br>
                     <small>Tel: ${prospect.phone}</small>
                 `);
+                
+                // Marker in der Referenz-Map speichern
+                prospectMarkers[prospect.id] = marker;
             }
         });
     }
-    
-    // Teilnehmer-Tabs erstellen
+
+
+    // Teilnehmer-Tabs erstellen - erweitert mit Klick-Events
     function createProspectTabs() {
         const routeTabs = document.getElementById('routeTabs');
         const routeTabContent = document.getElementById('routeTabContent');
@@ -431,8 +489,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 tableHtml += '</tr></thead><tbody>';
                 
                 routeProspects.forEach(prospect => {
+                    // Klickbare Zeile für Admin mit Marker-Highlight
+                    const rowClass = isAdmin && prospect.latitude && prospect.longitude ? 'prospect-row-clickable' : '';
+                    const rowClick = isAdmin && prospect.latitude && prospect.longitude ? `onclick="highlightProspectOnMap(${prospect.id})"` : '';
+                    const rowTitle = isAdmin && prospect.latitude && prospect.longitude ? 'title="Klicken um auf Karte zu zeigen"' : '';
+                    
                     tableHtml += `
-                        <tr>
+                        <tr class="${rowClass}" ${rowClick} ${rowTitle} style="${isAdmin && prospect.latitude && prospect.longitude ? 'cursor: pointer;' : ''}">
                             <td><strong>${prospect.child_first_name}</strong></td>
                             <td><span class="badge bg-info">${prospect.school_class}</span></td>
                             <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
@@ -445,10 +508,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
                     <td>
                     <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-warning" onclick="editProspect(${prospect.id})">
+
+                    <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
                         <i class="fas fa-edit"></i>
                     </button>
-                    <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
+
+                    <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
                         <i class="fas fa-trash"></i>
                         </button>
                         </div>
@@ -497,8 +562,13 @@ document.addEventListener('DOMContentLoaded', function() {
             interestTableHtml += '</tr></thead><tbody>';
             
             interestOnlyProspects.forEach(prospect => {
+                // Klickbare Zeile für Admin mit Marker-Highlight
+                const rowClass = isAdmin && prospect.latitude && prospect.longitude ? 'prospect-row-clickable' : '';
+                const rowClick = isAdmin && prospect.latitude && prospect.longitude ? `onclick="highlightProspectOnMap(${prospect.id})"` : '';
+                const rowTitle = isAdmin && prospect.latitude && prospect.longitude ? 'title="Klicken um auf Karte zu zeigen"' : '';
+                
                 interestTableHtml += `
-                    <tr class="table-warning">
+                    <tr class="table-warning ${rowClass}" ${rowClick} ${rowTitle} style="${isAdmin && prospect.latitude && prospect.longitude ? 'cursor: pointer;' : ''}">
                         <td><strong>${prospect.child_first_name}</strong></td>
                         <td><span class="badge bg-info">${prospect.school_class}</span></td>
                         <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
@@ -511,10 +581,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-warning" onclick="editProspect(${prospect.id})">
+                                <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
+                                <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
@@ -716,4 +786,11 @@ document.addEventListener('DOMContentLoaded', function() {
     init();
 });
 </script>
+<style>
+.prospect-row-clickable:hover {
+    background-color: #f8f9fa !important;
+    transform: scale(1.01);
+    transition: all 0.2s ease;
+}
+</style>
 {% endblock %}
