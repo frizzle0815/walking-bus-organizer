@@ -90,7 +90,7 @@
 
                 <!-- Anmeldungen Tabelle -->
                 <h5 class="mb-3">
-                    <i class="fas fa-list me-2"></i>Aktuelle Anmeldungen
+                    <i class="fas fa-list me-2"></i>Aktuelle Interessenten
                 </h5>
                 
                 <div id="routeTabs">
@@ -318,10 +318,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Teilnehmer auf Karte anzeigen (nur Admin)
     function displayProspects() {
+        console.log('[MAP.html][ADMIN] Teilnehmer auf Karte anzeigen');
         if (!isAdmin) return;
         
         prospects.forEach(prospect => {
             if (prospect.latitude && prospect.longitude) {
+                // Vollständigen Namen zusammensetzen
+                const childName = `${prospect.child_first_name || ''} ${prospect.child_last_name || ''}`.trim();
+                
                 L.marker([prospect.latitude, prospect.longitude], {
                     icon: L.divIcon({
                         html: '<i class="fas fa-child" style="color: green; font-size: 16px;"></i>',
@@ -329,9 +333,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         className: 'custom-div-icon'
                     })
                 }).addTo(map).bindPopup(`
-                    <strong>${prospect.child_name}</strong><br>
+                    <strong>${childName}</strong><br>
                     Klasse: ${prospect.school_class}<br>
-                    Route: ${prospect.walking_bus_route_name}<br>
+                    Route: ${prospect.walking_bus_route_name || 'Nur Interesse'}<br>
                     <small>Tel: ${prospect.phone}</small>
                 `);
             }
