@@ -1,5 +1,7 @@
 import requests
 import logging
+import math
+import os
 from typing import Tuple, Optional
 
 class GeocodingService:
@@ -8,6 +10,12 @@ class GeocodingService:
     def __init__(self):
         self.base_url = "https://nominatim.openstreetmap.org"
         self.logger = logging.getLogger(__name__)
+        
+        # Schul-Koordinaten und Radius aus Umgebungsvariablen
+        school_coords = os.getenv('SCHOOL_COORDINATES', '52.5200,13.4050').split(',')
+        self.school_lat = float(school_coords[0])
+        self.school_lon = float(school_coords[1])
+        self.max_radius_km = float(os.getenv('SCHOOL_RADIUS', '30'))  # Standard: 30km
     
     def geocode_address(self, address: str) -> Tuple[Optional[float], Optional[float], Optional[str]]:
         """
@@ -47,7 +55,13 @@ class GeocodingService:
                     lon = float(result['lon'])
                     display_name = result.get('display_name', address)
                     
-                    self.logger.info(f"Geocoding erfolgreich für '{address}': {lat}, {lon}")
+                    # Radius-Validierung
+                    distance_km = self.calculate_distance(lat, lon, self.school_lat, self.school_lon)
+                    if distance_km > self.max_radius_km:
+                        self.logger.warning(f"Adresse '{address}' ist {distance_km:.1f}km entfernt (max. {self.max_radius_km}km)")
+                        return None, None, f"Adresse ist zu weit entfernt ({distance_km:.1f}km, max. {self.max_radius_km}km)"
+                    
+                    self.logger.info(f"Geocoding erfolgreich für '{address}': {lat}, {lon} ({distance_km:.1f}km entfernt)")
                     return lat, lon, display_name
                 else:
                     self.logger.warning(f"Keine Geocoding-Ergebnisse für '{address}'")
@@ -103,3 +117,33 @@ class GeocodingService:
         except Exception as e:
             self.logger.error(f"Reverse Geocoding-Fehler: {str(e)}")
             return None
+    
+    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """
+        Berechnet die Entfernung zwischen zwei Koordinaten in Kilometern (Haversine-Formel)
+        
+        Args:
+            lat1, lon1: Koordinaten Punkt 1
+            lat2, lon2: Koordinaten Punkt 2
+            
+        Returns:
+            Entfernung in Kilometern
+        """
+        # Radius der Erde in km
+        R = 6371.0
+        
+        # Koordinaten in Radiant konvertieren
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
+        
+        # Haversine-Formel
+        dlat = lat2_rad - lat1_rad
+        dlon = lon2_rad - lon1_rad
+        
+        a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        
+        distance = R * c
+        return distance

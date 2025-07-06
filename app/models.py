@@ -275,7 +275,8 @@ class Prospect(db.Model):
     __tablename__ = 'prospects'
     
     id = db.Column(db.Integer, primary_key=True)
-    child_name = db.Column(db.String(100), nullable=False)  # Name des Kindes
+    child_first_name = db.Column(db.String(100), nullable=False)  # Vorname des Kindes
+    child_last_name = db.Column(db.String(100), nullable=False)   # Nachname des Kindes (nur Admin)
     school_class = db.Column(db.String(5), nullable=False)  # z.B. "1A", "2B", "3C", "4D"
     phone = db.Column(db.String(20), nullable=False)
     email = db.Column(db.String(100), nullable=True)
@@ -300,7 +301,7 @@ class Prospect(db.Model):
         """
         data = {
             'id': self.id,
-            'child_name': self.child_name,
+            'child_first_name': self.child_first_name,
             'school_class': self.school_class,
             'walking_bus_route_id': self.walking_bus_route_id,
             'walking_bus_route_name': self.walking_bus_route.name if self.walking_bus_route else 'Nur Interesse',
@@ -310,6 +311,7 @@ class Prospect(db.Model):
         
         if include_sensitive:
             data.update({
+                'child_last_name': self.child_last_name,  # Nachname nur für Admins
                 'phone': self.phone,
                 'email': self.email,
                 'latitude': self.latitude,

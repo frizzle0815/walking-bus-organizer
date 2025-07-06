@@ -85,6 +85,7 @@ services:
       - PORT=5001
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - SCHOOL_COORDINATES=${SCHOOL_COORDINATES:-52.5200,13.4050}
+      - SCHOOL_RADIUS=${SCHOOL_RADIUS:-30}
     volumes:
       - ./registration_app:/app/registration_app
 

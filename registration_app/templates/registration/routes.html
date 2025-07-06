@@ -467,13 +467,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Route auswählen
     function selectRoute(route) {
+        console.log('[ROUTES][SELECT] Route auswählen:', route);
         currentRoute = route;
         
-        // Aktive Route in Liste markieren
+        // Aktive Route in Liste markieren (nur wenn es eine echte Route ist)
         document.querySelectorAll('.route-list-item').forEach(item => {
             item.classList.remove('active');
         });
-        document.querySelector(`[data-route-id="${route.id}"]`).classList.add('active');
+        
+        // Nur bei existierenden Routen das DOM-Element markieren
+        if (route.id !== 'new') {
+            const routeElement = document.querySelector(`[data-route-id="${route.id}"]`);
+            if (routeElement) {
+                routeElement.classList.add('active');
+            }
+        }
         
         // Route-Details anzeigen
         showRouteDetails(route);

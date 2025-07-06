@@ -14,10 +14,10 @@ bp = Blueprint('registration', __name__)
 
 # Verfügbare Schulklassen
 SCHOOL_CLASSES = [
-    '1A', '1B', '1C',
-    '2A', '2B', '2C', 
-    '3A', '3B', '3C',
-    '4A', '4B', '4C'
+    '1a', '1b', '1c',
+    '2a', '2b', '2c', 
+    '3a', '3b', '3c',
+    '4a', '4b', '4c'
 ]
 
 @bp.route('/')
@@ -70,6 +70,39 @@ def auth_status():
     """Admin-Status prüfen"""
     return jsonify({'is_admin': is_admin()}), 200
 
+@bp.route('/api/geocode', methods=['POST'])
+def geocode_address():
+    """API-Endpunkt für Live-Geocoding (für Registrierungsformular)"""
+    try:
+        data = request.get_json()
+        address = data.get('address')
+        
+        if not address:
+            return jsonify({'error': 'Adresse ist erforderlich'}), 400
+        
+        geocoding_service = GeocodingService()
+        lat, lon, geocoded_address = geocoding_service.geocode_address(address)
+        
+        if lat and lon:
+            return jsonify({
+                'success': True,
+                'latitude': lat,
+                'longitude': lon,
+                'display_name': geocoded_address,
+                'within_radius': True
+            }), 200
+        else:
+            error_msg = geocoded_address if geocoded_address else 'Adresse konnte nicht gefunden werden'
+            return jsonify({
+                'success': False,
+                'error': error_msg,
+                'within_radius': False
+            }), 400
+            
+    except Exception as e:
+        current_app.logger.error(f"Geocoding-Fehler: {str(e)}")
+        return jsonify({'error': 'Geocoding fehlgeschlagen'}), 500
+
 # Registrierung
 @bp.route('/api/register', methods=['POST'])
 def register_prospect():
@@ -78,7 +111,7 @@ def register_prospect():
         data = request.get_json()
         
         # Validierung
-        required_fields = ['child_name', 'school_class', 'phone', 'address']
+        required_fields = ['child_first_name', 'child_last_name', 'school_class', 'phone', 'address']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field} ist erforderlich'}), 400
@@ -101,14 +134,16 @@ def register_prospect():
         lat, lon, geocoded_address = geocoding_service.geocode_address(data['address'])
         
         if not lat or not lon:
+            error_msg = geocoded_address if geocoded_address else 'Adresse konnte nicht gefunden werden – bitte überprüfen'
             return jsonify({
-                'error': 'Adresse konnte nicht gefunden werden – bitte überprüfen',
+                'error': error_msg,
                 'geocoding_failed': True
             }), 400
         
         # Neuen Teilnehmer erstellen
         prospect = Prospect(
-            child_name=data['child_name'],
+            child_first_name=data['child_first_name'],
+            child_last_name=data['child_last_name'],
             school_class=data['school_class'],
             phone=data['phone'],
             email=data.get('email', ''),
@@ -120,7 +155,7 @@ def register_prospect():
         db.session.add(prospect)
         db.session.commit()
         
-        current_app.logger.info(f"Neuer Teilnehmer registriert: {prospect.child_name} ({prospect.school_class})")
+        current_app.logger.info(f"Neuer Teilnehmer registriert: {prospect.child_first_name} {prospect.child_last_name} ({prospect.school_class})")
         
         return jsonify({
             'message': 'Registrierung erfolgreich',
@@ -185,8 +220,10 @@ def update_prospect(prospect_id):
             prospect.longitude = lon
         
         # Andere Felder aktualisieren
-        if 'child_name' in data:
-            prospect.child_name = data['child_name']
+        if 'child_first_name' in data:
+            prospect.child_first_name = data['child_first_name']
+        if 'child_last_name' in data:
+            prospect.child_last_name = data['child_last_name']
         if 'school_class' in data and data['school_class'] in SCHOOL_CLASSES:
             prospect.school_class = data['school_class']
         if 'phone' in data:
@@ -194,9 +231,14 @@ def update_prospect(prospect_id):
         if 'email' in data:
             prospect.email = data['email']
         if 'walking_bus_route_id' in data:
-            route = WalkingBusRoute.query.get(data['walking_bus_route_id'])
-            if route and route.is_active:
-                prospect.walking_bus_route_id = data['walking_bus_route_id']
+            if data['walking_bus_route_id'] is None:
+                # "Nur Interesse" - keine Route zugewiesen
+                prospect.walking_bus_route_id = None
+            else:
+                # Spezifische Route - validieren ob aktiv
+                route = WalkingBusRoute.query.get(data['walking_bus_route_id'])
+                if route and route.is_active:
+                    prospect.walking_bus_route_id = data['walking_bus_route_id']
         if 'notes' in data:
             prospect.notes = data['notes']
             

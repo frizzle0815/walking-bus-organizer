@@ -154,16 +154,33 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-floating mb-3">
-                                <input type="text" class="form-control" id="editChildName" required>
-                                <label for="editChildName">Name des Kindes</label>
+                                <input type="text" class="form-control" id="editChildFirstName" required>
+                                <label for="editChildFirstName">Vorname des Kindes</label>
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="editChildLastName" required>
+                                <label for="editChildLastName">Nachname des Kindes</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
                         <div class="col-md-6">
                             <div class="form-floating mb-3">
                                 <select class="form-select" id="editSchoolClass" required>
                                     <option value="">Bitte wählen...</option>
                                 </select>
                                 <label for="editSchoolClass">Klasse</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="editWalkingBusRoute" required>
+                                    <option value="">Bitte wählen...</option>
+                                    <option value="interest_only">🔍 Nur Interesse anmelden</option>
+                                </select>
+                                <label for="editWalkingBusRoute">Walking Bus Route</label>
                             </div>
                         </div>
                     </div>
@@ -181,12 +198,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="form-floating mb-3">
-                        <select class="form-select" id="editWalkingBusRoute" required>
-                            <option value="">Bitte wählen...</option>
-                        </select>
-                        <label for="editWalkingBusRoute">Walking Bus Route</label>
-                    </div>
+
                     <div class="form-floating mb-3">
                         <textarea class="form-control" id="editAddress" placeholder="Neue Adresse (optional)"></textarea>
                         <label for="editAddress">Neue Adresse (optional)</label>
@@ -264,7 +276,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Schul-Marker
         L.marker([schoolLat, schoolLon], {
             icon: L.divIcon({
-                html: '<i class="fas fa-school" style="color: red; font-size: 24px;"></i>',
+                html: '<i class="fas fa-school" style="color: green; font-size: 18px;"></i>',
                 iconSize: [30, 30],
                 className: 'custom-div-icon'
             })
@@ -405,6 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (isAdmin) {
                     tableHtml += `
+                                    <th>Nachname</th>
                                     <th>Telefon</th>
                                     <th>E-Mail</th>
                                     <th>Aktionen</th>
@@ -416,25 +429,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 routeProspects.forEach(prospect => {
                     tableHtml += `
                         <tr>
-                            <td><strong>${prospect.child_name}</strong></td>
+                            <td><strong>${prospect.child_first_name}</strong></td>
                             <td><span class="badge bg-info">${prospect.school_class}</span></td>
                             <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
                     `;
                     
                     if (isAdmin) {
-                        tableHtml += `
-                            <td><a href="tel:${prospect.phone}">${prospect.phone}</a></td>
-                            <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
-                            <td>
-                                <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-warning" onclick="editProspect(${prospect.id})">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_name}')">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
+                    tableHtml += `
+                    <td><strong>${prospect.child_last_name || '-'}</strong></td>
+                    <td><a href="tel:${prospect.phone}">${prospect.phone}</a></td>
+                    <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
+                    <td>
+                    <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-warning" onclick="editProspect(${prospect.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
+                        <i class="fas fa-trash"></i>
+                        </button>
+                        </div>
+                        </td>
                         `;
                     }
                     
@@ -469,6 +483,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (isAdmin) {
                 interestTableHtml += `
+                                <th>Nachname</th>
                                 <th>Telefon</th>
                                 <th>E-Mail</th>
                                 <th>Aktionen</th>
@@ -480,13 +495,14 @@ document.addEventListener('DOMContentLoaded', function() {
             interestOnlyProspects.forEach(prospect => {
                 interestTableHtml += `
                     <tr class="table-warning">
-                        <td><strong>${prospect.child_name}</strong></td>
+                        <td><strong>${prospect.child_first_name}</strong></td>
                         <td><span class="badge bg-info">${prospect.school_class}</span></td>
                         <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
                 `;
                 
                 if (isAdmin) {
                     interestTableHtml += `
+                        <td><strong>${prospect.child_last_name || '-'}</strong></td>
                         <td><a href="tel:${prospect.phone}">${prospect.phone}</a></td>
                         <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
                         <td>
@@ -494,7 +510,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button class="btn btn-outline-warning" onclick="editProspect(${prospect.id})">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_name}')">
+                                <button class="btn btn-outline-danger" onclick="deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
@@ -587,41 +603,57 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await axios.get(`/api/prospects/${prospectId}`);
             const prospect = response.data;
             
+            // Dropdown-Optionen zuerst laden
+            await loadEditFormOptions();
+            
             // Formular füllen
             document.getElementById('editProspectId').value = prospect.id;
-            document.getElementById('editChildName').value = prospect.child_name;
+            document.getElementById('editChildFirstName').value = prospect.child_first_name;
+            document.getElementById('editChildLastName').value = prospect.child_last_name || '';
             document.getElementById('editSchoolClass').value = prospect.school_class;
             document.getElementById('editPhone').value = prospect.phone;
             document.getElementById('editEmail').value = prospect.email || '';
-            document.getElementById('editWalkingBusRoute').value = prospect.walking_bus_route_id;
             document.getElementById('editNotes').value = prospect.notes || '';
             
-            // Dropdown-Optionen laden
-            loadEditFormOptions();
+            // Walking Bus Route setzen
+            if (prospect.walking_bus_route_id) {
+                document.getElementById('editWalkingBusRoute').value = prospect.walking_bus_route_id;
+            } else {
+                document.getElementById('editWalkingBusRoute').value = 'interest_only';
+            }
             
             editProspectModal.show();
         } catch (error) {
+            console.error('Fehler beim Laden der Teilnehmer-Daten:', error);
             alert('Fehler beim Laden der Teilnehmer-Daten');
         }
     };
     
     // Edit-Form Optionen laden
-    function loadEditFormOptions() {
+    async function loadEditFormOptions() {
         // Schulklassen
         const classSelect = document.getElementById('editSchoolClass');
+        // Vorhandene Optionen außer der ersten löschen
+        while (classSelect.children.length > 1) {
+            classSelect.removeChild(classSelect.lastChild);
+        }
+        
         config.school_classes.forEach(schoolClass => {
-            if (!classSelect.querySelector(`option[value="${schoolClass}"]`)) {
-                const option = document.createElement('option');
-                option.value = schoolClass;
-                option.textContent = schoolClass;
-                classSelect.appendChild(option);
-            }
+            const option = document.createElement('option');
+            option.value = schoolClass;
+            option.textContent = schoolClass;
+            classSelect.appendChild(option);
         });
         
         // Walking Bus Routen
         const routeSelect = document.getElementById('editWalkingBusRoute');
+        // Vorhandene Optionen außer den ersten beiden (Bitte wählen + Nur Interesse) löschen
+        while (routeSelect.children.length > 2) {
+            routeSelect.removeChild(routeSelect.lastChild);
+        }
+        
         routes.forEach(route => {
-            if (!routeSelect.querySelector(`option[value="${route.id}"]`)) {
+            if (route.is_active) {  // Nur aktive Routen
                 const option = document.createElement('option');
                 option.value = route.id;
                 option.textContent = route.name;
@@ -635,12 +667,15 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         
         const prospectId = document.getElementById('editProspectId').value;
+        const routeValue = document.getElementById('editWalkingBusRoute').value;
+        
         const data = {
-            child_name: document.getElementById('editChildName').value,
+            child_first_name: document.getElementById('editChildFirstName').value,
+            child_last_name: document.getElementById('editChildLastName').value,
             school_class: document.getElementById('editSchoolClass').value,
             phone: document.getElementById('editPhone').value,
             email: document.getElementById('editEmail').value,
-            walking_bus_route_id: parseInt(document.getElementById('editWalkingBusRoute').value),
+            walking_bus_route_id: routeValue === 'interest_only' ? null : parseInt(routeValue),
             notes: document.getElementById('editNotes').value,
             address: document.getElementById('editAddress').value
         };
