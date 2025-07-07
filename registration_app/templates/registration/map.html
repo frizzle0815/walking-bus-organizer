@@ -193,8 +193,26 @@
                         </div>
                         <div class="col-md-6">
                             <div class="form-floating mb-3">
+                                <input type="tel" class="form-control" id="editPhoneSecondary">
+                                <label for="editPhoneSecondary">Zweite Telefonnummer (optional)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
                                 <input type="email" class="form-control" id="editEmail">
                                 <label for="editEmail">E-Mail (optional)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="editAccompanimentType" required>
+                                    <option value="">Bitte wählen...</option>
+                                    <option value="companion">Begleitperson</option>
+                                    <option value="substitute">Springer</option>
+                                </select>
+                                <label for="editAccompanimentType">Begleitung</label>
                             </div>
                         </div>
                     </div>
@@ -482,6 +500,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <th>Nachname</th>
                                     <th>Telefon</th>
                                     <th>E-Mail</th>
+                                    <th>Begleitung</th>
                                     <th>Aktionen</th>
                     `;
                 }
@@ -502,22 +521,31 @@ document.addEventListener('DOMContentLoaded', function() {
                     `;
                     
                     if (isAdmin) {
-                    tableHtml += `
-                    <td><strong>${prospect.child_last_name || '-'}</strong></td>
-                    <td><a href="tel:${prospect.phone}">${prospect.phone}</a></td>
-                    <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
-                    <td>
-                    <div class="btn-group btn-group-sm">
-
-                    <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
-                        <i class="fas fa-edit"></i>
-                    </button>
-
-                    <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
-                        <i class="fas fa-trash"></i>
-                        </button>
-                        </div>
-                        </td>
+                        const accompanimentText = prospect.accompaniment_type === 'companion' ? 
+                            '<span class="badge bg-success">Begleitperson</span>' : 
+                            '<span class="badge bg-info">Springer</span>';
+                        
+                        const phoneSecondary = prospect.phone_secondary ? 
+                            `<br><small><a href="tel:${prospect.phone_secondary}">${prospect.phone_secondary}</a></small>` : '';
+                        
+                        tableHtml += `
+                            <td><strong>${prospect.child_last_name || '-'}</strong></td>
+                            <td>
+                                <a href="tel:${prospect.phone}">${prospect.phone}</a>
+                                ${phoneSecondary}
+                            </td>
+                            <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
+                            <td>${accompanimentText}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
                         `;
                     }
                     
@@ -555,6 +583,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <th>Nachname</th>
                                 <th>Telefon</th>
                                 <th>E-Mail</th>
+                                <th>Begleitung</th>
                                 <th>Aktionen</th>
                 `;
             }
@@ -575,10 +604,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
                 
                 if (isAdmin) {
+                    const accompanimentText = prospect.accompaniment_type === 'companion' ? 
+                        '<span class="badge bg-success">Begleitperson</span>' : 
+                        '<span class="badge bg-info">Springer</span>';
+                    
+                    const phoneSecondary = prospect.phone_secondary ? 
+                        `<br><small><a href="tel:${prospect.phone_secondary}">${prospect.phone_secondary}</a></small>` : '';
+                    
                     interestTableHtml += `
                         <td><strong>${prospect.child_last_name || '-'}</strong></td>
-                        <td><a href="tel:${prospect.phone}">${prospect.phone}</a></td>
+                        <td>
+                            <a href="tel:${prospect.phone}">${prospect.phone}</a>
+                            ${phoneSecondary}
+                        </td>
                         <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
+                        <td>${accompanimentText}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
                                 <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
@@ -686,7 +726,9 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('editChildLastName').value = prospect.child_last_name || '';
             document.getElementById('editSchoolClass').value = prospect.school_class;
             document.getElementById('editPhone').value = prospect.phone;
+            document.getElementById('editPhoneSecondary').value = prospect.phone_secondary || '';
             document.getElementById('editEmail').value = prospect.email || '';
+            document.getElementById('editAccompanimentType').value = prospect.accompaniment_type || '';
             document.getElementById('editNotes').value = prospect.notes || '';
             
             // Walking Bus Route setzen
@@ -698,7 +740,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             editProspectModal.show();
         } catch (error) {
-            console.error('Fehler beim Laden der Teilnehmer-Daten:', error);
+            console.error('[MAP.html][EDIT] Fehler beim Laden der Teilnehmer-Daten:', error);
             alert('Fehler beim Laden der Teilnehmer-Daten');
         }
     };
@@ -748,8 +790,10 @@ document.addEventListener('DOMContentLoaded', function() {
             child_last_name: document.getElementById('editChildLastName').value,
             school_class: document.getElementById('editSchoolClass').value,
             phone: document.getElementById('editPhone').value,
+            phone_secondary: document.getElementById('editPhoneSecondary').value,
             email: document.getElementById('editEmail').value,
             walking_bus_route_id: routeValue === 'interest_only' ? null : parseInt(routeValue),
+            accompaniment_type: document.getElementById('editAccompanimentType').value,
             notes: document.getElementById('editNotes').value,
             address: document.getElementById('editAddress').value
         };
@@ -759,8 +803,10 @@ document.addEventListener('DOMContentLoaded', function() {
             editProspectModal.hide();
             await loadData();
             
+            console.log('[MAP.html][EDIT] Teilnehmer erfolgreich aktualisiert');
             alert('Teilnehmer erfolgreich aktualisiert');
         } catch (error) {
+            console.error('[MAP.html][EDIT] Aktualisierung fehlgeschlagen:', error);
             const errorMsg = error.response?.data?.error || 'Aktualisierung fehlgeschlagen';
             alert('Fehler: ' + errorMsg);
         }

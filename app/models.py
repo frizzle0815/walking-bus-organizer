@@ -279,6 +279,7 @@ class Prospect(db.Model):
     child_last_name = db.Column(db.String(100), nullable=False)   # Nachname des Kindes (nur Admin)
     school_class = db.Column(db.String(5), nullable=False)  # z.B. "1A", "2B", "3C", "4D"
     phone = db.Column(db.String(20), nullable=False)
+    phone_secondary = db.Column(db.String(20), nullable=True)  # Neue zweite Handynummer
     email = db.Column(db.String(100), nullable=True)
     
     # Geocoding-Daten (nur Koordinaten, keine Klartext-Adresse)
@@ -287,6 +288,9 @@ class Prospect(db.Model):
     
     # Walking Bus Route Zuordnung (nullable für "Nur Interesse")
     walking_bus_route_id = db.Column(db.Integer, db.ForeignKey('walking_bus_routes.id'), nullable=True)
+    
+    # Begleitung-Auswahl
+    accompaniment_type = db.Column(db.String(20), nullable=False)  # 'companion' oder 'substitute'
     
     # Metadaten
     created_at = db.Column(db.DateTime, default=get_current_time)
@@ -313,7 +317,9 @@ class Prospect(db.Model):
             data.update({
                 'child_last_name': self.child_last_name,  # Nachname nur für Admins
                 'phone': self.phone,
+                'phone_secondary': self.phone_secondary,
                 'email': self.email,
+                'accompaniment_type': self.accompaniment_type,
                 'latitude': self.latitude,
                 'longitude': self.longitude,
                 'notes': self.notes
