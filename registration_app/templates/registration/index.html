@@ -540,8 +540,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     })
                 }).addTo(map).bindPopup(`<strong>Ihre Adresse</strong><br>${display_name}`);
                 
-                // Karte zentrieren
-                map.setView([latitude, longitude], 14);
+                // Karte so zentrieren, dass sowohl Adresse als auch Schule sichtbar sind
+                const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
+                const group = new L.featureGroup([
+                    L.marker([latitude, longitude]),
+                    L.marker([schoolLat, schoolLon])
+                ]);
+                
+                // Karte auf beide Punkte anpassen mit etwas Padding
+                map.fitBounds(group.getBounds(), {
+                    padding: [20, 20],
+                    maxZoom: 15 // Verhindert zu starkes Hineinzoomen
+                });
                 
                 showAddressFeedback(`✓ Adresse gefunden: ${display_name}`, 'success');
                 updateMapStatus('Adresse erfolgreich lokalisiert');
@@ -552,7 +562,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
         } catch (error) {
-            console.error('Geocoding-Fehler:', error);
+            console.error('[INDEX.html][GEOCODING] Geocoding-Fehler:', error);
             showAddressFeedback('✗ Fehler beim Suchen der Adresse. Bitte versuchen Sie es erneut.', 'error');
             updateMapStatus('Fehler beim Suchen');
         } finally {
