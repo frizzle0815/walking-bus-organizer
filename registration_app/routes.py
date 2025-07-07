@@ -39,6 +39,32 @@ def routes_admin():
     """Routenverwaltung - nur für Admins"""
     return render_template('registration/routes.html')
 
+@bp.route('/impressum')
+def impressum():
+    """Impressum-Seite"""
+    context = {
+        'contact_name': os.getenv('CONTACT_NAME', ''),
+        'contact_address': os.getenv('CONTACT_ADDRESS', ''),
+        'contact_phone': os.getenv('CONTACT_PHONE', ''),
+        'contact_email': os.getenv('CONTACT_EMAIL', ''),
+        'school_name': os.getenv('SCHOOL_NAME', ''),
+        'school_address': os.getenv('SCHOOL_ADDRESS', ''),
+        'school_principal': os.getenv('SCHOOL_PRINCIPAL', ''),
+    }
+    return render_template('registration/impressum.html', **context)
+
+@bp.route('/datenschutz')
+def datenschutz():
+    """Datenschutzerklärung"""
+    from datetime import datetime
+    context = {
+        'contact_name': os.getenv('CONTACT_NAME', ''),
+        'contact_address': os.getenv('CONTACT_ADDRESS', ''),
+        'contact_email': os.getenv('CONTACT_EMAIL', ''),
+        'current_date': datetime.now().strftime('%d.%m.%Y'),
+    }
+    return render_template('registration/datenschutz.html', **context)
+
 # Auth Endpunkte
 @bp.route('/api/auth/login', methods=['POST'])
 def auth_login():

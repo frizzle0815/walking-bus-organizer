@@ -86,6 +86,14 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - SCHOOL_COORDINATES=${SCHOOL_COORDINATES:-52.5200,13.4050}
       - SCHOOL_RADIUS=${SCHOOL_RADIUS:-30}
+      # Kontaktdaten für Impressum und Datenschutz
+      - CONTACT_NAME=${CONTACT_NAME}
+      - CONTACT_ADDRESS=${CONTACT_ADDRESS}
+      - CONTACT_PHONE=${CONTACT_PHONE}
+      - CONTACT_EMAIL=${CONTACT_EMAIL}
+      - SCHOOL_NAME=${SCHOOL_NAME}
+      - SCHOOL_ADDRESS=${SCHOOL_ADDRESS}
+      - SCHOOL_PRINCIPAL=${SCHOOL_PRINCIPAL}
     volumes:
       - ./registration_app:/app/registration_app
 
