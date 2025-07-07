@@ -15,7 +15,7 @@ bp = Blueprint('registration', __name__)
 # Verfügbare Schulklassen
 SCHOOL_CLASSES = [
     '1a', '1b', '1c',
-    '2a', '2b', '2c', 
+    '2a', '2b', '2c',
     '3a', '3b', '3c',
     '4a', '4b', '4c'
 ]
@@ -107,22 +107,28 @@ def geocode_address():
             return jsonify({'error': 'Adresse ist erforderlich'}), 400
         
         geocoding_service = GeocodingService()
-        lat, lon, geocoded_address = geocoding_service.geocode_address(address)
+        lat, lon, result_or_error = geocoding_service.geocode_address(address)
         
         if lat and lon:
             return jsonify({
                 'success': True,
                 'latitude': lat,
                 'longitude': lon,
-                'display_name': geocoded_address,
+                'display_name': result_or_error,
                 'within_radius': True
             }), 200
         else:
-            error_msg = geocoded_address if geocoded_address else 'Adresse konnte nicht gefunden werden'
+            # result_or_error enthält jetzt die spezifische Fehlermeldung
+            error_msg = result_or_error if result_or_error else 'Adresse konnte nicht gefunden werden'
+            
+            # Prüfen ob es ein Radius-Fehler ist
+            is_radius_error = 'km von der Schule entfernt' in error_msg
+            
             return jsonify({
                 'success': False,
                 'error': error_msg,
-                'within_radius': False
+                'within_radius': False,
+                'radius_error': is_radius_error
             }), 400
             
     except Exception as e:
@@ -157,13 +163,16 @@ def register_prospect():
         
         # Geocoding durchführen
         geocoding_service = GeocodingService()
-        lat, lon, geocoded_address = geocoding_service.geocode_address(data['address'])
+        lat, lon, result_or_error = geocoding_service.geocode_address(data['address'])
         
         if not lat or not lon:
-            error_msg = geocoded_address if geocoded_address else 'Adresse konnte nicht gefunden werden – bitte überprüfen'
+            error_msg = result_or_error if result_or_error else 'Adresse konnte nicht gefunden werden – bitte überprüfen'
+            is_radius_error = 'km von der Schule entfernt' in error_msg
+            
             return jsonify({
                 'error': error_msg,
-                'geocoding_failed': True
+                'geocoding_failed': True,
+                'radius_error': is_radius_error
             }), 400
         
         # Neuen Teilnehmer erstellen

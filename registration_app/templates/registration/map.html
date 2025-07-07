@@ -50,7 +50,7 @@
                     <div class="col-md-8">
                         <h3 class="card-title mb-0">
                             <i class="fas fa-map me-2"></i>
-                            Walking Bus Übersicht
+                            Walking Bus
                         </h3>
                     </div>
                     <div class="col-md-4 text-end">
@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Karte initialisieren
     function initMap() {
         const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
-        map = L.map('map').setView([schoolLat, schoolLon], 13);
+        map = L.map('map').setView([schoolLat, schoolLon], 14);
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'

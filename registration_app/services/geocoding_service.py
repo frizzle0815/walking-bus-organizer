@@ -25,7 +25,7 @@ class GeocodingService:
             address: Die zu geocodierende Adresse
             
         Returns:
-            Tuple von (latitude, longitude, geocoded_address) oder (None, None, None)
+            Tuple von (latitude, longitude, geocoded_address) oder (None, None, error_message)
         """
         try:
             params = {
@@ -58,24 +58,25 @@ class GeocodingService:
                     # Radius-Validierung
                     distance_km = self.calculate_distance(lat, lon, self.school_lat, self.school_lon)
                     if distance_km > self.max_radius_km:
+                        error_msg = f"Die Adresse ist {distance_km:.1f}km von der Schule entfernt. Maximal erlaubt sind {self.max_radius_km}km."
                         self.logger.warning(f"Adresse '{address}' ist {distance_km:.1f}km entfernt (max. {self.max_radius_km}km)")
-                        return None, None, f"Adresse ist zu weit entfernt ({distance_km:.1f}km, max. {self.max_radius_km}km)"
+                        return None, None, error_msg
                     
                     self.logger.info(f"Geocoding erfolgreich für '{address}': {lat}, {lon} ({distance_km:.1f}km entfernt)")
                     return lat, lon, display_name
                 else:
                     self.logger.warning(f"Keine Geocoding-Ergebnisse für '{address}'")
-                    return None, None, None
+                    return None, None, "Adresse konnte nicht gefunden werden. Bitte überprüfen Sie die Eingabe."
             else:
                 self.logger.error(f"Geocoding-API Fehler: {response.status_code}")
-                return None, None, None
+                return None, None, "Fehler beim Suchen der Adresse. Bitte versuchen Sie es später erneut."
                 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Geocoding-Request Fehler: {str(e)}")
-            return None, None, None
+            return None, None, "Netzwerkfehler beim Suchen der Adresse. Bitte überprüfen Sie Ihre Internetverbindung."
         except Exception as e:
             self.logger.error(f"Geocoding-Fehler: {str(e)}")
-            return None, None, None
+            return None, None, "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut."
     
     def reverse_geocode(self, lat: float, lon: float) -> Optional[str]:
         """

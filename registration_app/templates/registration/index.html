@@ -135,7 +135,7 @@
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle me-2"></i>
                     <strong>Willkommen!</strong> 
-                    Melden Sie Ihr Kind hier für den Walking Bus an. Überprüfen Sie Ihre Adresse auf der Karte.
+                    Melden Sie Ihr Kind hier für den Walking Bus an. Wir nehmen danach Kontakt zu Euch auf!
                 </div>
 
                 <form id="registrationForm">
@@ -191,7 +191,7 @@
                                             <i class="fas fa-phone me-2"></i>Handynummer *
                                         </label>
                                         <div class="form-text">
-                                            Für wichtige Mitteilungen und Notfälle
+                                            Für die Kontaktaufnahme (bevorzugt WhatsApp)
                                         </div>
                                     </div>
                                 </div>
@@ -202,7 +202,7 @@
                                             <i class="fas fa-envelope me-2"></i>E-Mail (optional)
                                         </label>
                                         <div class="form-text">
-                                            Für weitere Kommunikation
+                                            Alternative Kontaktaufnahme
                                         </div>
                                     </div>
                                 </div>
@@ -223,7 +223,7 @@
                                         <i class="fas fa-home me-2"></i>Vollständige Adresse *
                                     </label>
                                     <div class="form-text">
-                                        Straße, Hausnummer, PLZ, Ort - wird automatisch auf der Karte gesucht
+                                        Straße, Hausnummer, PLZ, Ort - danach auf "Adresse suchen" klicken. Es genügt auch ein ungefährer Standort.
                                     </div>
                                 </div>
                                 
@@ -297,12 +297,6 @@
                                     und Routenplanung gespeichert werden. Die Adresse wird nur in Form von Koordinaten 
                                     gespeichert. *
                                 </label>
-                            </div>
-
-                            <div class="alert alert-warning">
-                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                <strong>Wichtig:</strong> Ihre Adresse wird automatisch geprüft. 
-                                Nur Adressen im Umkreis der Schule werden akzeptiert (Spam-Schutz).
                             </div>
 
                             <div class="d-grid">
@@ -585,17 +579,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 fitMapToRelevantElements();
                 
                 showAddressFeedback(`✓ Adresse gefunden: ${display_name}`, 'success');
-                // updateMapStatus('Adresse erfolgreich lokalisiert');
+                console.log('[INDEX.html][GEOCODING] Adresse erfolgreich gefunden');
                 
             } else {
-                showAddressFeedback(`✗ ${response.data.error}`, 'error');
-                // updateMapStatus('Adresse nicht gefunden');
+                // Spezifische Fehlermeldung anzeigen
+                const errorMsg = response.data.error || 'Adresse konnte nicht gefunden werden';
+                const isRadiusError = response.data.radius_error || false;
+                
+                if (isRadiusError) {
+                    showAddressFeedback(`🚫 ${errorMsg}`, 'warning');
+                    console.log('[INDEX.html][GEOCODING] Radius-Fehler:', errorMsg);
+                } else {
+                    showAddressFeedback(`✗ ${errorMsg}`, 'error');
+                    console.log('[INDEX.html][GEOCODING] Geocoding-Fehler:', errorMsg);
+                }
             }
             
         } catch (error) {
-            console.error('[INDEX.html][GEOCODING] Geocoding-Fehler:', error);
-            showAddressFeedback('✗ Fehler beim Suchen der Adresse. Bitte versuchen Sie es erneut.', 'error');
-            // updateMapStatus('Fehler beim Suchen');
+            console.error('[INDEX.html][GEOCODING] Request-Fehler:', error);
+            
+            if (error.response && error.response.data) {
+                const errorMsg = error.response.data.error || 'Unbekannter Fehler';
+                const isRadiusError = error.response.data.radius_error || false;
+                
+                if (isRadiusError) {
+                    showAddressFeedback(`🚫 ${errorMsg}`, 'warning');
+                } else {
+                    showAddressFeedback(`✗ ${errorMsg}`, 'error');
+                }
+            } else {
+                showAddressFeedback('✗ Fehler beim Suchen der Adresse. Bitte versuchen Sie es erneut.', 'error');
+            }
         } finally {
             setLoading(false);
         }
@@ -651,7 +665,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div style="width: 20px; height: 20px; background-color: ${route.color}; border-radius: 3px; margin-right: 10px;"></div>
                         <div>
                             <strong class="route-highlight">${route.name}</strong><br>
-                            <small class="text-muted">${route.description || 'Diese Route wird auf der Karte hervorgehoben.'}</small>
+
                         </div>
                     </div>
                 `;
@@ -704,17 +718,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 routePreview.style.display = 'none';
                 resetRouteHighlight();
                 successModal.show();
+                console.log('[INDEX.html][REGISTER] Registrierung erfolgreich');
             }
         } catch (error) {
-            console.error('Registrierung fehlgeschlagen:', error);
+            console.error('[INDEX.html][REGISTER] Registrierung fehlgeschlagen:', error);
             
             let errorMessage = 'Ein unbekannter Fehler ist aufgetreten.';
-            if (error.response && error.response.data && error.response.data.error) {
-                errorMessage = error.response.data.error;
+            let isRadiusError = false;
+            
+            if (error.response && error.response.data) {
+                errorMessage = error.response.data.error || errorMessage;
+                isRadiusError = error.response.data.radius_error || false;
             }
             
             if (error.response && error.response.data && error.response.data.geocoding_failed) {
-                showAddressFeedback(`✗ ${errorMessage}`, 'error');
+                if (isRadiusError) {
+                    showAddressFeedback(`🚫 ${errorMessage}`, 'warning');
+                } else {
+                    showAddressFeedback(`✗ ${errorMessage}`, 'error');
+                }
             } else {
                 alert(`Fehler: ${errorMessage}`);
             }
