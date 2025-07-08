@@ -13,7 +13,8 @@ from ..models import (
     AuthToken,
     WeatherCalculation,
     WalkingBusOverride,
-    DailyNote
+    DailyNote,
+    SchoolHoliday
 )
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
@@ -257,6 +258,20 @@ class PushService:
                     walking_bus_id=self.walking_bus_id,
                     date=target_date
                 ).first()
+
+                # Check for school holidays/vacation (no push notifications during vacation)
+                holiday = SchoolHoliday.query\
+                    .filter(SchoolHoliday.start_date <= target_date)\
+                    .filter(SchoolHoliday.end_date >= target_date)\
+                    .first()
+                
+                if holiday:
+                    # Skip push notifications during vacation/holidays
+                    log_entry.notification_data['reason'] = f"Keine Push-Benachrichtigung während {holiday.name}"
+                    log_entry.notification_data['holiday_name'] = holiday.name
+                    db.session.add(log_entry)
+                    db.session.commit()
+                    continue
 
                 # Build message
                 if bus_override and not bus_override.is_active:
