@@ -2665,7 +2665,8 @@ def pwa_login_route(token):
                 temp_token.walking_bus_id,
                 temp_token.walking_bus_name,
                 temp_token.bus_password_hash,
-                client_info=client_info
+                client_info=client_info,
+                token_identifier=temp_token.token_identifier
             )
             
             # Set up token renewal relationships

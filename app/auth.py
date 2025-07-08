@@ -83,8 +83,8 @@ def get_consistent_hash(text):
     return sha256(str(text).encode()).hexdigest()
 
 
-def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None):
-    token_identifier = secrets.token_hex(32)
+def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None, token_identifier=None):
+    token_identifier = token_identifier or secrets.token_hex(32)
     current_time = get_current_time()
     exp_time = current_time + timedelta(days=60)
     token_payload = {
@@ -165,11 +165,12 @@ def renew_auth_token(old_token, verified_payload):
     Returns:
         dict containing new token and cookie settings
     """
-    # Create new token with extended expiration
+    # Create new token with extended expiration, keeping same token_identifier
     auth_result = create_auth_token(
         verified_payload['walking_bus_id'],
         verified_payload['walking_bus_name'],
-        verified_payload['bus_password_hash']
+        verified_payload['bus_password_hash'],
+        token_identifier=verified_payload['token_identifier']
     )
     
     # Update token chain
