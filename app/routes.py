@@ -1696,7 +1696,7 @@ def broadcast_notification():
         subscriptions = [s for s in subscriptions if s.walking_bus_id == target_bus_id]
 
     for subscription in subscriptions:
-        success, error = push_service.send_notification(subscription, notification_data)
+        success, error, _ = push_service.send_notification(subscription, notification_data)
         results.append({
             'endpoint': subscription.endpoint,
             'success': success,
