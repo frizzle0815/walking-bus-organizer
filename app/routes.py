@@ -28,7 +28,8 @@ from .auth import (
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
     renew_auth_token, generate_pwa_temp_token,
-    check_and_renew_token, cleanup_expired_tokens
+    check_and_renew_token, cleanup_expired_tokens,
+    cleanup_expired_auth_tokens
 )
 import jwt
 import json
@@ -421,6 +422,22 @@ def list_auth_tokens():
         temp_tokens=temp_tokens,
         current_time=current_time
     )
+
+
+@bp.route("/api/cleanup-tokens", methods=["POST"])
+@require_auth
+def cleanup_tokens():
+    """Manually cleanup expired tokens"""
+    try:
+        cleanup_expired_tokens()
+        cleaned_auth_tokens = cleanup_expired_auth_tokens()
+        return jsonify({
+            "success": True,
+            "cleaned_auth_tokens": cleaned_auth_tokens
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error during token cleanup: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @bp.route("/api/auth-token/<token_id>", methods=["DELETE"])
@@ -2575,6 +2592,7 @@ def manifest():
 @require_auth
 def setup_pwa_token():
     cleanup_expired_tokens()
+    cleanup_expired_auth_tokens()
     data = request.get_json()
     browser_token = data.get('browser_token')
 
@@ -2629,6 +2647,7 @@ def setup_pwa_token():
 @bp.route("/pwa-login/<token>")
 def pwa_login_route(token):
     cleanup_expired_tokens()
+    cleanup_expired_auth_tokens()
     if request.headers.get('Accept') == 'application/json':
         temp_token = TempToken.query.get(token)
         

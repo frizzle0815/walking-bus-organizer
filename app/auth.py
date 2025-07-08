@@ -464,6 +464,22 @@ def cleanup_expired_tokens():
     db.session.commit()
 
 
+def cleanup_expired_auth_tokens():
+    """Mark expired auth tokens as inactive"""
+    now = datetime.now()
+    expired_tokens = AuthToken.query.filter(
+        AuthToken.expires_at < now,
+        AuthToken.is_active.is_(True)
+    ).all()
+    
+    for token in expired_tokens:
+        token.is_active = False
+        token.invalidated_at = now
+        
+    db.session.commit()
+    return len(expired_tokens)
+
+
 # Permanent Token 
 def cleanup_old_tokens():
     """Remove inactive tokens older than one month"""
