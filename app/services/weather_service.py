@@ -1,6 +1,6 @@
 from .. import WEEKDAY_MAPPING, get_current_time, get_current_date, TIMEZONE, redis_client
 from ..models import db, Weather, WeatherCalculation, WalkingBus, WalkingBusSchedule
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from flask import current_app as app
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 import requests
@@ -345,12 +345,16 @@ class WeatherService:
             
             for bus in buses:
                 schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus.id).first()
+                if not schedule:
+                    print(f"[WEATHER][CALC] No schedule found for bus {bus.id}, skipping")
+                    continue
+                    
                 print(f"[WEATHER][TIME] Bus {bus.id} schedule:")
                 print(f"[WEATHER][TIME] Start time: {schedule.monday_start} ({type(schedule.monday_start)})")
                 print(f"[WEATHER][TIME] End time: {schedule.monday_end} ({type(schedule.monday_end)})")
                 
                 weather_data = Weather.query.filter(
-                    Weather.timestamp >= datetime.now(TIMEZONE)
+                    Weather.timestamp >= datetime.now(TIMEZONE).astimezone(timezone.utc)
                 ).order_by(Weather.timestamp).limit(5).all()
                 
                 print("[WEATHER][TIME] Next 5 weather records:")
@@ -634,8 +638,12 @@ class WeatherService:
 
         logger.info(f"[WEATHER][TIMEFRAME] Time window: {start_datetime.strftime('%H:%M')} - {end_datetime.strftime('%H:%M')}")
 
+        # Convert local time to UTC for database query
+        start_datetime_utc = start_datetime.astimezone(timezone.utc)
+        end_datetime_utc = end_datetime.astimezone(timezone.utc)
+        
         minutely_records = Weather.query.filter(
-            Weather.timestamp.between(start_datetime, end_datetime),
+            Weather.timestamp.between(start_datetime_utc, end_datetime_utc),
             Weather.forecast_type == 'minutely'
         ).order_by(Weather.timestamp).all()
 
@@ -666,7 +674,7 @@ class WeatherService:
                         'coverage_type': 'minutely',
                         'data_type': 'minutely',
                         'minutely_used': [{
-                            'timestamp': record.timestamp.strftime('%H:%M'),
+                            'timestamp': record.timestamp.replace(tzinfo=timezone.utc).astimezone(TIMEZONE).strftime('%H:%M'),
                             'precipitation': record.precipitation,
                             'contribution': record.precipitation / 60
                         } for record in minutely_records[:duration_minutes]]
@@ -677,11 +685,12 @@ class WeatherService:
         else:
             logger.info("[WEATHER][TIMEFRAME] Insufficient minutely data, trying hourly")
 
+        # Convert local time to UTC for hourly query
+        hourly_start_utc = start_datetime.replace(minute=0).astimezone(timezone.utc)
+        hourly_end_utc = (end_datetime.replace(minute=0) + timedelta(hours=1)).astimezone(timezone.utc)
+        
         hourly_records = Weather.query.filter(
-            Weather.timestamp.between(
-                start_datetime.replace(minute=0),
-                end_datetime.replace(minute=0) + timedelta(hours=1)
-            ),
+            Weather.timestamp.between(hourly_start_utc, hourly_end_utc),
             Weather.forecast_type == 'hourly'
         ).order_by(Weather.timestamp).all()
 
