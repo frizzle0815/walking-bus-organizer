@@ -141,6 +141,10 @@
         background-color: #a9e6b7;
     }
 
+    .participant-status-attending {
+        background-color: #a9e6b7; /* Gleiche Farbe wie active, aber mit Haken-Icon */
+    }
+
     .participant-status-inactive {
         background-color: #f8bfc3;
     }
@@ -707,7 +711,8 @@
 const PARTICIPANT_STATES = {
     ACTIVE: 'active',
     INACTIVE: 'inactive',
-    DISABLED: 'disabled'
+    DISABLED: 'disabled',
+    ATTENDING: 'attending'
 };
 
 const WALKING_BUS_STATES = {
@@ -911,6 +916,9 @@ async function loadInitialData() {
             weekOverview: weekResponse.data
         };
 
+        // Set global daily status before rendering
+        globalDailyStatus = enhancedDailyStatus;
+
         // Render everything into hidden container
         await renderFullView(
             window.appState.stations,
@@ -1020,7 +1028,20 @@ function calculateParticipantStatusState(participantId, dailyStatus) {
         return PARTICIPANT_STATES.DISABLED;
     }
 
-    const finalState = participantState ? PARTICIPANT_STATES.ACTIVE : PARTICIPANT_STATES.INACTIVE;
+    if (!participantState) {
+        const finalState = PARTICIPANT_STATES.INACTIVE;
+        console.log('[STATUS][CALC] Final state:', finalState);
+        return finalState;
+    }
+
+    // Prüfe Anwesenheit nur für aktuellen Tag
+    if (currentDay && dailyStatus.participantAttendance && dailyStatus.participantAttendance[participantId]) {
+        const finalState = PARTICIPANT_STATES.ATTENDING;
+        console.log('[STATUS][CALC] Final state:', finalState);
+        return finalState;
+    }
+
+    const finalState = PARTICIPANT_STATES.ACTIVE;
     console.log('[STATUS][CALC] Final state:', finalState);
     return finalState;
 }
@@ -1034,11 +1055,17 @@ function updateParticipantStatusUI(participantElement, state) {
 
     const icon = participantElement.querySelector('.traffic-light');
     const button = participantElement.querySelector('.status-button');
+    const participantId = participantElement.dataset.participantId;
+    
+    // Remove any existing click handler first
+    icon.onclick = null;
+    icon.style.cursor = 'default';
     
     participantElement.classList.remove(
         'participant-status-active',
         'participant-status-inactive',
-        'participant-status-disabled'
+        'participant-status-disabled',
+        'participant-status-attending'
     );
     
     switch(state) {
@@ -1049,6 +1076,33 @@ function updateParticipantStatusUI(participantElement, state) {
             button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
             button.innerHTML = '<i class="fas fa-check"></i>';
             button.disabled = false;
+            
+            // Add click handler for attendance toggle (only for current day)
+            if (globalDailyStatus && isCurrentDay(globalDailyStatus.currentDate)) {
+                icon.style.cursor = 'pointer';
+                icon.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleAttendance(participantId, icon);
+                };
+            }
+            break;
+            
+        case PARTICIPANT_STATES.ATTENDING:
+            //console.log('[STATUS][UI] Setting ATTENDING state');
+            participantElement.classList.add('participant-status-attending');
+            icon.className = 'fas fa-check traffic-light icon-active';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
+            button.innerHTML = '<i class="fas fa-check"></i>';
+            button.disabled = false;
+            
+            // Add click handler for attendance toggle (only for current day)  
+            if (globalDailyStatus && isCurrentDay(globalDailyStatus.currentDate)) {
+                icon.style.cursor = 'pointer';
+                icon.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleAttendance(participantId, icon);
+                };
+            }
             break;
             
         case PARTICIPANT_STATES.INACTIVE:
@@ -1340,6 +1394,108 @@ async function TEST_toggleParticipation(participantId, button) {
     }
 }
 
+async function toggleAttendance(participantId, iconElement) {
+    const currentTimestamp = Date.now();
+    if (currentTimestamp - lastUpdateTimestamp < UPDATE_THRESHOLD) {
+        console.log('[ATTENDANCE] Skipping too fast update');
+        return;
+    }
+    lastUpdateTimestamp = currentTimestamp;
+
+    if (isStatusUpdateInProgress) {
+        console.log('[ATTENDANCE] Status update already in progress');
+        return;
+    }
+
+    // Get the currently displayed date from the UI
+    const selectedDateElement = document.querySelector('.week-container .selected-day .calendar-day');
+    const currentDisplayedDate = selectedDateElement ? selectedDateElement.dataset.date : new Date().toISOString().split('T')[0];
+    
+    console.log('[ATTENDANCE] Current displayed date:', currentDisplayedDate);
+    console.log('[ATTENDANCE] Today date:', new Date().toISOString().split('T')[0]);
+
+    // Nur für aktuellen Tag erlaubt
+    if (!isCurrentDay(currentDisplayedDate)) {
+        console.log('[ATTENDANCE] Attendance only for current day, displayed:', currentDisplayedDate);
+        return;
+    }
+
+    // Load current daily status for the displayed date
+    let dailyStatus;
+    try {
+        const dailyStatusResponse = await axios.get('/api/daily-status', {
+            params: { date: currentDisplayedDate }
+        });
+        dailyStatus = dailyStatusResponse.data;
+        console.log('[ATTENDANCE] Loaded daily status for date:', currentDisplayedDate, dailyStatus);
+    } catch (error) {
+        console.error('[ATTENDANCE] Failed to load daily status:', error);
+        return;
+    }
+
+    // Prüfe ob Walking Bus bereits vorbei ist
+    const isTimePassedForToday = dailyStatus.schedule?.end &&
+                               checkTimePassed(dailyStatus.schedule.end);
+    if (isTimePassedForToday) {
+        console.log('[ATTENDANCE] Walking Bus already passed');
+        return;
+    }
+
+    // Prüfe ob Teilnehmer im korrekten Status ist (ACTIVE oder ATTENDING)
+    const participantState = calculateParticipantStatusState(participantId, dailyStatus);
+    console.log('[ATTENDANCE] Participant state for current displayed date:', participantState);
+    if (participantState !== PARTICIPANT_STATES.ACTIVE && participantState !== PARTICIPANT_STATES.ATTENDING) {
+        console.log('[ATTENDANCE] Participant not in correct state for attendance:', participantState);
+        return;
+    }
+
+    isStatusUpdateInProgress = true;
+    
+    try {
+        // Get participant element directly (we don't need participant info from appState)
+        const participantElement = document.querySelector(`[data-participant-id="${participantId}"]`);
+        
+        if (!participantElement) {
+            console.error('[ATTENDANCE] Participant element not found');
+            return;
+        }
+
+        // Add loading state
+        iconElement.classList.add('fa-spin');
+
+        // Make API call
+        const response = await axios.patch(`/api/attendance/${participantId}`);
+
+        // Update local and global state
+        if (!dailyStatus.participantAttendance) {
+            dailyStatus.participantAttendance = {};
+        }
+        dailyStatus.participantAttendance[participantId] = response.data.attendance;
+        
+        // Update global state if it's the same date
+        if (globalDailyStatus && globalDailyStatus.currentDate === currentDisplayedDate) {
+            if (!globalDailyStatus.participantAttendance) {
+                globalDailyStatus.participantAttendance = {};
+            }
+            globalDailyStatus.participantAttendance[participantId] = response.data.attendance;
+        }
+        
+        // Update UI by recalculating status
+        const newState = calculateParticipantStatusState(participantId, dailyStatus);
+        updateParticipantStatusUI(participantElement, newState);
+
+        console.log('[ATTENDANCE] Attendance updated successfully');
+
+    } catch (error) {
+        console.error('[ATTENDANCE] Error updating attendance:', error);
+        // Error wird automatisch durch SSE korrigiert oder beim nächsten Reload
+    } finally {
+        isStatusUpdateInProgress = false;
+        iconElement.classList.remove('fa-spin');
+    }
+}
+
+
 
 async function toggleParticipation(participantId, button) {
     const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
@@ -1351,7 +1507,8 @@ async function toggleParticipation(participantId, button) {
     }
     participantItem.dataset.updating = 'true';
     
-    const wasActive = participantItem.classList.contains('participant-status-active');
+    const wasActive = participantItem.classList.contains('participant-status-active') || 
+                      participantItem.classList.contains('participant-status-attending');
     const newStatus = !wasActive;
     const originalButtonContent = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
     const icon = participantItem.querySelector('.traffic-light');
@@ -1359,7 +1516,7 @@ async function toggleParticipation(participantId, button) {
     
     try {
         // Immediately update visual state
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive', 'participant-status-attending');
         participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
         
         // Start animation
@@ -1400,7 +1557,7 @@ async function toggleParticipation(participantId, button) {
         
         // Revert visual state
         icon.className = originalIconClass;
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive', 'participant-status-attending');
         participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
         
         // Show error indicators
@@ -1696,6 +1853,7 @@ function render_participantItem(participant, dailyStatus) {
     
     const icon = document.createElement('i');
     icon.classList.add('fas', 'traffic-light');
+    // Click-Handler wird in updateParticipantStatusUI je nach Status gesetzt
     nameSpan.appendChild(icon);
     nameSpan.appendChild(document.createTextNode(participant.name));
 
@@ -2503,6 +2661,9 @@ function initializeSSE() {
             case 'status_change':
                 SSE_handleStatusUpdate(data);
                 break;
+            case 'attendance_update':
+                SSE_handleAttendanceUpdate(data);
+                break;
             case 'time_update':
                 SSE_updateTimeDisplay(data.time);
                 break;
@@ -2553,6 +2714,27 @@ function SSE_handleStatusUpdate(data) {
     }
 }
 
+function SSE_handleAttendanceUpdate(data) {
+    console.log('[SSE] Handling attendance update:', data);
+    
+    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+    
+    // Only proceed if we're viewing the current date
+    if (selectedDate === data.date) {
+        // Update global state
+        if (!globalDailyStatus.participantAttendance) {
+            globalDailyStatus.participantAttendance = {};
+        }
+        globalDailyStatus.participantAttendance[data.participant_id] = data.attendance;
+        
+        // Update UI by recalculating status
+        const participantElement = document.querySelector(`[data-participant-id="${data.participant_id}"]`);
+        if (participantElement) {
+            const newState = calculateParticipantStatusState(data.participant_id, globalDailyStatus);
+            updateParticipantStatusUI(participantElement, newState);
+        }
+    }
+}
 
 function SSE_updateTimeDisplay(time) {
     const timeElement = document.getElementById('current-time');
