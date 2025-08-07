@@ -352,6 +352,37 @@
         color: #6c757d;  /* Bootstrap's secondary gray color */
     }
 
+    /* Special styling for attending icon (fa-check) */
+    .traffic-light.icon-attending {
+        color: transparent !important;
+        background-color: #007bff !important;
+        border-radius: 50% !important;
+        padding: 0 !important;
+        box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3) !important;
+        border: 2px solid #0056b3 !important;
+        font-weight: bold !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 1.8em !important;
+        height: 1.8em !important;
+        font-size: 0.8em !important;
+        margin-right: 0.5rem !important;
+        line-height: 1 !important;
+        position: relative !important;
+    }
+
+    .traffic-light.icon-attending::before {
+        content: "\f00c" !important;
+        color: #fff !important;
+        font-family: "Font Awesome 5 Free" !important;
+        font-weight: 900 !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, calc(-50% + 2px)) !important;
+    }
+
     /* Traffic Light Icons */
     .icon-container {
         position: relative;
@@ -1090,7 +1121,7 @@ function updateParticipantStatusUI(participantElement, state) {
         case PARTICIPANT_STATES.ATTENDING:
             //console.log('[STATUS][UI] Setting ATTENDING state');
             participantElement.classList.add('participant-status-attending');
-            icon.className = 'fas fa-check traffic-light icon-active';
+            icon.className = 'fas fa-check traffic-light icon-attending';
             button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
             button.innerHTML = '<i class="fas fa-check"></i>';
             button.disabled = false;
@@ -1479,18 +1510,15 @@ async function toggleAttendance(participantId, iconElement) {
         // Update icon immediately
         const icon = participantElement.querySelector('.traffic-light');
         icon.className = `fas traffic-light ${
-            newAttendingState ? 'fa-check icon-active' : 'fa-walking icon-active'
+            newAttendingState ? 'fa-check icon-attending' : 'fa-walking icon-active'
         }`;
         
         console.log('[ATTENDANCE] Visual state updated');
         
-        // Add loading spinner next to icon
-        const spinner = document.createElement('i');
-        spinner.classList.add('fas', 'fa-spinner', 'fa-spin', 'fa-sm');
-        spinner.style.marginLeft = '5px';
-        spinner.id = `spinner-${participantId}`;
-        iconElement.parentElement.appendChild(spinner);
-        console.log('[ATTENDANCE] Added spinner next to icon');
+        // Replace icon with spinner temporarily
+        const currentIconClass = iconElement.className;
+        iconElement.className = 'fas fa-spinner fa-spin traffic-light icon-active';
+        console.log('[ATTENDANCE] Replaced icon with spinner');
 
         // Make API call
         console.log('[ATTENDANCE] About to make API call');
@@ -1517,10 +1545,7 @@ async function toggleAttendance(participantId, iconElement) {
             console.log('[ATTENDANCE] Updated global dailyStatus:', globalDailyStatus.participantAttendance);
         }
         
-        // Remove spinner and update UI with final state
-        const existingSpinner = document.getElementById(`spinner-${participantId}`);
-        if (existingSpinner) existingSpinner.remove();
-        
+        // Update UI with final state (this will restore the correct icon)
         const finalState = calculateParticipantStatusState(participantId, dailyStatus);
         
         // Save updating flag before UI update
@@ -1534,10 +1559,8 @@ async function toggleAttendance(participantId, iconElement) {
     } catch (error) {
         console.error('[ATTENDANCE] Error updating attendance:', error);
         
-        // Remove spinner and restore original icon state on error
-        const errorSpinner = document.getElementById(`spinner-${participantId}`);
-        if (errorSpinner) errorSpinner.remove();
-        iconElement.className = originalIconClass;
+        // Restore icon state before spinner on error  
+        iconElement.className = currentIconClass;
         
         // Revert visual state
         const revertState = wasAttending ? PARTICIPANT_STATES.ATTENDING : PARTICIPANT_STATES.ACTIVE;
