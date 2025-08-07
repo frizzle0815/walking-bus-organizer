@@ -1368,7 +1368,7 @@ function updateStationStats(stationId) {
     
     const totalParticipants = participants.length;
     const activeParticipants = Array.from(participants)
-        .filter(p => p.classList.contains('participant-status-active')).length;
+        .filter(p => p.classList.contains('participant-status-active') || p.classList.contains('participant-status-attending')).length;
 
     // Update station stats
     const statsElement = document.getElementById(`stats-station-${stationId}`);
@@ -1387,7 +1387,7 @@ function updateTotalStats() {
     const allParticipants = document.querySelectorAll('.participant-item');
     const totalParticipants = allParticipants.length;
     const activeParticipants = Array.from(allParticipants)
-        .filter(p => p.classList.contains('participant-status-active')).length;
+        .filter(p => p.classList.contains('participant-status-active') || p.classList.contains('participant-status-attending')).length;
 
     const totalStats = document.getElementById('stats-total');
     if (totalStats) {
@@ -1631,6 +1631,11 @@ async function toggleParticipation(participantId, button) {
             const dailyStatusResponse = await axios.get('/api/daily-status', {
                 params: { date: selectedDate }
             });
+            
+            // Update global daily status to preserve attendance data
+            if (globalDailyStatus && globalDailyStatus.currentDate === selectedDate) {
+                globalDailyStatus = dailyStatusResponse.data;
+            }
             
             updateStationStats(stationId);
             updateTotalStats();
@@ -2818,7 +2823,9 @@ function SSE_handleStatusUpdate(data) {
             currentDate: data.date,
             participantStates: participantStates,
             schedule: data.schedule,
-            isWalkingBusDay: data.isWalkingBusDay
+            isWalkingBusDay: data.isWalkingBusDay,
+            // Preserve existing attendance data
+            participantAttendance: globalDailyStatus?.participantAttendance || {}
         };
 
         updateAllParticipantStates(dailyStatus);
