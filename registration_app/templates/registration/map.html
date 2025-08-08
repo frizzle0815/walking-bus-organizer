@@ -1,0 +1,842 @@
+{% extends "registration/base.html" %}
+
+{% block title %}Walking Bus Registrierung{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Admin Login Panel (nur wenn nicht angemeldet) -->
+    <div id="adminLoginPanel" class="col-12 mb-3" style="display: none;">
+        <div class="alert alert-info">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Admin-Berechtigung:</strong> Für erweiterte Funktionen anmelden
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#adminLoginModal">
+                        <i class="fas fa-sign-in-alt me-2"></i>Admin-Login
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Status Panel (nur wenn angemeldet) -->
+    <div id="adminStatusPanel" class="col-12 mb-3" style="display: none;">
+        <div class="alert alert-success">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <i class="fas fa-user-shield me-2"></i>
+                    <strong>Admin-Modus aktiv:</strong> Erweiterte Funktionen verfügbar
+                </div>
+                <div class="col-md-4">
+                    <div class="btn-group" role="group">
+                        <a href="/routes" class="btn btn-sm btn-warning">
+                            <i class="fas fa-route me-2"></i>Routen verwalten
+                        </a>
+                        <button id="adminLogoutBtn" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-sign-out-alt me-2"></i>Abmelden
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3 class="card-title mb-0">
+                            <i class="fas fa-map me-2"></i>
+                            Walking Bus
+                        </h3>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <a href="/register" class="btn btn-success">
+                            <i class="fas fa-user-plus me-2"></i>
+                            Jetzt anmelden
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Walking Bus System:</strong> 
+                            Sicher und umweltfreundlich zur Schule! Hier sehen Sie alle geplanten Routen und aktuellen Anmeldungen.
+                            <span id="prospectCount" class="badge bg-primary ms-2">0 Anmeldungen</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Karte -->
+                <div id="map" class="map-container mb-4"></div>
+
+                <!-- Legende -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6>Legende:</h6>
+                        <div class="d-flex flex-wrap gap-3">
+                            <span><i class="fas fa-school text-danger me-1"></i> Schule</span>
+                            <span><i class="fas fa-route text-primary me-1"></i> Walking Bus Routen</span>
+                            <span id="adminLegend" style="display: none;"><i class="fas fa-map-marker-alt text-success me-1"></i> Teilnehmer-Standorte</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Anmeldungen Tabelle -->
+                <h5 class="mb-3">
+                    <i class="fas fa-list me-2"></i>Aktuelle Interessenten
+                </h5>
+                
+                <div id="routeTabs">
+                    <!-- Tabs werden dynamisch erstellt -->
+                </div>
+                
+                <div id="routeTabContent" class="tab-content mt-3">
+                    <!-- Tab-Inhalte werden dynamisch erstellt -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Login Modal -->
+<div class="modal fade" id="adminLoginModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-sign-in-alt me-2"></i>
+                    Admin-Login
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="adminLoginForm">
+                    <div class="form-floating mb-3">
+                        <input type="password" class="form-control" id="adminPassword" required>
+                        <label for="adminPassword">
+                            <i class="fas fa-key me-2"></i>Admin-Passwort
+                        </label>
+                    </div>
+                    <div id="loginError" class="alert alert-danger" style="display: none;"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="submit" form="adminLoginForm" class="btn btn-primary">
+                    <i class="fas fa-sign-in-alt me-2"></i>Anmelden
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Prospect Modal (Admin only) -->
+<div class="modal fade" id="editProspectModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit me-2"></i>
+                    Teilnehmer bearbeiten
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editProspectForm">
+                    <input type="hidden" id="editProspectId">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="editChildFirstName" required>
+                                <label for="editChildFirstName">Vorname des Kindes</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="editChildLastName" required>
+                                <label for="editChildLastName">Nachname des Kindes</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="editSchoolClass" required>
+                                    <option value="">Bitte wählen...</option>
+                                </select>
+                                <label for="editSchoolClass">Klasse</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="editWalkingBusRoute" required>
+                                    <option value="">Bitte wählen...</option>
+                                    <option value="interest_only">🔍 Nur Interesse anmelden</option>
+                                </select>
+                                <label for="editWalkingBusRoute">Walking Bus Route</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="tel" class="form-control" id="editPhone" required>
+                                <label for="editPhone">Telefonnummer</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="tel" class="form-control" id="editPhoneSecondary">
+                                <label for="editPhoneSecondary">Zweite Telefonnummer (optional)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <input type="email" class="form-control" id="editEmail">
+                                <label for="editEmail">E-Mail (optional)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="editAccompanimentType" required>
+                                    <option value="">Bitte wählen...</option>
+                                    <option value="companion">Begleitperson</option>
+                                    <option value="substitute">Springer</option>
+                                </select>
+                                <label for="editAccompanimentType">Begleitung</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-floating mb-3">
+                        <textarea class="form-control" id="editAddress" placeholder="Neue Adresse (optional)"></textarea>
+                        <label for="editAddress">Neue Adresse (optional)</label>
+                        <div class="form-text">Nur ausfüllen wenn sich die Adresse geändert hat</div>
+                    </div>
+                    <div class="form-floating mb-3">
+                        <textarea class="form-control" id="editNotes"></textarea>
+                        <label for="editNotes">Anmerkungen</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="submit" form="editProspectForm" class="btn btn-warning">
+                    <i class="fas fa-save me-2"></i>Speichern
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Globale Variablen
+    let map;
+    let isAdmin = false;
+    let config = {};
+    let prospects = [];
+    let routes = [];
+    let prospectMarkers = {}; // Neue Variable für Marker-Referenzen
+    
+    // Modals
+    const adminLoginModal = new bootstrap.Modal(document.getElementById('adminLoginModal'));
+    const editProspectModal = new bootstrap.Modal(document.getElementById('editProspectModal'));
+    
+    // Globale Funktion für Marker-Hervorhebung
+    // 1. highlightProspectOnMap() vereinfachen - NUR Popup öffnen
+    window.highlightProspectOnMap = function(prospectId) {
+        console.log('[MAP.html][HIGHLIGHT] Popup öffnen für Prospect ID:', prospectId);
+        
+        if (!isAdmin || !prospectMarkers[prospectId]) {
+            console.log('[MAP.html][HIGHLIGHT] Kein Marker gefunden oder nicht Admin');
+            return;
+        }
+        
+        // Nur Popup öffnen - KEINE Marker-Änderungen
+        const marker = prospectMarkers[prospectId];
+        marker.openPopup();
+    };
+
+
+
+    
+    // Initialisierung
+    async function init() {
+        await loadConfig();
+        await checkAdminStatus();
+        initMap();
+        await loadData();
+        updateUI();
+    }
+    
+    // Konfiguration laden
+    async function loadConfig() {
+        try {
+            const response = await axios.get('/api/config');
+            config = response.data;
+        } catch (error) {
+            console.error('Fehler beim Laden der Konfiguration:', error);
+        }
+    }
+    
+    // Admin-Status prüfen
+    async function checkAdminStatus() {
+        try {
+            const response = await axios.get('/api/auth/status');
+            isAdmin = response.data.is_admin;
+        } catch (error) {
+            console.error('Fehler beim Prüfen des Admin-Status:', error);
+        }
+    }
+    
+    // Karte initialisieren
+    function initMap() {
+        const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
+        map = L.map('map').setView([schoolLat, schoolLon], 14);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Schul-Marker
+        L.marker([schoolLat, schoolLon], {
+            icon: L.divIcon({
+                html: `
+                    <div style="
+                        background-color: white;
+                        border-radius: 50%;
+                        width: 28px;
+                        height: 28px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 0 2px rgba(0,0,0,0.3);
+                    ">
+                        <i class="fas fa-school" style="color: red; font-size: 16px;"></i>
+                    </div>
+                `,
+                iconSize: [30, 30],
+                className: 'custom-div-icon'
+            })
+        }).addTo(map).bindPopup('<strong>Schule</strong><br>Ziel aller Walking Bus Routen');
+    }
+    
+    // Daten laden
+    async function loadData() {
+        try {
+            const [routesResponse, prospectsResponse] = await Promise.all([
+                axios.get('/api/routes'),
+                axios.get('/api/prospects')
+            ]);
+            
+            routes = routesResponse.data;
+            prospects = prospectsResponse.data;
+            
+            displayRoutes();
+            
+            // Prospects nur anzeigen wenn noch keine Marker existieren
+            if (Object.keys(prospectMarkers).length === 0) {
+                displayProspects();
+            }
+            
+            createProspectTabs();
+            
+        } catch (error) {
+            console.error('Fehler beim Laden der Daten:', error);
+        }
+    }
+    
+    // Routen auf Karte anzeigen
+    function displayRoutes() {
+        routes.forEach(route => {
+            if (route.route_coordinates && route.route_coordinates.length > 0) {
+                L.polyline(route.route_coordinates, {
+                    color: route.color,
+                    weight: 4,
+                    opacity: 0.8
+                }).addTo(map).bindPopup(`<strong>${route.name}</strong><br>${route.description || ''}`);
+            }
+        });
+    }
+    
+    // Teilnehmer auf Karte anzeigen (nur Admin)
+    // Teilnehmer auf Karte anzeigen (nur Admin) - VEREINFACHTE VERSION
+    // 1. displayProspects() komplett ersetzen - KEINE Marker löschen
+    function displayProspects() {
+        console.log('[MAP.html][ADMIN] Teilnehmer auf Karte anzeigen');
+        if (!isAdmin) return;
+        
+        // NUR neue Marker hinzufügen, bestehende NICHT löschen
+        prospects.forEach(prospect => {
+            // Prüfen ob Marker bereits existiert
+            if (prospect.latitude && prospect.longitude && !prospectMarkers[prospect.id]) {
+                // Vollständigen Namen zusammensetzen
+                const childName = `${prospect.child_first_name || ''} ${prospect.child_last_name || ''}`.trim();
+                
+                const marker = L.marker([prospect.latitude, prospect.longitude], {
+                    icon: L.divIcon({
+                        html: `
+                            <div style="
+                                background-color: white;
+                                border-radius: 50%;
+                                width: 28px;
+                                height: 28px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                box-shadow: 0 0 2px rgba(0,0,0,0.3);
+                            ">
+                                <i class="fas fa-person" style="color: green; font-size: 16px;"></i>
+                            </div>
+                        `,
+                        iconSize: [28, 28],
+                        className: 'custom-div-icon'
+                    })
+                }).addTo(map).bindPopup(`
+                    <strong>${childName}</strong><br>
+                    Klasse: ${prospect.school_class}<br>
+                    Route: ${prospect.walking_bus_route_name || 'Nur Interesse'}<br>
+                    <small>Tel: ${prospect.phone}</small>
+                `);
+                
+                // Marker in der Referenz-Map speichern
+                prospectMarkers[prospect.id] = marker;
+            }
+        });
+    }
+
+
+    // Teilnehmer-Tabs erstellen - erweitert mit Klick-Events
+    function createProspectTabs() {
+        const routeTabs = document.getElementById('routeTabs');
+        const routeTabContent = document.getElementById('routeTabContent');
+        
+        // Tabs zurücksetzen
+        routeTabs.innerHTML = '';
+        routeTabContent.innerHTML = '';
+        
+        if (routes.length === 0) {
+            routeTabs.innerHTML = '<p class="text-muted">Noch keine Routen verfügbar.</p>';
+            return;
+        }
+        
+        // Interessenten ohne Route
+        const interestOnlyProspects = prospects.filter(p => !p.walking_bus_route_id);
+        
+        // Tab-Navigation erstellen
+        let tabsHtml = '<ul class="nav nav-tabs" role="tablist">';
+        
+        routes.forEach((route, index) => {
+            const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
+            tabsHtml += `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link ${index === 0 ? 'active' : ''}" 
+                            id="route-${route.id}-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#route-${route.id}" 
+                            type="button" role="tab">
+                        ${route.name} 
+                        <span class="badge bg-secondary ms-2">${routeProspects.length}</span>
+                    </button>
+                </li>
+            `;
+        });
+        
+        // Tab für "Nur Interesse" hinzufügen falls es welche gibt
+        if (interestOnlyProspects.length > 0) {
+            tabsHtml += `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link ${routes.length === 0 ? 'active' : ''}" 
+                            id="interest-only-tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#interest-only" 
+                            type="button" role="tab">
+                        🔍 Nur Interesse 
+                        <span class="badge bg-warning ms-2">${interestOnlyProspects.length}</span>
+                    </button>
+                </li>
+            `;
+        }
+        
+        tabsHtml += '</ul>';
+        routeTabs.innerHTML = tabsHtml;
+        
+        // Tab-Inhalte erstellen
+        routes.forEach((route, index) => {
+            const routeProspects = prospects.filter(p => p.walking_bus_route_id === route.id);
+            
+            let tableHtml = `
+                <div class="tab-pane fade ${index === 0 ? 'show active' : ''}" 
+                     id="route-${route.id}" role="tabpanel">
+            `;
+            
+            if (routeProspects.length === 0) {
+                tableHtml += '<p class="text-muted">Noch keine Anmeldungen für diese Route.</p>';
+            } else {
+                tableHtml += `
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Name des Kindes</th>
+                                    <th>Klasse</th>
+                                    <th>Anmeldung</th>
+                `;
+                
+                if (isAdmin) {
+                    tableHtml += `
+                                    <th>Nachname</th>
+                                    <th>Telefon</th>
+                                    <th>E-Mail</th>
+                                    <th>Begleitung</th>
+                                    <th>Aktionen</th>
+                    `;
+                }
+                
+                tableHtml += '</tr></thead><tbody>';
+                
+                routeProspects.forEach(prospect => {
+                    // Klickbare Zeile für Admin mit Marker-Highlight
+                    const rowClass = isAdmin && prospect.latitude && prospect.longitude ? 'prospect-row-clickable' : '';
+                    const rowClick = isAdmin && prospect.latitude && prospect.longitude ? `onclick="highlightProspectOnMap(${prospect.id})"` : '';
+                    const rowTitle = isAdmin && prospect.latitude && prospect.longitude ? 'title="Klicken um auf Karte zu zeigen"' : '';
+                    
+                    tableHtml += `
+                        <tr class="${rowClass}" ${rowClick} ${rowTitle} style="${isAdmin && prospect.latitude && prospect.longitude ? 'cursor: pointer;' : ''}">
+                            <td><strong>${prospect.child_first_name}</strong></td>
+                            <td><span class="badge bg-info">${prospect.school_class}</span></td>
+                            <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
+                    `;
+                    
+                    if (isAdmin) {
+                        const accompanimentText = prospect.accompaniment_type === 'companion' ? 
+                            '<span class="badge bg-success">Begleitperson</span>' : 
+                            '<span class="badge bg-info">Springer</span>';
+                        
+                        const phoneSecondary = prospect.phone_secondary ? 
+                            `<br><small><a href="tel:${prospect.phone_secondary}">${prospect.phone_secondary}</a></small>` : '';
+                        
+                        tableHtml += `
+                            <td><strong>${prospect.child_last_name || '-'}</strong></td>
+                            <td>
+                                <a href="tel:${prospect.phone}">${prospect.phone}</a>
+                                ${phoneSecondary}
+                            </td>
+                            <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
+                            <td>${accompanimentText}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        `;
+                    }
+                    
+                    tableHtml += '</tr>';
+                });
+                
+                tableHtml += '</tbody></table></div>';
+            }
+            
+            tableHtml += '</div>';
+            routeTabContent.innerHTML += tableHtml;
+        });
+        
+        // Tab für "Nur Interesse" erstellen
+        if (interestOnlyProspects.length > 0) {
+            let interestTableHtml = `
+                <div class="tab-pane fade ${routes.length === 0 ? 'show active' : ''}" 
+                     id="interest-only" role="tabpanel">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Interessenten ohne konkrete Route:</strong> 
+                    Diese Personen haben Interesse angemeldet, aber noch keine passende Route gefunden.
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Name des Kindes</th>
+                                <th>Klasse</th>
+                                <th>Anmeldung</th>
+            `;
+            
+            if (isAdmin) {
+                interestTableHtml += `
+                                <th>Nachname</th>
+                                <th>Telefon</th>
+                                <th>E-Mail</th>
+                                <th>Begleitung</th>
+                                <th>Aktionen</th>
+                `;
+            }
+            
+            interestTableHtml += '</tr></thead><tbody>';
+            
+            interestOnlyProspects.forEach(prospect => {
+                // Klickbare Zeile für Admin mit Marker-Highlight
+                const rowClass = isAdmin && prospect.latitude && prospect.longitude ? 'prospect-row-clickable' : '';
+                const rowClick = isAdmin && prospect.latitude && prospect.longitude ? `onclick="highlightProspectOnMap(${prospect.id})"` : '';
+                const rowTitle = isAdmin && prospect.latitude && prospect.longitude ? 'title="Klicken um auf Karte zu zeigen"' : '';
+                
+                interestTableHtml += `
+                    <tr class="table-warning ${rowClass}" ${rowClick} ${rowTitle} style="${isAdmin && prospect.latitude && prospect.longitude ? 'cursor: pointer;' : ''}">
+                        <td><strong>${prospect.child_first_name}</strong></td>
+                        <td><span class="badge bg-info">${prospect.school_class}</span></td>
+                        <td><small>${new Date(prospect.created_at).toLocaleDateString('de-DE')}</small></td>
+                `;
+                
+                if (isAdmin) {
+                    const accompanimentText = prospect.accompaniment_type === 'companion' ? 
+                        '<span class="badge bg-success">Begleitperson</span>' : 
+                        '<span class="badge bg-info">Springer</span>';
+                    
+                    const phoneSecondary = prospect.phone_secondary ? 
+                        `<br><small><a href="tel:${prospect.phone_secondary}">${prospect.phone_secondary}</a></small>` : '';
+                    
+                    interestTableHtml += `
+                        <td><strong>${prospect.child_last_name || '-'}</strong></td>
+                        <td>
+                            <a href="tel:${prospect.phone}">${prospect.phone}</a>
+                            ${phoneSecondary}
+                        </td>
+                        <td>${prospect.email ? `<a href="mailto:${prospect.email}">${prospect.email}</a>` : '-'}</td>
+                        <td>${accompanimentText}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-warning" onclick="event.stopPropagation(); editProspect(${prospect.id})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="event.stopPropagation(); deleteProspect(${prospect.id}, '${prospect.child_first_name}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                }
+                
+                interestTableHtml += '</tr>';
+            });
+            
+            interestTableHtml += '</tbody></table></div></div>';
+            routeTabContent.innerHTML += interestTableHtml;
+        }
+        
+        // Gesamt-Counter aktualisieren
+        document.getElementById('prospectCount').textContent = `${prospects.length} Anmeldungen`;
+    }
+    
+    // UI basierend auf Admin-Status aktualisieren
+    function updateUI() {
+        const adminLoginPanel = document.getElementById('adminLoginPanel');
+        const adminStatusPanel = document.getElementById('adminStatusPanel');
+        const adminLegend = document.getElementById('adminLegend');
+        
+        if (isAdmin) {
+            adminLoginPanel.style.display = 'none';
+            adminStatusPanel.style.display = 'block';
+            adminLegend.style.display = 'inline';
+        } else {
+            adminLoginPanel.style.display = 'block';
+            adminStatusPanel.style.display = 'none';
+            adminLegend.style.display = 'none';
+        }
+    }
+    
+    // Admin Login
+    document.getElementById('adminLoginForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const password = document.getElementById('adminPassword').value;
+        const errorDiv = document.getElementById('loginError');
+        
+        try {
+            const response = await axios.post('/api/auth/login', { password });
+            
+            if (response.status === 200) {
+                isAdmin = true;
+                adminLoginModal.hide();
+                document.getElementById('adminPassword').value = '';
+                errorDiv.style.display = 'none';
+                
+                // UI aktualisieren und Daten neu laden
+                updateUI();
+                await loadData();
+                
+                // Alert
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-success alert-dismissible fade show mt-3';
+                alert.innerHTML = `
+                    <i class="fas fa-check-circle me-2"></i>
+                    <strong>Erfolgreich angemeldet!</strong> Admin-Funktionen sind jetzt verfügbar.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                document.querySelector('.container').insertBefore(alert, document.querySelector('.row'));
+            }
+        } catch (error) {
+            errorDiv.textContent = error.response?.data?.error || 'Login fehlgeschlagen';
+            errorDiv.style.display = 'block';
+        }
+    });
+    
+    // Admin Logout
+    document.getElementById('adminLogoutBtn').addEventListener('click', async function() {
+        try {
+            await axios.post('/api/auth/logout');
+            isAdmin = false;
+            updateUI();
+            await loadData();
+            
+            // Page reload für saubere Darstellung
+            location.reload();
+        } catch (error) {
+            console.error('Logout-Fehler:', error);
+        }
+    });
+    
+    // Teilnehmer bearbeiten
+    window.editProspect = async function(prospectId) {
+        try {
+            const response = await axios.get(`/api/prospects/${prospectId}`);
+            const prospect = response.data;
+            
+            // Dropdown-Optionen zuerst laden
+            await loadEditFormOptions();
+            
+            // Formular füllen
+            document.getElementById('editProspectId').value = prospect.id;
+            document.getElementById('editChildFirstName').value = prospect.child_first_name;
+            document.getElementById('editChildLastName').value = prospect.child_last_name || '';
+            document.getElementById('editSchoolClass').value = prospect.school_class;
+            document.getElementById('editPhone').value = prospect.phone;
+            document.getElementById('editPhoneSecondary').value = prospect.phone_secondary || '';
+            document.getElementById('editEmail').value = prospect.email || '';
+            document.getElementById('editAccompanimentType').value = prospect.accompaniment_type || '';
+            document.getElementById('editNotes').value = prospect.notes || '';
+            
+            // Walking Bus Route setzen
+            if (prospect.walking_bus_route_id) {
+                document.getElementById('editWalkingBusRoute').value = prospect.walking_bus_route_id;
+            } else {
+                document.getElementById('editWalkingBusRoute').value = 'interest_only';
+            }
+            
+            editProspectModal.show();
+        } catch (error) {
+            console.error('[MAP.html][EDIT] Fehler beim Laden der Teilnehmer-Daten:', error);
+            alert('Fehler beim Laden der Teilnehmer-Daten');
+        }
+    };
+    
+    // Edit-Form Optionen laden
+    async function loadEditFormOptions() {
+        // Schulklassen
+        const classSelect = document.getElementById('editSchoolClass');
+        // Vorhandene Optionen außer der ersten löschen
+        while (classSelect.children.length > 1) {
+            classSelect.removeChild(classSelect.lastChild);
+        }
+        
+        config.school_classes.forEach(schoolClass => {
+            const option = document.createElement('option');
+            option.value = schoolClass;
+            option.textContent = schoolClass;
+            classSelect.appendChild(option);
+        });
+        
+        // Walking Bus Routen
+        const routeSelect = document.getElementById('editWalkingBusRoute');
+        // Vorhandene Optionen außer den ersten beiden (Bitte wählen + Nur Interesse) löschen
+        while (routeSelect.children.length > 2) {
+            routeSelect.removeChild(routeSelect.lastChild);
+        }
+        
+        routes.forEach(route => {
+            if (route.is_active) {  // Nur aktive Routen
+                const option = document.createElement('option');
+                option.value = route.id;
+                option.textContent = route.name;
+                routeSelect.appendChild(option);
+            }
+        });
+    }
+    
+    // Teilnehmer speichern
+    document.getElementById('editProspectForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const prospectId = document.getElementById('editProspectId').value;
+        const routeValue = document.getElementById('editWalkingBusRoute').value;
+        
+        const data = {
+            child_first_name: document.getElementById('editChildFirstName').value,
+            child_last_name: document.getElementById('editChildLastName').value,
+            school_class: document.getElementById('editSchoolClass').value,
+            phone: document.getElementById('editPhone').value,
+            phone_secondary: document.getElementById('editPhoneSecondary').value,
+            email: document.getElementById('editEmail').value,
+            walking_bus_route_id: routeValue === 'interest_only' ? null : parseInt(routeValue),
+            accompaniment_type: document.getElementById('editAccompanimentType').value,
+            notes: document.getElementById('editNotes').value,
+            address: document.getElementById('editAddress').value
+        };
+        
+        try {
+            await axios.put(`/api/prospects/${prospectId}`, data);
+            editProspectModal.hide();
+            await loadData();
+            
+            console.log('[MAP.html][EDIT] Teilnehmer erfolgreich aktualisiert');
+            alert('Teilnehmer erfolgreich aktualisiert');
+        } catch (error) {
+            console.error('[MAP.html][EDIT] Aktualisierung fehlgeschlagen:', error);
+            const errorMsg = error.response?.data?.error || 'Aktualisierung fehlgeschlagen';
+            alert('Fehler: ' + errorMsg);
+        }
+    });
+    
+    // Teilnehmer löschen
+    window.deleteProspect = async function(prospectId, childName) {
+        if (!confirm(`Möchten Sie ${childName} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+            return;
+        }
+        
+        try {
+            await axios.delete(`/api/prospects/${prospectId}`);
+            await loadData();
+            
+            alert('Teilnehmer erfolgreich gelöscht');
+        } catch (error) {
+            alert('Fehler beim Löschen');
+        }
+    };
+    
+    // App starten
+    init();
+});
+</script>
+<style>
+.prospect-row-clickable:hover {
+    background-color: #f8f9fa !important;
+    transform: scale(1.01);
+    transition: all 0.2s ease;
+}
+</style>
+{% endblock %}

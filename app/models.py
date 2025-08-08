@@ -49,6 +49,7 @@ class CalendarStatus(db.Model):
     date = db.Column(db.Date, nullable=False)
     status = db.Column(db.Boolean, nullable=False)
     is_manual_override = db.Column(db.Boolean, default=False)  # Track if manually set
+    attendance = db.Column(db.Boolean, default=False)  # Anwesenheit am Walking Bus
     
     participant = db.relationship('Participant', backref='calendar_entries')
 
@@ -238,3 +239,113 @@ class PushNotificationLog(db.Model):
     # Relationships
     subscription = db.relationship('PushSubscription', backref='notification_logs')
 
+
+class WalkingBusRoute(db.Model):
+    """Walking Bus Routen für die Registrierungs-App"""
+    __tablename__ = 'walking_bus_routes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    route_coordinates = db.Column(db.JSON, nullable=False)  # Array von [lat, lon] Koordinaten
+    color = db.Column(db.String(7), default='#3388ff')  # Hex-Farbcode
+    is_active = db.Column(db.Boolean, default=True)
+    
+    # Metadaten
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    
+    # Relationship zu Prospects
+    prospects = db.relationship('Prospect', backref='walking_bus_route', lazy=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'route_coordinates': self.route_coordinates,
+            'color': self.color,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'prospect_count': len(self.prospects)
+        }
+
+
+class Prospect(db.Model):
+    """Interessenten für Walking Bus Registrierung"""
+    __tablename__ = 'prospects'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    child_first_name = db.Column(db.String(100), nullable=False)  # Vorname des Kindes
+    child_last_name = db.Column(db.String(100), nullable=False)   # Nachname des Kindes (nur Admin)
+    school_class = db.Column(db.String(5), nullable=False)  # z.B. "1A", "2B", "3C", "4D"
+    phone = db.Column(db.String(20), nullable=False)
+    phone_secondary = db.Column(db.String(20), nullable=True)  # Neue zweite Handynummer
+    email = db.Column(db.String(100), nullable=True)
+    
+    # Geocoding-Daten (nur Koordinaten, keine Klartext-Adresse)
+    latitude = db.Column(db.Float, nullable=False)
+    longitude = db.Column(db.Float, nullable=False)
+    
+    # Walking Bus Route Zuordnung (nullable für "Nur Interesse")
+    walking_bus_route_id = db.Column(db.Integer, db.ForeignKey('walking_bus_routes.id'), nullable=True)
+    
+    # Begleitung-Auswahl
+    accompaniment_type = db.Column(db.String(20), nullable=False)  # 'companion' oder 'substitute'
+    
+    # Metadaten
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    status = db.Column(db.String(20), default='active')  # active, contacted, enrolled, declined
+    notes = db.Column(db.Text, nullable=True)
+    
+    def to_dict(self, include_sensitive=False):
+        """
+        Gibt Prospect-Daten zurück
+        include_sensitive: Wenn True, werden sensible Daten wie Telefon/Email eingeschlossen
+        """
+        data = {
+            'id': self.id,
+            'child_first_name': self.child_first_name,
+            'school_class': self.school_class,
+            'walking_bus_route_id': self.walking_bus_route_id,
+            'walking_bus_route_name': self.walking_bus_route.name if self.walking_bus_route else 'Nur Interesse',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'status': self.status,
+        }
+        
+        if include_sensitive:
+            data.update({
+                'child_last_name': self.child_last_name,  # Nachname nur für Admins
+                'phone': self.phone,
+                'phone_secondary': self.phone_secondary,
+                'email': self.email,
+                'accompaniment_type': self.accompaniment_type,
+                'latitude': self.latitude,
+                'longitude': self.longitude,
+                'notes': self.notes
+            })
+        
+        return data
+
+class Route(db.Model):
+    __tablename__ = 'routes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    color = db.Column(db.String(7), default='#FF0000')  # Hex-Farbe
+    waypoints = db.Column(db.JSON)  # Liste von [lat, lng] Koordinaten
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'color': self.color,
+            'waypoints': self.waypoints,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }

@@ -40,6 +40,12 @@ Eine Webanwendung zur Organisation von Laufgemeinschaften für den Schulweg, ent
   - Font Awesome Icons
   - Axios für API-Anfragen
   - SortableJS für Drag & Drop
+  - Leaflet für Kartendarstellung
+
+- **Registrierungs-App**
+  - Separate Flask-Anwendung für Interessenten
+  - OpenStreetMap Integration mit Leaflet
+  - Geocoding über Nominatim API
 
 ## Installation
 
@@ -74,6 +80,21 @@ flask db upgrade
 flask run
 ```
 
+### Docker-Installation (empfohlen)
+
+```
+docker-compose up
+```
+
+## Services
+
+Nach dem Start sind folgende Services verfügbar:
+
+- **Haupt-App**: http://localhost:8000 (Walking Bus Organizer)
+- **Registrierungs-App**: http://localhost:8001 (Interessenten-Registrierung)
+- **Datenbank**: PostgreSQL auf Port 5432
+- **Redis**: Cache/Pub-Sub auf Port 6379
+
 ## Verwendung
 
 - **Dashboard (index.html)**
@@ -88,11 +109,11 @@ flask run
   - Standard-Teilnahmetage festlegen
   - Stationen und Teilnehmer neu ordnen
 
-- **API-Endpunkte**
-  - Stationen und Teilnehmer hinzufügen/entfernen
-  - Walking Bus Zeitplan konfigurieren
-  - Standard-Teilnahmetage festlegen
-  - Stationen und Teilnehmer neu ordnen
+- **Registrierungs-App (http://localhost:8001)**
+  - Interessenten-Registrierung mit Formular
+  - Automatisches Geocoding der Adressen
+  - Kartenansicht aller Interessenten
+  - Verwaltung der Interessenten-Status
 
 ## API-Endpunkte
 
@@ -111,6 +132,12 @@ flask run
 - **Kalender**
   - `GET /api/calendar-data/<participant_id>` - Kalenderdaten abrufen
   - `POST /api/calendar-status` - Kalenderstatus aktualisieren
+
+- **Registrierungs-App (Port 8001)**
+  - `POST /api/register` - Neuen Interessenten registrieren
+  - `GET /api/prospects` - Alle Interessenten abrufen
+  - `GET /api/prospects/<id>` - Spezifischen Interessenten abrufen
+  - `PUT /api/prospects/<id>/status` - Status eines Interessenten aktualisieren
 
 ## Mitwirken
 

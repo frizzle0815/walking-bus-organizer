@@ -311,7 +311,7 @@ def send_test_notifications(walking_bus_id, participant_ids, token_identifier):
                     'requireInteraction': True
                 }
                 
-                success, error = push_service.send_notification(subscription, notification_data)
+                success, error, _ = push_service.send_notification(subscription, notification_data)
                 results.append({
                     'participant': participant.name,
                     'success': success,
