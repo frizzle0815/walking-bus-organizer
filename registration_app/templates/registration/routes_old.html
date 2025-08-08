@@ -1,0 +1,609 @@
+{% extends "registration/base.html" %}
+
+{% block title %}Routenverwaltung - Walking Bus{% endblock %}
+
+{% block head %}
+<style>
+    .route-editor {
+        height: 600px;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+    }
+    .route-list-item {
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    .route-list-item:hover {
+        background-color: #f8f9fa;
+    }
+    .route-list-item.active {
+        background-color: #e3f2fd;
+        border-left: 4px solid #2196f3;
+    }
+    .color-picker-btn {
+        width: 40px;
+        height: 40px;
+        border: 2px solid #dee2e6;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+    .drawing-controls {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: white;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        padding: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Admin-Check wird über JavaScript gemacht -->
+<div id="loadingSpinner" class="text-center my-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Lädt...</span>
+    </div>
+    <p class="mt-2">Lade Routenverwaltung...</p>
+</div>
+
+<div id="routeManagement" style="display: none;">
+    <div class="row">
+        <!-- Zurück-Button -->
+        <div class="col-12 mb-3">
+            <a href="/" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-2"></i>Zurück zur Übersicht
+            </a>
+        </div>
+
+        <!-- Route-Liste -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <div class="row align-items-center">
+                        <div class="col-8">
+                            <h5 class="mb-0">
+                                <i class="fas fa-route me-2"></i>Routen
+                            </h5>
+                        </div>
+                        <div class="col-4 text-end">
+                            <button class="btn btn-success btn-sm" id="addRouteBtn">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="routeList" class="list-group list-group-flush">
+                        <!-- Routen werden hier eingefügt -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Karten-Editor -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-map me-2"></i>Routen-Editor
+                        <span id="currentRouteName" class="badge bg-primary ms-2"></span>
+                    </h5>
+                </div>
+                <div class="card-body p-0 position-relative">
+                    <!-- Zeichen-Controls -->
+                    <div class="drawing-controls">
+                        <div class="btn-group-vertical" role="group">
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="drawModeBtn" title="Route zeichnen">
+                                <i class="fas fa-pencil-alt"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-warning btn-sm" id="editModeBtn" title="Route bearbeiten">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="clearRouteBtn" title="Route löschen">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="routeEditor" class="route-editor"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Route-Details -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-cog me-2"></i>Route-Details
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="routeDetailsForm">
+                        <input type="hidden" id="routeId">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-floating mb-3">
+                                    <input type="text" class="form-control" id="routeName" required>
+                                    <label for="routeName">Route-Name</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-floating mb-3">
+                                    <input type="color" class="form-control form-control-color" id="routeColor" value="#3388ff">
+                                    <label for="routeColor">Farbe</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check form-switch mt-3">
+                                    <input class="form-check-input" type="checkbox" id="routeActive" checked>
+                                    <label class="form-check-label" for="routeActive">
+                                        Route aktiv
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <textarea class="form-control" id="routeDescription" style="height: 100px;"></textarea>
+                            <label for="routeDescription">Beschreibung (optional)</label>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <button type="submit" class="btn btn-primary" id="saveRouteBtn" disabled>
+                                    <i class="fas fa-save me-2"></i>Route speichern
+                                </button>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <button type="button" class="btn btn-danger" id="deleteRouteBtn" disabled>
+                                    <i class="fas fa-trash me-2"></i>Route löschen
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Nicht-Admin Warnung -->
+<div id="accessDenied" style="display: none;">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-lock me-2"></i>Zugriff verweigert
+                    </h5>
+                </div>
+                <div class="card-body text-center">
+                    <i class="fas fa-user-shield fa-3x text-muted mb-3"></i>
+                    <p>Diese Seite ist nur für Administratoren zugänglich.</p>
+                    <a href="/" class="btn btn-primary">
+                        <i class="fas fa-arrow-left me-2"></i>Zurück zur Startseite
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Globale Variablen
+    let map;
+    let routes = [];
+    let currentRoute = null;
+    let currentPolyline = null;
+    let drawingMode = false;
+    let editingMode = false;
+    let drawnPoints = [];
+    let config = {};
+    
+    // Initialisierung
+    async function init() {
+        await checkAdminAccess();
+    }
+    
+    // Admin-Zugriff prüfen
+    async function checkAdminAccess() {
+        try {
+            const response = await axios.get('/api/auth/status');
+            
+            if (response.data.is_admin) {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                document.getElementById('routeManagement').style.display = 'block';
+                await initializeRouteManagement();
+            } else {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                document.getElementById('accessDenied').style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Fehler beim Prüfen der Berechtigung:', error);
+            document.getElementById('loadingSpinner').style.display = 'none';
+            document.getElementById('accessDenied').style.display = 'block';
+        }
+    }
+    
+    // Routenverwaltung initialisieren
+    async function initializeRouteManagement() {
+        await loadConfig();
+        initMap();
+        await loadRoutes();
+        setupEventListeners();
+    }
+    
+    // Konfiguration laden
+    async function loadConfig() {
+        try {
+            const response = await axios.get('/api/config');
+            config = response.data;
+        } catch (error) {
+            console.error('Fehler beim Laden der Konfiguration:', error);
+        }
+    }
+    
+    // Karte initialisieren
+    function initMap() {
+        const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
+        map = L.map('routeEditor').setView([schoolLat, schoolLon], 13);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Schul-Marker
+        L.marker([schoolLat, schoolLon], {
+            icon: L.divIcon({
+                html: '<i class="fas fa-school" style="color: red; font-size: 24px;"></i>',
+                iconSize: [30, 30],
+                className: 'custom-div-icon'
+            })
+        }).addTo(map).bindPopup('<strong>Schule</strong><br>Ziel aller Walking Bus Routen');
+        
+        // Karten-Events
+        map.on('click', onMapClick);
+    }
+    
+    // Routen laden
+    async function loadRoutes() {
+        try {
+            const response = await axios.get('/api/routes');
+            routes = response.data;
+            updateRouteList();
+            displayRoutesOnMap();
+        } catch (error) {
+            console.error('Fehler beim Laden der Routen:', error);
+        }
+    }
+    
+    // Routen-Liste aktualisieren
+    function updateRouteList() {
+        const routeList = document.getElementById('routeList');
+        
+        if (routes.length === 0) {
+            routeList.innerHTML = `
+                <div class="list-group-item text-center text-muted">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Noch keine Routen vorhanden
+                </div>
+            `;
+            return;
+        }
+        
+        routeList.innerHTML = '';
+        routes.forEach(route => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item list-group-item-action route-list-item';
+            item.dataset.routeId = route.id;
+            
+            item.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <div class="color-indicator me-2" style="width: 20px; height: 20px; background-color: ${route.color}; border-radius: 3px;"></div>
+                        <div>
+                            <strong>${route.name}</strong>
+                            <br><small class="text-muted">${route.prospect_count} Anmeldungen</small>
+                        </div>
+                    </div>
+                    <div>
+                        ${route.is_active 
+                            ? '<span class="badge bg-success">Aktiv</span>' 
+                            : '<span class="badge bg-secondary">Inaktiv</span>'
+                        }
+                    </div>
+                </div>
+            `;
+            
+            item.addEventListener('click', () => selectRoute(route));
+            routeList.appendChild(item);
+        });
+    }
+    
+    // Routen auf Karte anzeigen
+    function displayRoutesOnMap() {
+        // Bestehende Routen-Polylines entfernen (außer aktuell bearbeitete)
+        map.eachLayer(layer => {
+            if (layer instanceof L.Polyline && layer !== currentPolyline) {
+                map.removeLayer(layer);
+            }
+        });
+        
+        routes.forEach(route => {
+            if (route.route_coordinates && route.route_coordinates.length > 0) {
+                const polyline = L.polyline(route.route_coordinates, {
+                    color: route.color,
+                    weight: 4,
+                    opacity: 0.6
+                }).addTo(map);
+                
+                polyline.bindPopup(`<strong>${route.name}</strong><br>${route.description || ''}`);
+            }
+        });
+    }
+    
+    // Route auswählen
+    function selectRoute(route) {
+        currentRoute = route;
+        
+        // Aktive Route in Liste markieren
+        document.querySelectorAll('.route-list-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelector(`[data-route-id="${route.id}"]`).classList.add('active');
+        
+        // Route-Details laden
+        loadRouteDetails(route);
+        
+        // Route auf Karte hervorheben
+        highlightRouteOnMap(route);
+        
+        // Buttons aktivieren
+        document.getElementById('saveRouteBtn').disabled = false;
+        document.getElementById('deleteRouteBtn').disabled = false;
+        
+        // Current route name anzeigen
+        document.getElementById('currentRouteName').textContent = route.name;
+    }
+    
+    // Route-Details laden
+    function loadRouteDetails(route) {
+        document.getElementById('routeId').value = route.id;
+        document.getElementById('routeName').value = route.name;
+        document.getElementById('routeDescription').value = route.description || '';
+        document.getElementById('routeColor').value = route.color;
+        document.getElementById('routeActive').checked = route.is_active;
+    }
+    
+    // Route auf Karte hervorheben
+    function highlightRouteOnMap(route) {
+        // Bestehende Hervorhebung entfernen
+        if (currentPolyline) {
+            map.removeLayer(currentPolyline);
+            currentPolyline = null;
+        }
+        
+        if (route.route_coordinates && route.route_coordinates.length > 0) {
+            currentPolyline = L.polyline(route.route_coordinates, {
+                color: route.color,
+                weight: 6,
+                opacity: 1.0
+            }).addTo(map);
+            
+            // Karte auf Route zentrieren
+            map.fitBounds(currentPolyline.getBounds(), { padding: [20, 20] });
+        }
+    }
+    
+    // Event Listeners
+    function setupEventListeners() {
+        // Neue Route
+        document.getElementById('addRouteBtn').addEventListener('click', createNewRoute);
+        
+        // Zeichnen-Modi
+        document.getElementById('drawModeBtn').addEventListener('click', toggleDrawMode);
+        document.getElementById('editModeBtn').addEventListener('click', toggleEditMode);
+        document.getElementById('clearRouteBtn').addEventListener('click', clearCurrentRoute);
+        
+        // Route speichern/löschen
+        document.getElementById('routeDetailsForm').addEventListener('submit', saveRoute);
+        document.getElementById('deleteRouteBtn').addEventListener('click', deleteRoute);
+    }
+    
+    // Neue Route erstellen
+    function createNewRoute() {
+        const newRoute = {
+            id: 'new',
+            name: 'Neue Route',
+            description: '',
+            color: '#3388ff',
+            is_active: true,
+            route_coordinates: []
+        };
+        
+        currentRoute = newRoute;
+        loadRouteDetails(newRoute);
+        
+        // Drawing mode aktivieren
+        drawnPoints = [];
+        drawingMode = true;
+        updateDrawingButtons();
+        
+        document.getElementById('saveRouteBtn').disabled = false;
+        document.getElementById('deleteRouteBtn').disabled = true;
+        document.getElementById('currentRouteName').textContent = 'Neue Route';
+        
+        // Bestehende Hervorhebung entfernen
+        if (currentPolyline) {
+            map.removeLayer(currentPolyline);
+            currentPolyline = null;
+        }
+    }
+    
+    // Zeichenmodus umschalten
+    function toggleDrawMode() {
+        drawingMode = !drawingMode;
+        editingMode = false;
+        drawnPoints = [];
+        updateDrawingButtons();
+        
+        if (currentPolyline && !drawingMode) {
+            // Gezeichnete Punkte in aktueller Route speichern
+            if (currentRoute) {
+                currentRoute.route_coordinates = currentPolyline.getLatLngs().map(latlng => [latlng.lat, latlng.lng]);
+            }
+        }
+    }
+    
+    // Bearbeitungsmodus umschalten
+    function toggleEditMode() {
+        editingMode = !editingMode;
+        drawingMode = false;
+        updateDrawingButtons();
+        
+        // TODO: Implementiere Route-Bearbeitung (Punkte verschieben)
+        if (editingMode) {
+            alert('Bearbeitungsmodus noch nicht implementiert');
+            editingMode = false;
+            updateDrawingButtons();
+        }
+    }
+    
+    // Aktuelle Route löschen
+    function clearCurrentRoute() {
+        if (currentPolyline) {
+            map.removeLayer(currentPolyline);
+            currentPolyline = null;
+        }
+        drawnPoints = [];
+        if (currentRoute) {
+            currentRoute.route_coordinates = [];
+        }
+    }
+    
+    // Drawing-Buttons aktualisieren
+    function updateDrawingButtons() {
+        const drawBtn = document.getElementById('drawModeBtn');
+        const editBtn = document.getElementById('editModeBtn');
+        
+        drawBtn.classList.toggle('btn-primary', !drawingMode);
+        drawBtn.classList.toggle('btn-success', drawingMode);
+        
+        editBtn.classList.toggle('btn-warning', !editingMode);
+        editBtn.classList.toggle('btn-success', editingMode);
+    }
+    
+    // Karten-Klick
+    function onMapClick(e) {
+        if (!drawingMode || !currentRoute) return;
+        
+        drawnPoints.push([e.latlng.lat, e.latlng.lng]);
+        
+        // Polyline aktualisieren oder erstellen
+        if (currentPolyline) {
+            map.removeLayer(currentPolyline);
+        }
+        
+        currentPolyline = L.polyline(drawnPoints, {
+            color: document.getElementById('routeColor').value,
+            weight: 6,
+            opacity: 1.0
+        }).addTo(map);
+        
+        // Route-Koordinaten aktualisieren
+        currentRoute.route_coordinates = drawnPoints.slice();
+    }
+    
+    // Route speichern
+    async function saveRoute(e) {
+        e.preventDefault();
+        
+        if (!currentRoute) return;
+        
+        const routeData = {
+            name: document.getElementById('routeName').value,
+            description: document.getElementById('routeDescription').value,
+            color: document.getElementById('routeColor').value,
+            is_active: document.getElementById('routeActive').checked,
+            route_coordinates: currentRoute.route_coordinates
+        };
+        
+        try {
+            let response;
+            if (currentRoute.id === 'new') {
+                response = await axios.post('/api/routes', routeData);
+            } else {
+                response = await axios.put(`/api/routes/${currentRoute.id}`, routeData);
+            }
+            
+            // Routes neu laden
+            await loadRoutes();
+            
+            // Neu erstellte/aktualisierte Route auswählen
+            const savedRoute = response.data;
+            const routeInList = routes.find(r => r.id === savedRoute.id);
+            if (routeInList) {
+                selectRoute(routeInList);
+            }
+            
+            alert('Route erfolgreich gespeichert');
+            
+        } catch (error) {
+            console.error('Fehler beim Speichern:', error);
+            alert('Fehler beim Speichern der Route');
+        }
+    }
+    
+    // Route löschen
+    async function deleteRoute() {
+        if (!currentRoute || currentRoute.id === 'new') return;
+        
+        if (!confirm(`Route "${currentRoute.name}" wirklich löschen?`)) return;
+        
+        try {
+            await axios.delete(`/api/routes/${currentRoute.id}`);
+            
+            // Routes neu laden
+            await loadRoutes();
+            
+            // Auswahl zurücksetzen
+            currentRoute = null;
+            if (currentPolyline) {
+                map.removeLayer(currentPolyline);
+                currentPolyline = null;
+            }
+            
+            // Form zurücksetzen
+            document.getElementById('routeDetailsForm').reset();
+            document.getElementById('saveRouteBtn').disabled = true;
+            document.getElementById('deleteRouteBtn').disabled = true;
+            document.getElementById('currentRouteName').textContent = '';
+            
+            alert('Route erfolgreich gelöscht');
+            
+        } catch (error) {
+            console.error('Fehler beim Löschen:', error);
+            const errorMsg = error.response?.data?.error || 'Fehler beim Löschen der Route';
+            alert(errorMsg);
+        }
+    }
+    
+    // Farbe-Änderung in Echtzeit
+    document.getElementById('routeColor').addEventListener('change', function() {
+        if (currentPolyline) {
+            currentPolyline.setStyle({ color: this.value });
+        }
+    });
+    
+    // App starten
+    init();
+});
+</script>
+{% endblock %}

@@ -4,6 +4,10 @@ venv/*
 .vscode/*
 app/__pycache__/*
 app/services/__pycache__/*
+registration_app/__pycache__/*
+registration_app/services/__pycache__/*
 howtos.txt
 logs/*
 data/*
+docker_compose_test.txt
+docker_compose_test_alt.txt

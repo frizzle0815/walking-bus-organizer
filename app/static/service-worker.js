@@ -1,14 +1,8 @@
 const STATIC_CACHE = 'walking-bus-static-v1';
-const DATA_CACHE = 'walking-bus-data-v1';
-const AUTH_CACHE = 'walking-bus-auth-v1';
 
-const AUTH_TOKEN_CACHE_KEY = 'auth-token';
-
-const CACHE_VERSION = 'v19'; // Increment this when you update your service worker
+const CACHE_VERSION = 'v35'; // Increment this when you update your service worker
 
 const URLS_TO_CACHE = [
-    '/',
-    '/static/manifest.json',
     '/static/icons/icon-192x192.png',
     '/static/icons/icon-512x512.png',
     'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
@@ -26,8 +20,6 @@ self.addEventListener('install', (event) => {
                 console.log('[SW] Caching static resources');
                 return cache.addAll(URLS_TO_CACHE);
             }),
-            caches.open(DATA_CACHE).then(() => console.log('[SW] Data cache created')),
-            caches.open(AUTH_CACHE).then(() => console.log('[SW] Auth cache created')),
             self.skipWaiting()
         ]).then(() => console.log('[SW] Installation complete'))
     );
@@ -51,89 +43,23 @@ self.addEventListener('message', (event) => {
 
     switch (event.data?.type) {
         case 'CHECK_SUBSCRIPTION':
-            event.waitUntil(checkAndRestoreSubscription());
-            break;
-
-        case 'GET_AUTH_TOKEN':
-            console.log('[SW] Processing token retrieval request');
-            getTokenFromCache()
-                .then(token => {
-                    console.log('[SW] Cache token retrieval completed:', token ? 'Found' : 'Not found');
-                    event.ports?.[0]?.postMessage({ token });
-                })
-                .catch(error => {
-                    console.error('[SW] Cache token retrieval error:', error);
-                    event.ports?.[0]?.postMessage({ token: null, error: error.message });
-                });
-            break;
-
-        case 'STORE_AUTH_TOKEN':
-            console.log('[SW] Processing token storage');
-            caches.open(AUTH_CACHE)
-                .then(cache => {
-                    console.log('[SW] Cache opened successfully');
-                    const response = new Response(JSON.stringify({
-                        token: event.data.token,
-                        timestamp: new Date().toISOString()
-                    }));
-                    return cache.put(AUTH_TOKEN_CACHE_KEY, response);
-                })
-                .then(() => {
-                    console.log('[SW] Token stored successfully');
-                    event.ports?.[0]?.postMessage({ success: true });
-                    console.log('[SW] Success message sent back');
-                })
-                .catch(error => {
-                    console.error('[SW] Storage error:', error);
-                    event.ports?.[0]?.postMessage({
-                        success: false,
-                        error: error.message
+            // Execute subscription check and send result back through MessageChannel
+            event.waitUntil(
+                checkAndRestoreSubscription().then(hasSubscription => {
+                    // Send result back through the provided MessageChannel port
+                    event.ports[0].postMessage({
+                        type: 'SUBSCRIPTION_STATUS',
+                        hasSubscription: hasSubscription
                     });
-                    console.log('[SW] Error message sent back');
-                });
+                })
+            );
             break;
-
-        case 'CLEAR_AUTH_TOKEN':
-            console.log('[SW] Starting cache clearing');
-            caches.keys().then(keys => {
-                console.log('[SW] Existing caches before deletion:', keys);
-            });
-
-            Promise.all([
-                caches.open(STATIC_CACHE).then(cache => 
-                    cache.keys().then(keys => 
-                        Promise.all(keys.map(key => cache.delete(key)))
-                    )
-                ),
-                caches.open(DATA_CACHE).then(cache => 
-                    cache.keys().then(keys => 
-                        Promise.all(keys.map(key => cache.delete(key)))
-                    )
-                ),
-                caches.open(AUTH_CACHE).then(cache => 
-                    cache.keys().then(keys => 
-                        Promise.all(keys.map(key => cache.delete(key)))
-                    )
-                )
-            ])
-            .then(() => {
-                console.log('[SW] All caches deleted successfully');
-                event.ports?.[0]?.postMessage({ success: true });
-                console.log('[SW] Success message sent back');
-                console.log('[SW] Updating service worker registration');
-                self.registration.update();
-                return caches.keys();
-            })
-            .then(remainingKeys => {
-                console.log('[SW] Remaining caches after deletion:', remainingKeys);
-            })
-            .catch(error => {
-                console.error('[SW] Clear error:', error);
-                event.ports?.[0]?.postMessage({
-                    success: false,
-                    error: error.message
-                });
-                console.log('[SW] Error message sent back');
+        
+        case 'CHECK_VERSION':
+            // New version check case
+            event.ports[0].postMessage({
+                type: 'VERSION_INFO',
+                version: CACHE_VERSION
             });
             break;
 
@@ -224,49 +150,53 @@ self.addEventListener('notificationclick', (event) => {
 async function handleStatusToggle(data) {
     if (!data) return;
     
-    const { participantId, currentStatus, date, participantName } = data;
+    const { participantId, date, participantName, currentStatus: originalStatus } = data;
+    const intendedStatus = !originalStatus;
+    
     try {
-        // First update the participation status
-        const response = await fetchWithAuth(`/api/participation/${participantId}`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                date: date,
-                status: !currentStatus
-            })
-        });
+        // Get current status first
+        const currentStatusResponse = await fetchWithAuth(`/api/participation/${participantId}/status?date=${date}`);
+        const { status: actualCurrentStatus } = await currentStatusResponse.json();
+        
+        // Only update if current status doesn't match intended status
+        if (actualCurrentStatus !== intendedStatus) {
+            const response = await fetchWithAuth(`/api/participation/${participantId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    date: date,
+                    status: intendedStatus
+                })
+            });
 
-        // Then trigger the Redis status update
-        await fetchWithAuth('/api/trigger-update', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                date: date
-            })
-        });
+            if (response.ok) {
+                await fetchWithAuth('/api/trigger-update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ date: date })
+                });
+            } else {
+                throw new Error('Status update failed');
+            }
+        }
 
-        const title = response.ok ? 'Status geändert' : 'Fehler ⚠️';
-        const message = response.ok ?
-            ((!currentStatus) ? `${participantName} erfolgreich angemeldet` : `${participantName} erfolgreich abgemeldet`) :
-            `Status für ${participantName} konnte nicht geändert werden ⚠️ Bitte Änderung in der App durchführen.`;
-           
-        // Enhanced notification options matching push notification style
-        self.registration.showNotification(title, {
-            body: message,
-            icon: '/static/icons/icon-192x192.png',  // Same icon as push notifications
-            badge: '/static/icons/bus-simple-solid.png', // Same badge as push notifications
+        // Always show the current/intended status
+        self.registration.showNotification('Status geändert', {
+            body: `${participantName} ist jetzt: ${intendedStatus ? 'Angemeldet ✅' : 'Abgemeldet ❌'}`,
+            icon: '/static/icons/icon-192x192.png',
+            badge: '/static/icons/bus-simple-solid.png',
             tag: `status-change-${participantId}-${Date.now()}`,
             requireInteraction: false,
             renotify: true
         });
+        
     } catch (error) {
-        // Also enhance error notification
-        self.registration.showNotification('Netzwerkfehler ⚠️', {
-            body: `Verbindung zum Server fehlgeschlagen für ${participantName} ⚠️ Bitte Änderung in der App durchführen.`,
+        self.registration.showNotification('Fehler ⚠️', {
+            body: `Status für ${participantName} konnte nicht geändert werden ⚠️ Bitte Änderung in der App durchführen.`,
             icon: '/static/icons/icon-192x192.png',
             badge: '/static/icons/bus-simple-solid.png',
             tag: `status-change-error-${participantId}-${Date.now()}`,
@@ -277,78 +207,30 @@ async function handleStatusToggle(data) {
 }
 
 
-async function getTokenFromIndexedDB() {
-    console.log('[SW][AUTH][IndexedDB] Attempting to retrieve token');
-    const db = await new Promise((resolve, reject) => {
-        const request = indexedDB.open('WalkingBusAuth', 1);
-        request.onerror = () => {
-            console.error('[SW][AUTH][IndexedDB] Error opening database:', request.error);
-            reject(request.error);
-        }
-        request.onsuccess = () => {
-            console.log('[SW][AUTH][IndexedDB] Database opened successfully');
-            resolve(request.result);
-        }
-    });
-    
-    const tx = db.transaction('tokens', 'readonly');
-    const store = tx.objectStore('tokens');
-    const tokenData = await store.get('current-token');
-    console.log('[SW][AUTH][IndexedDB] Token retrieved:', tokenData ? 'Found' : 'Not found');
-    return tokenData?.token;
-}
-
-function getTokenFromLocalStorage() {
-    console.log('[SW][AUTH][LocalStorage] Attempting to retrieve token');
-    const token = self.localStorage?.getItem('auth_token');
-    console.log('[SW][AUTH][LocalStorage] Token retrieved:', token ? 'Found' : 'Not found');
-    return token;
-}
-
-async function getTokenFromCache() {
-    console.log('[SW][AUTH][Cache] Attempting to retrieve token');
-    const cache = await caches.open('walking-bus-auth-v1');
-    const response = await cache.match('auth-token');
-    if (response) {
-        const data = await response.json();
-        console.log('[SW][AUTH][Cache] Token found in cache');
-        return data.token;
-    }
-    console.log('[SW][AUTH][Cache] No token found in cache');
-    return null;
-}
-
 
 async function fetchWithAuth(url, options = {}) {
-    console.log('[SW][AUTH][FETCH] Starting authenticated request');
+    console.log('[SW][FETCH] Starting authenticated request');
     
-    let token;
-    
-    // Try IndexedDB first
-    token = await getTokenFromIndexedDB();
-    if (!token) {
-        // If no token in IndexedDB, try localStorage
-        token = getTokenFromLocalStorage();
-        if (!token) {
-            // Last resort: check cache
-            token = await getTokenFromCache();
-        }
-    }
-
-    if (!token) {
-        throw new Error('[SW][AUTH][FETCH] No authentication token available');
-    }
-
     const response = await fetch(url, {
         ...options,
+        credentials: 'include',  // This ensures cookies are sent with the request
         headers: {
             ...options.headers,
-            'Authorization': `Bearer ${token}`
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
         }
     });
 
     if (response.status === 401) {
-        throw new Error('[SW][AUTH][FETCH] Authentication failed');
+        // Notify main thread about auth error
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => {
+            client.postMessage({
+                type: 'AUTH_ERROR',
+                status: 401
+            });
+        });
+        throw new Error('[SW][FETCH] Authentication failed');
     }
 
     return response;
@@ -361,24 +243,12 @@ async function checkAndRestoreSubscription() {
     try {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Check if we have a token before proceeding
-        const token = await getTokenFromIndexedDB() || 
-                     getTokenFromLocalStorage() || 
-                     await getTokenFromCache();
-                     
-        if (!token) {
-            console.log('[SW] No auth token available yet, skipping subscription check');
-            return;
-        }
-        // Check if user had subscriptions
         const response = await fetchWithAuth('/api/notifications/subscription');
         const data = await response.json();
         
-        // Add check for subscription status
         if (data && data.subscription && !data.subscription.is_active) {
             console.log('[SW] Found paused subscription, attempting to restore');
             
-            // Get VAPID key and create new subscription
             const vapidResponse = await fetchWithAuth('/api/notifications/vapid-key');
             const vapidKey = await vapidResponse.text();
             
@@ -387,12 +257,8 @@ async function checkAndRestoreSubscription() {
                 applicationServerKey: vapidKey
             });
             
-            // Store new subscription with existing participantIds
             await fetchWithAuth('/api/notifications/subscription', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
                 body: JSON.stringify({
                     subscription: subscription,
                     participantIds: data.participantIds
@@ -400,11 +266,19 @@ async function checkAndRestoreSubscription() {
             });
             
             console.log('[SW] Successfully restored push subscription');
+            return true;
+            
         } else if (data && data.participantIds && data.participantIds.length > 0) {
             console.log('[SW] Found active subscription, no restoration needed');
+            return true;
         }
+        
+        console.log('[SW] No subscription found or needed');
+        return false;
+        
     } catch (error) {
         console.error('[SW] Error restoring subscription:', error);
+        return false;
     }
 }
 

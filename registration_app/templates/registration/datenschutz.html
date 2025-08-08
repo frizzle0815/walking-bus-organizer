@@ -1,0 +1,163 @@
+{% extends "registration/base.html" %}
+
+{% block title %}Datenschutzerklärung - Walking Bus Registrierung{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <h1 class="h2 mb-4">
+            <i class="fas fa-shield-alt me-2"></i>
+            Datenschutzerklärung
+        </h1>
+        
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Verantwortlicher</h5>
+                <p>
+                    Verantwortlicher für die Datenverarbeitung ist:<br>
+                    {{ contact_name or 'Nicht konfiguriert' }}<br>
+                    {{ contact_address or 'Nicht konfiguriert' }}<br>
+                    E-Mail: {% if contact_email %}<a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}Nicht konfiguriert{% endif %}
+                </p>
+                
+                <hr class="my-4">
+                
+                <h5>1. Welche Daten werden verarbeitet?</h5>
+                <p>Im Rahmen der Walking Bus Registrierung werden folgende personenbezogene Daten erhoben und verarbeitet:</p>
+                
+                <h6>1.1 Anmeldedaten der Kinder</h6>
+                <ul>
+                    <li><strong>Name des Kindes:</strong> Vor- und Nachname zur Identifikation</li>
+                    <li><strong>Schulklasse:</strong> Zur Zuordnung und Organisation</li>
+                    <li><strong>Wohnadresse:</strong> Für die Routenplanung und Geocoding (wird in Koordinaten umgewandelt)</li>
+                    <li><strong>Geokoordinaten:</strong> Latitude und Longitude der Wohnadresse</li>
+                </ul>
+                
+                <h6>1.2 Kontaktdaten der Erziehungsberechtigten</h6>
+                <ul>
+                    <li><strong>Telefonnummer:</strong> Für dringende Kommunikation</li>
+                    <li><strong>E-Mail-Adresse:</strong> Für allgemeine Kommunikation (optional)</li>
+                </ul>
+                
+                <h6>1.3 Organisatorische Daten</h6>
+                <ul>
+                    <li><strong>Zugewiesene Walking Bus Route:</strong> Welcher Route das Kind zugeordnet ist</li>
+                    <li><strong>Registrierungsdatum:</strong> Wann die Anmeldung erfolgte</li>
+                    <li><strong>Status:</strong> Aktiv/Inaktiv</li>
+                    <li><strong>Notizen:</strong> Interne Vermerke der Organisatoren</li>
+                </ul>
+                
+                <h6>1.4 Technische Daten</h6>
+                <ul>
+                    <li><strong>IP-Adresse:</strong> Wird bei der Registrierung temporär gespeichert</li>
+                    <li><strong>Browser-Daten:</strong> Für die korrekte Darstellung der Webseite</li>
+                </ul>
+                
+                <hr class="my-4">
+                
+                <h5>2. Zweck der Datenverarbeitung</h5>
+                <p>Die Datenverarbeitung erfolgt für folgende Zwecke:</p>
+                <ul>
+                    <li><strong>Organisation des Walking Bus:</strong> Planung und Durchführung der Gehgemeinschaften</li>
+                    <li><strong>Routenplanung:</strong> Optimale Streckenführung basierend auf Wohnadressen</li>
+                    <li><strong>Kommunikation:</strong> Kontaktaufnahme bei Änderungen oder Notfällen</li>
+                    <li><strong>Sicherheit:</strong> Koordination und Überwachung der Teilnehmer</li>
+                    <li><strong>Verwaltung:</strong> Interne Organisation und Dokumentation</li>
+                </ul>
+                
+                <hr class="my-4">
+                
+                <h5>3. Rechtsgrundlage</h5>
+                <p>Die Datenverarbeitung erfolgt auf Grundlage von:</p>
+                <ul>
+                    <li><strong>Art. 6 Abs. 1 lit. a DSGVO:</strong> Einwilligung der Erziehungsberechtigten</li>
+                    <li><strong>Art. 6 Abs. 1 lit. f DSGVO:</strong> Berechtigte Interessen der Schule zur Organisation sicherer Schulwege</li>
+                </ul>
+                
+                <hr class="my-4">
+                
+                <h5>4. Datenspeicherung und -sicherheit</h5>
+                <h6>4.1 Speicherort</h6>
+                <ul>
+                    <li><strong>Datenbank:</strong> PostgreSQL-Datenbank auf sicheren Servern</li>
+                    <li><strong>Verschlüsselung:</strong> Daten werden verschlüsselt übertragen und gespeichert</li>
+                    <li><strong>Zugriff:</strong> Nur autorisierte Personen haben Zugang zu den Daten</li>
+                </ul>
+                
+                <h6>4.2 Speicherdauer</h6>
+                <ul>
+                    <li><strong>Aktive Teilnahme:</strong> Daten werden für die Dauer der Teilnahme gespeichert</li>
+                    <li><strong>Nach Abmeldung:</strong> Daten werden nach 6 Monaten gelöscht</li>
+                    <li><strong>Schulwechsel:</strong> Daten werden zum Ende des Schuljahres gelöscht</li>
+                </ul>
+                
+                <hr class="my-4">
+                
+                <h5>5. Weitergabe von Daten</h5>
+                <p>Daten werden nur in folgenden Fällen weitergegeben:</p>
+                <ul>
+                    <li><strong>Begleitpersonen:</strong> Notwendige Kontaktdaten für die Betreuung</li>
+                    <li><strong>Notfälle:</strong> Kontaktdaten an Rettungsdienste oder Polizei</li>
+                    <li><strong>Schulverwaltung:</strong> Bei schulorganisatorischen Belangen</li>
+                </ul>
+                <p><strong>Keine Weitergabe</strong> an Dritte zu kommerziellen Zwecken!</p>
+                
+                <hr class="my-4">
+                
+                <h5>6. Ihre Rechte</h5>
+                <p>Sie haben folgende Rechte bezüglich Ihrer Daten:</p>
+                <ul>
+                    <li><strong>Auskunftsrecht (Art. 15 DSGVO):</strong> Welche Daten gespeichert sind</li>
+                    <li><strong>Berichtigungsrecht (Art. 16 DSGVO):</strong> Korrektur falscher Daten</li>
+                    <li><strong>Löschungsrecht (Art. 17 DSGVO):</strong> Löschen der Daten</li>
+                    <li><strong>Einschränkungsrecht (Art. 18 DSGVO):</strong> Einschränkung der Verarbeitung</li>
+                    <li><strong>Widerspruchsrecht (Art. 21 DSGVO):</strong> Widerspruch gegen die Verarbeitung</li>
+                    <li><strong>Datenübertragbarkeit (Art. 20 DSGVO):</strong> Daten in strukturierter Form erhalten</li>
+                </ul>
+                
+                <hr class="my-4">
+                
+                <h5>7. Einwilligung widerrufen</h5>
+                <p>
+                    Sie können Ihre Einwilligung jederzeit widerrufen. Dies hat zur Folge, dass die Teilnahme am Walking Bus beendet wird und die Daten gelöscht werden.
+                </p>
+                <p>
+                    Widerruf per E-Mail an: {% if contact_email %}<a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}Nicht konfiguriert{% endif %}
+                </p>
+                
+                <hr class="my-4">
+                
+                <h5>8. Beschwerderecht</h5>
+                <p>
+                    Sie haben das Recht, sich bei einer Aufsichtsbehörde zu beschweren, wenn Sie der Ansicht sind, dass die Verarbeitung Ihrer personenbezogenen Daten gegen die DSGVO verstößt.
+                </p>
+                
+                <hr class="my-4">
+                
+                <h5>9. Cookies und Tracking</h5>
+                <p>
+                    Diese Website verwendet keine Cookies zu Tracking-Zwecken. Technisch notwendige Cookies werden nur für die Funktionalität der Anwendung verwendet.
+                </p>
+                
+                <hr class="my-4">
+                
+                <h5>10. Änderungen dieser Datenschutzerklärung</h5>
+                <p>
+                    Diese Datenschutzerklärung kann bei Änderungen der rechtlichen Rahmenbedingungen oder technischen Gegebenheiten angepasst werden. Die aktuelle Version ist stets auf dieser Website verfügbar.
+                </p>
+                
+                <p class="text-muted small mt-4">
+                    <strong>Stand:</strong> {{ current_date or 'Nicht konfiguriert' }}
+                </p>
+            </div>
+        </div>
+        
+        <div class="mt-4">
+            <a href="{{ url_for('registration.index') }}" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-2"></i>
+                Zurück zur Übersicht
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

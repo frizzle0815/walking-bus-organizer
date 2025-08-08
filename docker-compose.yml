@@ -58,6 +58,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      web:
+        condition: service_started
     environment:
       - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
       - REDIS_URL=redis://redis:6379
@@ -66,6 +68,34 @@ services:
       - VAPID_EMAIL=your@email.com
     volumes:
       - vapid_keys:/app/data
+
+  registration:
+    build: 
+      context: .
+      dockerfile: Dockerfile.registration
+    ports:
+      - "8001:5001"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=production
+      - PORT=5001
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SCHOOL_COORDINATES=${SCHOOL_COORDINATES:-52.5200,13.4050}
+      - SCHOOL_RADIUS=${SCHOOL_RADIUS:-30}
+      # Kontaktdaten für Impressum und Datenschutz
+      - CONTACT_NAME=${CONTACT_NAME}
+      - CONTACT_ADDRESS=${CONTACT_ADDRESS}
+      - CONTACT_PHONE=${CONTACT_PHONE}
+      - CONTACT_EMAIL=${CONTACT_EMAIL}
+      - SCHOOL_NAME=${SCHOOL_NAME}
+      - SCHOOL_ADDRESS=${SCHOOL_ADDRESS}
+      - SCHOOL_PRINCIPAL=${SCHOOL_PRINCIPAL}
+    volumes:
+      - ./registration_app:/app/registration_app
 
 volumes:
   postgres_data:

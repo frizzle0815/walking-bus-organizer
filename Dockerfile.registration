@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Keine System-Abhängigkeiten nötig - psycopg2-binary ist vorkompiliert
+
+# Python-Abhängigkeiten
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Zusätzliche Abhängigkeiten für Registrierungs-App
+RUN pip install requests
+
+# App-Code kopieren
+COPY . .
+
+# Registrierungs-App als Standard-Command
+CMD ["python", "registration_app/run.py"]

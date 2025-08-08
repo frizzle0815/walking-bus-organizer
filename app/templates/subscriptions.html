@@ -146,7 +146,7 @@
         <i class="fas fa-history me-2"></i>
         Benachrichtigungsverlauf
     </h2>
-
+    
     {% for bus_id, bus_data in grouped_logs.items() %}
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -165,6 +165,7 @@
                             <th>Zeitpunkt</th>
                             <th>Teilnehmer</th>
                             <th>Typ</th>
+                            <th>Versand</th>
                             <th>Status</th>
                             <th>Gerät</th>
                             <th>Subscription Status</th>
@@ -183,10 +184,10 @@
                             </td>
                             <td>{{ log.timestamp.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>
-                                {% if log.notification_type == 'test' and log.notification_data.data.participantIds %}
-                                    <span class="badge bg-info me-1">{{ log.notification_data.data.participantIds[0] }}</span>
-                                {% elif log.notification_type == 'schedule_reminder' and log.notification_data.data.participantId %}
-                                    <span class="badge bg-info me-1">{{ log.notification_data.data.participantId }}</span>
+                                {% if log.participant_names %}
+                                    {% for name in log.participant_names %}
+                                        <span class="badge bg-info me-1">{{ log.participant_name }}</span>
+                                    {% endfor %}
                                 {% elif log.notification_type == 'broadcast' %}
                                     <span class="badge bg-warning">Broadcast</span>
                                 {% else %}
@@ -197,10 +198,21 @@
                                 <span class="badge bg-secondary">{{ log.notification_type }}</span>
                             </td>
                             <td>
-                                {% if log.success %}
-                                    <span class="badge bg-success">Erfolgreich (201)</span>
+                                {% if log.attempted_send %}
+                                    <span class="badge bg-primary">Versendet</span>
                                 {% else %}
-                                    <span class="badge bg-danger">Fehler ({{ log.status_code }})</span>
+                                    <span class="badge bg-warning">Kein Versand notwendig</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.attempted_send %}
+                                    {% if log.success %}
+                                        <span class="badge bg-success">Erfolgreich (201)</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Fehler ({{ log.status_code }})</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-secondary">-</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -226,7 +238,7 @@
                             </td>
                         </tr>
                         <tr class="collapse" id="log-details-{{ log.id }}">
-                            <td colspan="6">
+                            <td colspan="8">
                                 <div class="card card-body bg-light">
                                     <small>
                                         <strong>Nachricht:</strong> {{ log.notification_data.body }}<br>
@@ -246,6 +258,7 @@
         </div>
     </div>
     {% endfor %}
+    
     
 </div>
 <script>
