@@ -1,0 +1,906 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- Toast -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="notificationToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i id="toastIcon" class="fas me-2"></i>
+                <strong class="me-auto">Walking Bus</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body"></div>
+        </div>
+    </div>
+
+    <!-- Test Notification Modal -->
+    <div class="modal fade" id="testNotificationModal" tabindex="-1">
+        <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title">Test-Benachrichtigung gestartet</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+            <div class="alert alert-info">
+                <p><strong>Test-Benachrichtigung wird in 2 Minuten zugestellt.</strong></p>
+                <hr>
+                <p>Bitte die App jetzt <b>vollständig schließen</b>, um zu testen, ob Benachrichtigungen auch bei nicht geöffneter App zugestellt werden können.</p>
+            </div>
+            </div>
+        </div>
+        </div>
+    </div>
+    
+    <!-- Info Box -->
+    <div class="alert alert-info" role="alert">
+        <i class="fas fa-info-circle me-2"></i>
+        <div class="ms-4">
+            <p>Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest.</p>
+            
+            <p>Du wirst automatisch etwa eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.</p>
+            
+            <p>Erinnerungen erfolgen nur für Tage, an denen Du normalerweise am Walking Bus teilnimmst.</p>
+        </div>
+    </div>
+
+    <!-- Requirements Check -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Systemvoraussetzungen</h5>
+        </div>
+        <div class="card-body">
+            <ul class="list-group">
+                <li class="list-group-item d-flex align-items-center" id="pwaCheck">
+                    <span class="status-icon me-2">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                    <span class="flex-grow-1">App Installation Status</span>
+                </li>
+                <li class="list-group-item d-flex align-items-center" id="notificationCheck">
+                    <span class="status-icon me-2">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                    <span class="flex-grow-1">Berechtigung für Benachrichtigungen</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Test Notification -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Test Benachrichtigungen</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Hier kannst Du die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
+            <button id="testNotification" class="btn btn-secondary">
+                <i class="fas fa-bell me-2"></i>Test-Benachrichtigung senden
+            </button>
+        </div>
+    </div>
+
+    <!-- Participant Selection -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Teilnehmer auswählen</h5>
+        </div>
+            <div class="px-3 mt-3">
+                <button id="saveSubscriptions" class="btn btn-primary w-100" disabled>
+                    <i class="fas fa-save me-2"></i>Änderungen speichern
+                </button>
+            </div>
+
+            <div class="card-body">
+                {% if stations %}
+                <!-- Debug info -->
+                <div class="d-none">
+                    Found {{ stations|length }} stations:
+                    {% for station in stations %}
+                        Station: {{ station.name }} ({{ station.participants|length }} participants)
+                    {% endfor %}
+                </div>
+            
+                <!-- Existing participant section -->
+                {% for station in stations %}
+                <div class="station-group mb-4">
+                    <h6 class="station-name mb-3">{{ station.name }}</h6>
+                    <div class="participant-list">
+                        {% for participant in station.participants %}
+                        <div class="form-check mb-2">
+                            <input class="form-check-input participant-checkbox" 
+                                type="checkbox" 
+                                value="{{ participant.id }}" 
+                                id="participant{{ participant.id }}">
+                            <label class="form-check-label" for="participant{{ participant.id }}">
+                                {{ participant.name }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    Keine Stationen oder Teilnehmer gefunden.
+                </div>
+            {% endif %}
+           
+        </div>
+    </div>
+
+</div>
+<style>
+.img-fluid {
+    max-width: 100%;
+    height: auto;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.list-group-item {
+    align-items: flex-start !important; /* Override Bootstrap's center alignment */
+}
+
+.status-icon {
+    padding-top: 3px; /* Fine-tune vertical position of icon */
+}
+
+/* If you have multi-line content, this ensures proper text wrapping */
+.flex-grow-1 {
+    min-width: 0;
+}
+
+.battery-settings-image {
+    max-width: 300px;  /* Limits width to 300px */
+    width: 100%;       /* Takes full width up to max-width */
+    height: auto;      /* Maintains aspect ratio */
+    display: block;    /* Removes any inline spacing */
+    margin: 1rem auto; /* Centers image with consistent spacing */
+}
+
+.ios-guide-image {
+    max-width: 300px;
+    width: 100%;
+    height: auto;
+    display: block;
+    margin: 1rem 0;
+}
+</style>
+
+<script>
+let pendingChanges = new Set(); // Track changed participant IDs
+
+class NotificationManager {
+    constructor() {
+        this.vapidPublicKey = null;
+    }
+
+    async init() {
+        console.log('[NOTI.HTML] Initializing NotificationManager');
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            throw new Error('Push notifications are not supported');
+        }
+        await this.getVapidKey();
+    }
+
+    async getVapidKey() {
+        try {
+            const response = await fetchWithAuth('/api/notifications/vapid-key');
+            if (!response.ok) {
+                throw new Error('Failed to fetch VAPID key');
+            }
+            this.vapidPublicKey = await response.text();
+            console.log('[NOTI.HTML] Successfully retrieved VAPID key');
+            return this.vapidPublicKey;
+        } catch (error) {
+            console.error('[NOTI.HTML] Error fetching VAPID key:', error);
+            throw error;
+        }
+    }
+
+    async checkSubscriptionStatus() {
+        console.log('[NOTI] Checking subscription status');
+        
+        // Get or create registration
+        let registration = await navigator.serviceWorker.getRegistration();
+        
+        if (!registration) {
+            registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('[NOTI] New registration created');
+        }
+        
+        // Wait for active service worker
+        if (registration.installing || registration.waiting) {
+            await new Promise(resolve => {
+                registration.addEventListener('activate', () => {
+                    console.log('[NOTI] Service Worker activated');
+                    resolve();
+                });
+            });
+        }
+        
+        // Verify active worker
+        if (!registration.active) {
+            console.log('[NOTI] No active service worker found');
+            return false;
+        }
+        
+        // Check subscription
+        const subscription = await registration.pushManager.getSubscription();
+        console.log('[NOTI] Subscription status:', !!subscription);
+        
+        return !!subscription;
+    }
+
+
+
+    async createNewSubscription() {
+        console.log('[NOTI] Creating new subscription');
+        
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        
+        if (registration.installing) {
+            await new Promise(resolve => {
+                registration.installing.addEventListener('statechange', e => {
+                    if (e.target.state === 'activated') resolve();
+                });
+            });
+        }
+    
+    const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: this.vapidPublicKey
+    });
+    
+    await this.saveSubscriptionToServer(subscription);
+}
+
+
+    async updateParticipantPreferences(participantIds) {
+        await fetchWithAuth('/api/notifications/preferences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantIds })
+        });
+    }
+
+
+    async subscribeUserToPush(participantIds) {
+        try {
+            console.log('[NOTI.HTML] Starting subscription process');
+            
+            const permission = await Notification.requestPermission();
+            console.log('[NOTI.HTML] Permission status:', permission);
+            
+            if (permission !== 'granted') {
+                throw new Error('Notification permission denied');
+            }
+
+            if ('serviceWorker' in navigator) {
+                console.log('[NOTI.HTML] Service Worker available');
+                
+                // Initialize service worker first
+                const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+                console.log('[NOTI.HTML] Service Worker registered');
+                
+                // Wait for activation
+                if (registration.installing) {
+                    await new Promise(resolve => {
+                        registration.installing.addEventListener('statechange', e => {
+                            if (e.target.state === 'activated') resolve();
+                        });
+                    });
+                }
+                console.log('[NOTI.HTML] Service Worker activated');
+                
+                // Check for existing subscription and unsubscribe if needed
+                let subscription = await registration.pushManager.getSubscription();
+                if (subscription) {
+                    console.log('[NOTI.HTML] Found existing subscription, unsubscribing');
+                    await subscription.unsubscribe();
+                }
+                
+                // Create new subscription
+                subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: this.vapidPublicKey
+                });
+                console.log('[NOTI.HTML] Subscription created:', subscription);
+
+                // Send to server
+                await fetchWithAuth('/api/notifications/subscription', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        subscription: subscription,
+                        participantIds: participantIds
+                    })
+                });
+                
+                return true;
+            }
+        } catch (error) {
+            console.error('[NOTI.HTML] Error:', error);
+            throw error;
+        }
+    }
+
+
+    async loadExistingSubscriptions() {
+        console.log('[NOTI.HTML] Loading existing subscriptions');
+        const response = await fetchWithAuth('/api/notifications/subscription');
+        const data = await response.json();
+
+        await this.checkSubscriptionStatus();
+        
+        if (data && data.participantIds) {
+            console.log('[NOTI.HTML] Found subscriptions for:', data.participantIds);
+            // Check the corresponding checkboxes
+            data.participantIds.forEach(id => {
+                const checkbox = document.querySelector(`#participant${id}`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        }
+    }
+
+
+    async handleParticipantChange() {
+        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+        
+        console.log('[NOTI.HTML] Selected participants changed:', selectedIds);
+        
+        if (selectedIds.length === 0) {
+            // No participants selected - unsubscribe completely
+            console.log('[NOTI.HTML] No participants selected, unsubscribing');
+            await this.unsubscribeFromPush();
+            showToast('Benachrichtigungen deaktiviert', 'info');
+        } else {
+            // Update subscription with new participant selection
+            console.log('[NOTI.HTML] Updating subscription with new participants');
+            await this.subscribeUserToPush(selectedIds);
+            showToast('Einstellungen aktualisiert', 'success');
+        }
+    }
+
+    async cleanupSubscription(subscription) {
+        try {
+            // 1. Unsubscribe from browser
+            await subscription.unsubscribe();
+            console.log('[NOTI.HTML] Unsubscribed from push service');
+            
+            // 2. Delete from backend BEFORE loading subscriptions
+            await fetchWithAuth('/api/notifications/subscription', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endpoint: subscription.endpoint })
+            });
+            console.log('[NOTI.HTML] Removed server subscription');
+            
+            // 3. Clear checkboxes
+            document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            
+            // 4. Wait for backend cleanup to complete before proceeding
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            showToast('Benachrichtigungen wurden zurückgesetzt', 'info');
+        } catch (error) {
+            console.error('[NOTI.HTML] Cleanup error:', error);
+        }
+    }
+
+    async validateAndCleanupSubscriptions() {
+        console.log('[NOTI.HTML] Validating existing subscriptions');
+        
+        if (!this.vapidPublicKey) {
+            await this.getVapidKey();
+        }
+        
+        if ('serviceWorker' in navigator) {
+            try {
+                const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+                
+                if (registration.installing) {
+                    await new Promise(resolve => {
+                        registration.installing.addEventListener('statechange', e => {
+                            if (e.target.state === 'activated') resolve();
+                        });
+                    });
+                }
+                console.log('[NOTI.HTML] Service Worker activated');
+                
+                const subscription = await registration.pushManager.getSubscription();
+                
+                if (subscription) {
+                    // Convert current key to URL-safe base64
+                    const currentKey = this.arrayBufferToBase64(subscription.options.applicationServerKey)
+                        .replace(/=/g, '')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_');
+                    
+                    console.log('[NOTI.HTML] Current key:', currentKey);
+                    console.log('[NOTI.HTML] New key:', this.vapidPublicKey);
+                    
+                    if (currentKey !== this.vapidPublicKey) {
+                        console.log('[NOTI.HTML] VAPID key mismatch - cleaning up');
+                        await this.cleanupSubscription(subscription);
+                    } else {
+                        console.log('[NOTI.HTML] VAPID keys match');
+                    }
+                }
+            } catch (error) {
+                console.error('[NOTI.HTML] Validation error:', error);
+                showToast('Fehler bei der Überprüfung der Benachrichtigungen', 'error');
+            }
+        }
+    }
+
+    arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        return btoa(String.fromCharCode.apply(null, bytes));
+    }
+
+    async unsubscribeFromPush() {
+        console.log('[NOTI.HTML] Starting complete unsubscription');
+        
+        if ('serviceWorker' in navigator) {
+            // Initialize service worker first
+            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            
+            // Wait for activation
+            if (registration.installing) {
+                await new Promise(resolve => {
+                    registration.installing.addEventListener('statechange', e => {
+                        if (e.target.state === 'activated') resolve();
+                    });
+                });
+            }
+            
+            // Get current subscription
+            const subscription = await registration.pushManager.getSubscription();
+            
+            if (subscription) {
+                // Browser-side unsubscribe
+                await subscription.unsubscribe();
+                console.log('[NOTI.HTML] Browser subscription removed');
+            }
+            
+            // Server-side cleanup - now without requiring participant IDs
+            await fetchWithAuth('/api/notifications/subscription', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    complete_removal: true  // New flag to indicate complete removal
+                })
+            });
+            
+            console.log('[NOTI.HTML] Server-side subscriptions removed');
+            return true;
+        }
+        return false;
+    }
+}
+
+// Helper function for service worker initialization
+async function initializeServiceWorker() {
+    console.log('[NOTI.HTML] Starting Service Worker initialization');
+    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+
+    if (registration.installing) {
+        console.log('[NOTI.HTML] Service Worker installing');
+        await new Promise(resolve => {
+            registration.installing.addEventListener('statechange', e => {
+                if (e.target.state === 'activated') {
+                    console.log('[NOTI.HTML] Service Worker activated');
+                    resolve();
+                }
+            });
+        });
+    }
+
+    return registration.active;
+}
+
+// Create instance and initialize
+const notificationManager = new NotificationManager();
+
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[NOTI.HTML] DOM Content Loaded');
+
+    // Check PWA status using PWAManager
+    await window.PWAManager.check();
+    const pwaCheckElement = document.getElementById('pwaCheck');
+    const env = detectEnvironment();
+    
+    console.log('[NOTI.HTML] Environment:', env, 'PWA Status:', window.PWAManager.isInstalled());
+
+    // Update PWA status UI
+    updateStatusElement(
+        pwaCheckElement,
+        window.PWAManager.isInstalled() ? 'installed' : 'notInstalled',
+        'App ist installiert',
+        'App muss noch installiert werden (Android) bzw. dem Home Bildschirm hinzugefügt werden (iOS)'
+    );
+
+    // Handle non-installed state
+    if (!window.PWAManager.isInstalled()) {
+        const notificationCheckElement = document.getElementById('notificationCheck');
+        updateStatusElement(
+            notificationCheckElement,
+            'needsInstall',
+            '',
+            'Installation erforderlich für Benachrichtigungen'
+        );
+        return;
+    }
+
+    // Proceed with notification setup for installed apps
+    try {
+        await notificationManager.init();
+        await notificationManager.validateAndCleanupSubscriptions();
+        await notificationManager.loadExistingSubscriptions();
+
+        const notificationCheckElement = document.getElementById('notificationCheck');
+        const notificationPermission = await checkNotificationPermission();
+        
+        updateStatusElement(
+            notificationCheckElement,
+            notificationPermission,
+            'Berechtigung für Benachrichtigungen wurde erteilt.',
+            'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
+        );
+
+        setupCheckboxListeners();
+        updateTestNotificationButtonState();
+    } catch (error) {
+        console.error('[NOTI.HTML] Notification setup error:', error);
+        showToast('Fehler bei der Benachrichtigungs-Initialisierung', 'error');
+    }
+});
+
+
+// Move checkbox setup to separate function
+function setupCheckboxListeners() {
+    document.querySelectorAll('.participant-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            console.log('[NOTI.HTML] Checkbox changed, tracking for save');
+            pendingChanges.add(parseInt(checkbox.value));
+            document.getElementById('saveSubscriptions').disabled = false;
+        });
+    });
+}
+
+
+
+document.getElementById('saveSubscriptions').addEventListener('click', async () => {
+    const saveButton = document.getElementById('saveSubscriptions');
+    const originalContent = saveButton.innerHTML;
+
+    if (pendingChanges.size === 0) {
+        showToast('Keine Änderungen vorhanden', 'info');
+        return;
+    }
+
+    // Set loading state
+    saveButton.disabled = true;
+    saveButton.innerHTML = `
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        Speichere...
+    `;
+
+    try {
+        const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+
+        // Check notification permission first
+        if (Notification.permission === 'denied') {
+            showToast('Benachrichtigungen sind blockiert. Bitte erlauben Sie Benachrichtigungen in Ihren Browser-Einstellungen.', 'error');
+            return;
+        }
+
+        if (selectedIds.length === 0 && pendingChanges.size > 0) {
+            console.log('[NOTI.HTML] Removing all subscriptions');
+            await notificationManager.unsubscribeFromPush();
+            updateTestNotificationButtonState();
+            showToast('Alle Benachrichtigungen deaktiviert', 'info');
+        } else if (selectedIds.length > 0) {
+            console.log('[NOTI.HTML] Updating subscriptions with:', selectedIds);
+            await notificationManager.subscribeUserToPush(selectedIds);
+            updateTestNotificationButtonState();
+            showToast('Einstellungen gespeichert', 'success');
+        }
+
+        // Update notification status display immediately
+        const notificationCheckElement = document.getElementById('notificationCheck');
+        const notificationPermission = await checkNotificationPermission();
+        updateStatusElement(
+            notificationCheckElement,
+            notificationPermission,
+            'Berechtigung für Benachrichtigungen wurde erteilt.',
+            'Berechtigung für Benachrichtigungen muss noch erteilt werden.'
+        );
+
+        pendingChanges.clear();
+        
+    } catch (error) {
+        console.error('[NOTI.HTML] Error saving changes:', error);
+        showToast('Fehler beim Speichern', 'error');
+    } finally {
+        // Always restore button state
+        saveButton.innerHTML = originalContent;
+        saveButton.disabled = true; // Keeps button disabled after successful save
+    }
+});
+
+
+
+// Enhanced device and browser detection
+function detectEnvironment() {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+    
+    // Browser detection
+    const isChrome = /Chrome/.test(navigator.userAgent);
+    const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+    const isFirefox = /Firefox/.test(navigator.userAgent);
+    
+    const browserName = isChrome ? 'Chrome' : 
+                       isSafari ? 'Safari' : 
+                       isFirefox ? 'Firefox' : 'Browser';
+    
+    return {
+        platform: isIOS ? 'ios' : isAndroid ? 'android' : 'other',
+        browser: browserName
+    };
+}
+
+
+function updateStatusElement(element, status, successText, failureText) {
+    // Add debug logging
+    console.log('[STATUS] Element found:', element);
+    console.log('[STATUS] Element children:', {
+        iconSpan: element.querySelector('.status-icon'),
+        textSpan: element.querySelector('.flex-grow-1')
+    });
+
+    const env = detectEnvironment();
+    const iconSpan = element.querySelector('.status-icon');
+    const textSpan = element.querySelector('.flex-grow-1');
+
+    // Verify elements exist
+    if (!iconSpan || !textSpan) {
+        console.error('[STATUS] Required elements not found');
+        return;
+    }
+
+    // Force platform for testing
+    if (env.platform === 'other') {
+        env.platform = 'android'; // or 'ios' for testing
+        console.log('[STATUS] Platform override for testing:', env.platform);
+    }
+
+    console.log('[STATUS] Updating element:', {
+        element,
+        status,
+        successText,
+        failureText,
+        environment: detectEnvironment()
+    });
+
+    // Log for debugging
+    console.log('[PERMISSIONS] Status check:', status);
+    console.log('[PERMISSIONS] Environment:', env);
+
+    // Handle PWA installation status
+    if (status === 'installed' || status === 'notInstalled') {
+        iconSpan.innerHTML = status === 'installed' 
+            ? '<i class="fas fa-check-circle text-success"></i>'
+            : '<i class="fas fa-exclamation-circle text-warning"></i>';
+        
+        if (status === 'notInstalled') {
+            if (env.platform === 'ios') {
+                textSpan.innerHTML = `
+                    <div class="installation-guide">
+                        <p>Installation erforderlich: App zum Home-Bildschirm hinzufügen</p>
+                        <ol>
+                            <li>Safari-Browser verwenden</li>
+                            <li>Auf Teilen-Symbol tippen</li>
+                            <li>"Zum Home-Bildschirm hinzufügen" wählen</li>
+                        </ol>
+                        <img src="/static/images/ios-install-guide.png" class="ios-guide-image">
+                    </div>`;
+            } else if (env.platform === 'android') {
+                textSpan.innerHTML = `
+                    <div class="installation-guide">
+                        <p>Installation erforderlich - Siehe Link im Menü</p>
+                    </div>`;
+                
+                // Setup click handler after button is added to DOM
+                setTimeout(() => {
+                    const installButton = textSpan.querySelector('.install-trigger');
+                    if (installButton && window.deferredPrompt) {
+                        installButton.addEventListener('click', async (e) => {
+                            e.preventDefault();
+                            window.deferredPrompt.prompt();
+                            const { outcome } = await window.deferredPrompt.userChoice;
+                            console.log('[INSTALL] User response:', outcome);
+                            window.deferredPrompt = null;
+                            
+                            if (outcome === 'accepted') {
+                                location.reload();
+                            }
+                        });
+                    }
+                });
+            }
+        } else {
+            textSpan.textContent = successText;
+        }
+        return;
+    }
+
+    // Handle notification permission status
+    switch(status) {
+        case 'needsInstall':
+            iconSpan.innerHTML = '<i class="fas fa-exclamation-circle text-warning"></i>';
+            textSpan.textContent = 'Bitte erst installieren.';
+            break;
+            
+        case 'unsupported':
+            iconSpan.innerHTML = '<i class="fas fa-times-circle text-danger"></i>';
+            textSpan.textContent = 'Benachrichtigungen werden nicht unterstützt';
+            break;
+            
+        case 'granted':
+            iconSpan.innerHTML = '<i class="fas fa-check-circle text-success"></i>';
+            textSpan.innerHTML = `
+                ${successText}
+                ${env.platform === 'android' ? getBatteryOptimizationWarning(env.browser) : ''}
+            `;
+            break;
+            
+        case 'denied':
+            iconSpan.innerHTML = '<i class="fas fa-times-circle text-warning"></i>';
+            textSpan.innerHTML = getPermissionDeniedMessage(env);
+            break;
+            
+        default:
+            iconSpan.innerHTML = '<i class="fas fa-exclamation-circle text-warning"></i>';
+            textSpan.innerHTML = 'Berechtigung fehlt. Wähle unten einen Teilnehmer, klicke "Änderungen speichern" und erlaube in der folgenden Abfrage die Benachrichtigungen.';
+    }
+}
+
+function getBatteryOptimizationWarning(browser) {
+    return `
+        <div class="alert alert-info mt-3">
+            <h6 class="fw-bold">Wichtiger Hinweis für zuverlässige Benachrichtigungen auf Android:</h6>
+            <p class="mb-2">Bitte deaktiviere "App bei Nichtnutzung pausieren" für:</p>
+            <ul class="mb-2">
+                <li>WalkBus</li>
+                <li>${browser}</li>
+            </ul>
+            <p>Einstellungen > Apps > App auswählen > App bei Nichtnutzung pausieren</p>
+            <img src="/static/images/android-inactivity-settings.png" class="battery-settings-image">
+        </div>`;
+}
+
+function getPermissionDeniedMessage(env) {
+    const baseMessage = `
+        <div class="text-danger mb-3">
+            Benachrichtigungen wurden blockiert. Die Einstellung muss manuell geändert werden:
+        </div>`;
+        
+    if (env.platform === 'ios') {
+        return `
+            ${baseMessage}
+            <div class="ms-3">
+                Einstellungen > Datenschutz & Sicherheit > WalkBus
+            </div>`;
+    } else {
+        return `
+            ${baseMessage}
+            <div class="ms-3">
+                Einstellungen > Apps > WalkBus > Berechtigungen
+            </div>`;
+    }
+}
+
+
+function checkNotificationPermission() {
+    // First check if PWA is installed
+    if (!window.PWAManager.isInstalled()) {
+        return 'needsInstall';
+    }
+
+    // Check if notifications are supported
+    if (!('Notification' in window)) {
+        return 'unsupported';
+    }
+
+    // Return actual permission status
+    return Notification.permission; // returns 'granted', 'denied' or 'default'
+}
+
+function showToast(message, type) {
+    const toast = document.getElementById('notificationToast');
+    const toastIcon = document.getElementById('toastIcon');
+    const bsToast = new bootstrap.Toast(toast);
+    
+    // Set icon and color based on type
+    switch(type) {
+        case 'success':
+            toastIcon.className = 'fas fa-check-circle text-success me-2';
+            break;
+        case 'error':
+            toastIcon.className = 'fas fa-exclamation-circle text-danger me-2';
+            break;
+        case 'info':
+            toastIcon.className = 'fas fa-info-circle text-info me-2';
+            break;
+        default:
+            toastIcon.className = 'fas fa-bell me-2';
+    }
+    
+    // Set message
+    toast.querySelector('.toast-body').textContent = message;
+    
+    // Show toast
+    bsToast.show();
+}
+
+
+function updateTestNotificationButtonState() {
+    const testButton = document.getElementById('testNotification');
+    const hasPermissions = Notification.permission === 'granted';
+    const hasSelectedParticipants = document.querySelectorAll('.participant-checkbox:checked').length > 0;
+    const isPWAInstalled = window.PWAManager.isInstalled();
+    
+    testButton.disabled = !(hasPermissions && hasSelectedParticipants && isPWAInstalled);
+}
+
+document.getElementById('testNotification').addEventListener('click', async () => {
+    const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
+        .map(cb => parseInt(cb.value));
+        
+    if (selectedIds.length === 0) {
+        showToast('Bitte wählen Sie mindestens einen Teilnehmer aus', 'info');
+        return;
+    }
+
+    try {
+        // Send delayed notification request
+        const response = await fetchWithAuth('/api/notifications/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                participantIds: selectedIds
+            })
+        });
+
+        if (response.ok) {
+            // Show modal instead of toast
+            const modal = new bootstrap.Modal(document.getElementById('testNotificationModal'));
+            modal.show();
+        } else {
+            throw new Error('Fehler beim Senden der Test-Benachrichtigung');
+        }
+    } catch (error) {
+        showToast('Fehler beim Senden der Test-Benachrichtigung', 'error');
+        console.error(error);
+    }
+});
+
+
+</script>
+{% endblock %}

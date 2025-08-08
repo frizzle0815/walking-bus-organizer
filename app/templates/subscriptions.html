@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+
+    <!-- Broadcast Message -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Broadcast Nachricht</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="broadcastTarget" class="form-label">Empfänger auswählen</label>
+                <select class="form-select mb-3" id="broadcastTarget">
+                    <option value="all">An Alle</option>
+                    {% for bus_id, bus_data in grouped_subscriptions.items() %}
+                        <option value="{{ bus_id }}">{{ bus_data.bus_name }} ({{ bus_data.subscriptions|length }} Geräte)</option>
+                    {% endfor %}
+                </select>
+                <label for="broadcastMessage" class="form-label">Nachricht an ausgewählte Geräte senden</label>
+                <textarea class="form-control" id="broadcastMessage" rows="3" placeholder="Geben Sie Ihre Nachricht ein..."></textarea>
+            </div>
+            <button id="sendBroadcast" class="btn btn-primary">
+                <i class="fas fa-broadcast-tower me-2"></i>Nachricht senden
+            </button>
+        </div>
+    </div>
+
+    <!-- Subscriptions -->
+
+    <h2 class="mt-5 mb-4">
+        <i class="fas fa-bell me-2"></i>
+        Aktive Geräte-Registrierungen
+    </h2>
+
+    {% for bus_id, bus_data in grouped_subscriptions.items() %}
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                {{ bus_data.bus_name }}
+                <small class="text-muted">(Bus ID: {{ bus_id }})</small>
+            </h5>
+            <span class="badge bg-primary">{{ bus_data.subscriptions|length }} Geräte</span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Gerät/Browser</th>
+                            <th>Status</th>
+                            <th>Teilnehmer</th>
+                            <th>Erstellt</th>
+                            <th>Zuletzt aktiv</th>
+                            <th>Details</th>
+                            <th>Aktionen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sub in bus_data.subscriptions %}
+                        <tr>
+                            <td>
+                                <span class="badge bg-secondary">{{ sub.token_identifier[:4] }}</span>
+                            </td>
+                            <td>
+                                <i class="fas fa-mobile-alt me-2"></i>
+                                {{ sub['platform'] }}
+                            </td>
+                            <td>
+                                {% if sub.is_active %}
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-check-circle me-1"></i>
+                                        Aktiv
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="fas fa-pause-circle me-1"></i>
+                                        Pausiert
+                                        {% if sub.last_error_code %}
+                                            <br>
+                                            <small>
+                                                Fehler {{ sub.last_error_code }}
+                                                {% if sub.paused_at %}
+                                                    <br>
+                                                    Seit: {{ sub.paused_at.strftime('%d.%m.%Y %H:%M') }}
+                                                {% endif %}
+                                            </small>
+                                        {% endif %}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% for participant in sub.participants %}
+                                    <span class="badge bg-info me-1">{{ participant }}</span>
+                                {% endfor %}
+                            </td>
+                            <td>{{ sub.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                {% if sub.last_used %}
+                                    {{ sub.last_used.strftime('%d.%m.%Y %H:%M') }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" 
+                                        data-bs-toggle="collapse" 
+                                        data-bs-target="#details-{{ sub.id }}">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </td>
+                            <td>
+                                {% if not sub.is_active %}
+                                <button class="btn btn-sm btn-danger delete-subscription" 
+                                        data-subscription-id="{{ sub.id }}"
+                                        data-endpoint="{{ sub.endpoint }}"
+                                        data-token="{{ sub.token_identifier }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr class="collapse" id="details-{{ sub.id }}">
+                            <td colspan="6">
+                                <div class="card card-body bg-light">
+                                    <small>
+                                        <strong>Token ID:</strong> {{ sub.token_identifier }}<br>
+                                        <strong>Endpoint:</strong> {{ sub.endpoint }}
+                                    </small>
+                                </div>
+                            </td>
+                        </tr>
+
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Push Notification Logs -->
+
+    <h2 class="mt-5 mb-4">
+        <i class="fas fa-history me-2"></i>
+        Benachrichtigungsverlauf
+    </h2>
+    
+    {% for bus_id, bus_data in grouped_logs.items() %}
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                Push Benachrichtigungen für {{ bus_data.bus_name }}
+                <small class="text-muted">(Bus ID: {{ bus_id }})</small>
+            </h5>
+            <span class="badge bg-info">{{ bus_data.logs|length }} Einträge</span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Zeitpunkt</th>
+                            <th>Teilnehmer</th>
+                            <th>Typ</th>
+                            <th>Versand</th>
+                            <th>Status</th>
+                            <th>Gerät</th>
+                            <th>Subscription Status</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in bus_data.logs %}
+                        <tr>
+                            <td>
+                                {% if log.subscription %}
+                                    <span class="badge bg-secondary">{{ log.subscription.token_identifier[:4] }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">gelöscht</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ log.timestamp.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td>
+                                {% if log.participant_names %}
+                                    {% for name in log.participant_names %}
+                                        <span class="badge bg-info me-1">{{ log.participant_name }}</span>
+                                    {% endfor %}
+                                {% elif log.notification_type == 'broadcast' %}
+                                    <span class="badge bg-warning">Broadcast</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ log.notification_type }}</span>
+                            </td>
+                            <td>
+                                {% if log.attempted_send %}
+                                    <span class="badge bg-primary">Versendet</span>
+                                {% else %}
+                                    <span class="badge bg-warning">Kein Versand notwendig</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.attempted_send %}
+                                    {% if log.success %}
+                                        <span class="badge bg-success">Erfolgreich (201)</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Fehler ({{ log.status_code }})</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-secondary">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ log.platform }}
+                            </td>
+                            <td>
+                                {% if log.subscription %}
+                                    {% if log.subscription_deleted_at %}
+                                        <span class="badge bg-danger">Gelöscht am {{ log.subscription_deleted_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Aktiv</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-danger">Gelöscht</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-info" 
+                                        data-bs-toggle="collapse" 
+                                        data-bs-target="#log-details-{{ log.id }}">
+                                    <i class="fas fa-info-circle"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <tr class="collapse" id="log-details-{{ log.id }}">
+                            <td colspan="8">
+                                <div class="card card-body bg-light">
+                                    <small>
+                                        <strong>Nachricht:</strong> {{ log.notification_data.body }}<br>
+                                        {% if log.error_message %}
+                                            <strong>Fehler:</strong> {{ log.error_message }}<br>
+                                        {% endif %}
+                                        <strong>Endpoint:</strong> {{ log.historical_endpoint }}<br>
+                                        <strong>Gerät:</strong> {{ log.historical_client_info }}
+                                    </small>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    
+    
+</div>
+<script>
+document.getElementById('sendBroadcast').addEventListener('click', async () => {
+    const message = document.getElementById('broadcastMessage').value.trim();
+    const target = document.getElementById('broadcastTarget').value;
+    
+    if (!message) {
+        alert('Bitte geben Sie eine Nachricht ein');
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth('/api/notifications/broadcast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                message,
+                target_bus_id: target === 'all' ? null : parseInt(target)
+            })
+        });
+
+        if (response.ok) {
+            alert('Nachricht wurde gesendet');
+            document.getElementById('broadcastMessage').value = '';
+        } else {
+            throw new Error('Fehler beim Senden der Nachricht');
+        }
+    } catch (error) {
+        alert('Fehler beim Senden der Nachricht');
+        console.error(error);
+    }
+});
+
+document.querySelectorAll('.delete-subscription').forEach(button => {
+    button.addEventListener('click', async (e) => {
+        const button = e.target.closest('button');
+        const endpoint = button.dataset.endpoint;
+        const tokenIdentifier = button.dataset.token;
+        
+        console.log('Deleting subscription:', {
+            endpoint,
+            tokenIdentifier
+        });
+        
+        if (confirm('Möchten Sie diese pausierte Geräteregistrierung wirklich löschen?')) {
+            try {
+                const response = await fetchWithAuth(`/api/notifications/subscription`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        endpoint: endpoint,
+                        token_identifier: tokenIdentifier,
+                        complete_removal: true,
+                        user_initiated: true
+                    })
+                });
+
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    throw new Error('Fehler beim Löschen der Subscription');
+                }
+            } catch (error) {
+                alert('Fehler beim Löschen der Subscription');
+                console.error(error);
+            }
+        }
+    });
+});
+</script>
+{% endblock %}
+

@@ -11,26 +11,36 @@ from .models import (
     CalendarStatus, WalkingBusSchedule, 
     SchoolHoliday, WalkingBusOverride, 
     DailyNote, TempToken, AuthToken,
-    Weather, WeatherCalculation
+    Weather, WeatherCalculation,
+    PushSubscription, SchedulerJob,
+    PushNotificationLog
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
+from .services.push_service import PushService
 from . import get_current_time, get_current_date, TIMEZONE, WEEKDAY_MAPPING
 from . import get_git_revision
+from sqlalchemy.exc import SQLAlchemyError
 from .auth import (
     require_auth, SECRET_KEY, is_ip_allowed, 
     record_attempt, get_remaining_lockout_time, 
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
-    renew_auth_token
+    renew_auth_token, generate_pwa_temp_token,
+    check_and_renew_token, cleanup_expired_tokens,
+    cleanup_expired_auth_tokens
 )
 import jwt
 import json
 import time
+import os
 from os import environ
 from .init_buses import init_walking_buses
 from . import redis_client
+from pywebpush import webpush, WebPushException
+from uuid import uuid4
+from urllib.parse import urlparse
 
 # Create Blueprint
 bp = Blueprint("main", __name__)
@@ -65,8 +75,167 @@ def weather_database():
     return render_template('weather_database.html')
 
 
+@bp.route("/notifications")
+def notifications_view():
+    walking_bus_id = get_current_walking_bus_id()
+    stations = Station.query.filter_by(walking_bus_id=walking_bus_id).order_by(Station.position).all()
+    
+    # Add logging to verify data
+    current_app.logger.info(f"[NOTIFICATIONS] Loading data for walking_bus_id: {walking_bus_id}")
+    current_app.logger.info(f"[NOTIFICATIONS] Found stations: {[s.name for s in stations]}")
+    for station in stations:
+        current_app.logger.info(f"[NOTIFICATIONS] Station {station.name} has {len(station.participants)} participants")
+    
+    return render_template(
+        "notifications.html",
+        stations=stations
+    )
+
+def get_platform(user_agent):
+    if not user_agent:
+        return 'Unknown'
+        
+    platforms = {
+        'Windows': 'Windows',
+        'Android': 'Android',
+        'iPhone': 'iOS',
+        'iPad': 'iOS',
+        'Macintosh': 'macOS',
+        'Linux': 'Linux'
+    }
+    
+    for key, value in platforms.items():
+        if key in user_agent:
+            return value
+    return 'Unknown'
+
+@bp.route("/subscriptions")
+def subscription_overview():
+    total_subs = PushSubscription.query.count()
+    current_app.logger.info(f"[SUBS][VIEW] Total subscriptions found: {total_subs}")
+    
+    walking_buses = WalkingBus.query.order_by(WalkingBus.id).all()
+    grouped_subscriptions = {}
+    all_participants = {}
+    all_auth_tokens = {}
+    grouped_logs = {}
+    
+    for bus in walking_buses:
+        # Get subscriptions for this bus
+        subscriptions = PushSubscription.query\
+            .filter_by(walking_bus_id=bus.id)\
+            .order_by(PushSubscription.created_at.desc())\
+            .all()
+        
+        # Get participants for this bus
+        participants = {
+            p.id: p.name 
+            for p in Participant.query.filter_by(walking_bus_id=bus.id)
+        }
+        all_participants.update(participants)
+        
+        # Get auth tokens for this bus
+        auth_tokens = {
+            t.token_identifier: t
+            for t in AuthToken.query.filter_by(walking_bus_id=bus.id)
+        }
+        all_auth_tokens.update(auth_tokens)
+        
+        # Process subscriptions
+        subscription_data = []
+        for sub in subscriptions:
+            token = all_auth_tokens.get(sub.token_identifier)
+            participant_names = [
+                all_participants.get(pid)
+                for pid in sub.participant_ids
+            ]
+            
+            subscription_data.append({
+                'id': sub.id,
+                'token_identifier': sub.token_identifier,
+                'endpoint': sub.endpoint,
+                'created_at': sub.created_at,
+                'last_used': token.last_used if token else None,
+                'platform': get_platform(token.client_info) if token else 'Unknown',
+                'participants': participant_names,
+                'is_active': sub.is_active,
+                'paused_at': sub.paused_at,
+                'pause_reason': sub.pause_reason,
+                'last_error_code': sub.last_error_code
+            })
+        
+        grouped_subscriptions[bus.id] = {
+            'bus_name': bus.name,
+            'subscriptions': subscription_data
+        }
+
+        # Get and process logs
+        cutoff_date = datetime.now() - timedelta(days=7)
+        logs = PushNotificationLog.query\
+            .filter_by(walking_bus_id=bus.id)\
+            .filter(PushNotificationLog.timestamp >= cutoff_date)\
+            .order_by(PushNotificationLog.timestamp.desc())\
+            .all()
+
+        current_app.logger.info(f"""
+            [LOGS][DEBUG] Processing logs for bus {bus.id}:
+            Total count: {len(logs)}
+            Data sample: {[log.notification_data for log in logs[:2]]}
+        """)
+
+        for log in logs:
+            # Set platform info
+            if log.subscription and log.subscription.auth_token:
+                client_info = log.subscription.auth_token.client_info
+                log.platform = get_platform(client_info)
+                log.historical_endpoint = log.subscription.endpoint
+                log.historical_client_info = get_platform(client_info)
+            elif log.notification_data and 'subscription_info' in log.notification_data:
+                subscription_info = log.notification_data['subscription_info']
+                client_info = subscription_info.get('client_info', {})
+                log.platform = get_platform(client_info)
+                log.historical_endpoint = subscription_info.get('endpoint', 'Unknown')
+                log.historical_client_info = get_platform(client_info)
+            else:
+                log.platform = 'Unknown'
+                log.historical_endpoint = 'Unknown'
+                log.historical_client_info = 'Unknown'
+
+            # Add participant name processing
+            participant_id = log.notification_data.get('participant_id')
+            log.participant_name = participants.get(participant_id, '-')
+
+            # Determine attempted_send status
+            log.attempted_send = any([
+                log.notification_data.get('attempted_send', False),
+                log.success,
+                log.status_code == 201
+            ])
+
+            current_app.logger.info(f"""
+                [LOG][DEBUG] Log entry {log.id}:
+                - Attempted: {log.attempted_send}
+                - Success: {log.success}
+                - Status: {log.status_code}
+                - Data: {log.notification_data}
+            """)
+
+        grouped_logs[bus.id] = {
+            'bus_name': bus.name,
+            'logs': logs
+        }
+
+    return render_template(
+        'subscriptions.html',
+        grouped_subscriptions=grouped_subscriptions,
+        grouped_logs=grouped_logs
+    )
+
+
+
+
+
 @bp.route("/share")
-@require_auth
 def share():
     """Template route that uses dictionary directly"""
     token_data = get_active_temp_tokens()
@@ -74,6 +243,51 @@ def share():
                          active_tokens=token_data['tokens'],
                          token_count=token_data['count'],
                          max_tokens=token_data['max'])
+
+
+@bp.route("/scheduler")
+def scheduler_view():
+    # Define day order mapping
+    day_order = {
+        'Monday': 0,
+        'Tuesday': 1,
+        'Wednesday': 2,
+        'Thursday': 3,
+        'Friday': 4,
+        'Saturday': 5,
+        'Sunday': 6
+    }
+
+    # Get all scheduler jobs from database
+    jobs = SchedulerJob.query.order_by(SchedulerJob.next_run_time).all()
+    
+    # Group jobs by walking bus
+    grouped_jobs = {}
+    for job in jobs:
+        if job.walking_bus_id not in grouped_jobs:
+            grouped_jobs[job.walking_bus_id] = {
+                'bus_name': job.walking_bus.name,
+                'bus_id': job.walking_bus_id,
+                'jobs': []
+            }
+        
+        # Parse job_id to get day info (format: notify_bus_1_monday)
+        day = job.job_id.split('_')[-1].capitalize()
+        
+        grouped_jobs[job.walking_bus_id]['jobs'].append({
+            'id': job.job_id,
+            'day': day,
+            'day_order': day_order[day], # Add numeric order value
+            'next_run': job.next_run_time,
+            'type': job.job_type,
+            'function_name': 'send_walking_bus_notifications',
+            'function_description': 'Sends push notifications 1h before bus start'
+        })
+        
+        # Sort jobs by day_order
+        grouped_jobs[job.walking_bus_id]['jobs'].sort(key=lambda x: x['day_order'])
+    
+    return render_template('scheduler.html', grouped_jobs=grouped_jobs)
 
 
 @bp.route("/api/temp-tokens")
@@ -88,12 +302,52 @@ def get_active_temp_tokens_route():
 def generate_temp_token_route():
     return generate_temp_token()
 
-
+# No require_auth !! #
 @bp.route("/temp-login/<token>")
 def temp_login_route(token):
     if request.headers.get('Accept') == 'application/json':
-        return temp_login(token)
+        temp_token = TempToken.query.get(token)
+        
+        if not temp_token or datetime.now() > temp_token.expiry:
+            return jsonify({
+                "success": False,
+                "error": "Ungültiger oder abgelaufener Login Link"
+            }), 401
+
+        # Regular share token flow
+        current_app.logger.info(f"[TEMP-LOGIN] Processing share token: {token}")
+        auth_result = create_auth_token(
+            temp_token.walking_bus_id,
+            temp_token.walking_bus_name,
+            temp_token.bus_password_hash,
+            client_info=request.headers.get('User-Agent')
+        )
+
+        # Set up session
+        session['walking_bus_id'] = temp_token.walking_bus_id
+        session['walking_bus_name'] = temp_token.walking_bus_name
+        session['bus_password_hash'] = temp_token.bus_password_hash
+        session.permanent = True
+
+        # Clean up used token
+        db.session.delete(temp_token)
+        db.session.commit()
+
+        response = jsonify({
+            'success': True,
+            'auth_token': auth_result['token'],
+            'redirect_url': url_for('main.index')
+        })
+
+        # Set cookie using standardized settings
+        response.set_cookie(**auth_result['cookie_settings'])
+
+        return response
+
+    # Initial page load
     return render_template('temp-login.html')
+
+
 
 
 @bp.route("/api/temp-token/<token>", methods=["DELETE"])
@@ -119,29 +373,28 @@ def delete_temp_token(token):
 
 
 @bp.route("/auth-tokens")
-@require_auth
 def list_auth_tokens():
     tokens = AuthToken.query.order_by(AuthToken.last_used.desc()).all()
+    temp_tokens = TempToken.query.order_by(TempToken.created_at.desc()).all()
     
-    def get_platform(user_agent):
-        if not user_agent:
-            return 'Unknown'
-            
-        platforms = {
-            'Windows': 'Windows',
-            'Android': 'Android',
-            'iPhone': 'iOS',
-            'iPad': 'iOS',
-            'Macintosh': 'macOS',
-            'Linux': 'Linux'
-        }
-        
-        for key, value in platforms.items():
-            if key in user_agent:
-                return value
-        return 'Unknown'
+    # Get all participants for name lookup
+    participants = Participant.query.all()
+    participant_map = {p.id: p.name for p in participants}
     
-    # Create a new list with enhanced token objects
+    # Get all push subscriptions for lookup
+    subscriptions = PushSubscription.query.all()
+    subscription_map = {}
+    for sub in subscriptions:
+        if sub.token_identifier not in subscription_map:
+            subscription_map[sub.token_identifier] = []
+        # Map participant IDs to names
+        participant_names = [participant_map.get(pid) for pid in sub.participant_ids if pid in participant_map]
+        subscription_map[sub.token_identifier].append({
+            'participants': participant_names,
+            'is_active': sub.is_active,
+            'endpoint': sub.endpoint
+        })
+       
     enhanced_tokens = []
     for token in tokens:
         token_dict = {
@@ -154,14 +407,37 @@ def list_auth_tokens():
             'is_active': token.is_active,
             'invalidated_at': token.invalidated_at,
             'invalidation_reason': token.invalidation_reason,
-            'walking_bus_id': token.walking_bus_id
+            'walking_bus_id': token.walking_bus_id,
+            'is_pwa_installed': token.is_pwa_installed,
+            'pwa_status_updated_at': token.pwa_status_updated_at,
+            'subscriptions': subscription_map.get(token.token_identifier, [])
         }
         enhanced_tokens.append(token_dict)
     
+    current_time = datetime.now()
+    
     return render_template(
         "auth_tokens.html",
-        tokens=enhanced_tokens
+        tokens=enhanced_tokens,
+        temp_tokens=temp_tokens,
+        current_time=current_time
     )
+
+
+@bp.route("/api/cleanup-tokens", methods=["POST"])
+@require_auth
+def cleanup_tokens():
+    """Manually cleanup expired tokens"""
+    try:
+        cleanup_expired_tokens()
+        cleaned_auth_tokens = cleanup_expired_auth_tokens()
+        return jsonify({
+            "success": True,
+            "cleaned_auth_tokens": cleaned_auth_tokens
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error during token cleanup: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @bp.route("/api/auth-token/<token_id>", methods=["DELETE"])
@@ -740,30 +1016,93 @@ def get_participant_weekday_status(participant_id, weekday):
     status = getattr(participant, weekday, True)
     return jsonify({"status": status})
 
+
+@bp.route("/api/attendance/<int:participant_id>", methods=["PATCH"])
+@require_auth
+def toggle_attendance(participant_id):
+    walking_bus_id = get_current_walking_bus_id()
+    current_date = get_current_date()
+    
+    # Nur für aktuellen Tag möglich
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
+    # Prüfe ob Teilnehmer heute zugesagt hat
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=current_date,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    # Bestimme den aktuellen Teilnahme-Status
+    current_participation = calendar_entry.status if calendar_entry else getattr(
+        participant, WEEKDAY_MAPPING[current_date.weekday()], True
+    )
+    
+    # Nur für Teilnehmer die zugesagt haben
+    if not current_participation:
+        return jsonify({"error": "Anwesenheit kann nur für teilnehmende Personen geändert werden"}), 400
+    
+    # Erstelle Calendar Entry wenn nicht vorhanden
+    if not calendar_entry:
+        calendar_entry = CalendarStatus(
+            participant_id=participant_id,
+            date=current_date,
+            status=True,  # Implizit durch Teilnahme
+            is_manual_override=False,
+            attendance=False,
+            walking_bus_id=walking_bus_id
+        )
+        db.session.add(calendar_entry)
+    
+    # Toggle Anwesenheit
+    calendar_entry.attendance = not calendar_entry.attendance
+    db.session.commit()
+    
+    # Redis Event senden
+    redis_client.publish(f'walking_bus_{walking_bus_id}_attendance', json.dumps({
+        'participant_id': participant_id,
+        'attendance': calendar_entry.attendance,
+        'date': current_date.isoformat()
+    }))
+    
+    return jsonify({
+        "attendance": calendar_entry.attendance,
+        "participant_id": participant.id,
+        "date": current_date.isoformat()
+    })
+
+
+@bp.route("/api/participation/<int:participant_id>/status")
+@require_auth
+def get_participant_current_status(participant_id):
+    date = request.args.get('date')
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Get calendar entry for this specific date
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=date,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    # Return calendar status if it exists, otherwise return default True
+    return jsonify({
+        "status": calendar_entry.status if calendar_entry else True
+    })
+
 #################################
 #################################
 
 @bp.route("/api/daily-status", methods=["GET", "POST"])
 @require_auth
 def get_daily_status():
-    # Token renewal logic
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    payload = jwt.decode(token, options={"verify_signature": False})
-    exp_timestamp = payload['exp']
-    exp_date = datetime.fromtimestamp(exp_timestamp)
-    remaining_days = (exp_date - datetime.utcnow()).days
-
-    current_app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
-    current_app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
-    current_app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
-
-    new_token = None
-    if remaining_days < 30:
-        verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        new_token = renew_auth_token(token, verified_payload)
-        current_app.logger.info("Created new token with extended expiration")
-        current_app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
-
+    # Get token from cookie and check for renewal
+    token = request.cookies.get('auth_token')
+    auth_result = check_and_renew_token(token) if token else None
+    
     walking_bus_id = get_current_walking_bus_id()
 
     # Handle both GET and POST parameters
@@ -816,6 +1155,7 @@ def get_daily_status():
     # Get participant states for this date
     participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
     participant_states = {}
+    participant_attendance = {}
     
     for participant in participants:
         calendar_entry = CalendarStatus.query.filter_by(
@@ -829,8 +1169,12 @@ def get_daily_status():
             weekday,
             True
         )
+        
+        # Anwesenheit nur für aktuellen Tag laden
+        if target_date == get_current_date():
+            participant_attendance[participant.id] = calendar_entry.attendance if calendar_entry else False
 
-    return jsonify({
+    response = jsonify({
         "currentDate": target_date.isoformat(),
         "isWalkingBusDay": is_active,
         "stateReason": reason_type,
@@ -838,8 +1182,16 @@ def get_daily_status():
         "holidayData": holiday_data,
         "note": daily_note.note if daily_note else None,
         "schedule": schedule_data,
-        "participantStates": participant_states
+        "participantStates": participant_states,
+        "participantAttendance": participant_attendance if target_date == get_current_date() else {},
+        "new_auth_token": auth_result['token'] if auth_result else None
     })
+
+    # Set new cookie if token was renewed
+    if auth_result:
+        response.set_cookie(**auth_result['cookie_settings'])
+
+    return response
 
 
 @bp.route('/api/weather/get-calculations')
@@ -872,6 +1224,44 @@ def get_bus_weather():
                     'last_updated': calculation.last_updated.isoformat()
                 }
             })
+        
+        # No calculation found - try to create one from available data
+        print(f"[WEATHER] No calculation found, trying to create one from available data")
+        from app.services.weather_service import WeatherService
+        from app.models import WalkingBusSchedule
+        
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus_id).first()
+        if schedule:
+            weather_service = WeatherService()
+            weather_data = weather_service.get_weather_for_timeframe(date_obj, schedule, include_details=True)
+            
+            if weather_data:
+                # Create and save the calculation
+                calc = WeatherCalculation(
+                    walking_bus_id=bus_id,
+                    date=date_obj,
+                    icon=weather_data['result']['icon'],
+                    precipitation=weather_data['result']['precipitation'],
+                    pop=weather_data['result']['pop'],
+                    calculation_type=weather_data['calculation_details']['coverage_type'],
+                    last_updated=get_current_time()
+                )
+                db.session.add(calc)
+                db.session.commit()
+                
+                print(f"[WEATHER] Created calculation: type={calc.calculation_type}, "
+                      f"precip={calc.precipitation}, pop={calc.pop}")
+                
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'icon': calc.icon,
+                        'precipitation': calc.precipitation,
+                        'pop': calc.pop,
+                        'calculation_type': calc.calculation_type,
+                        'last_updated': calc.last_updated.isoformat()
+                    }
+                })
         
         print(f"[WEATHER] No data for bus {bus_id} on {date_obj}")
         return jsonify({
@@ -1141,6 +1531,335 @@ def weather_debug():
     return jsonify(response)
 
 
+@bp.route('/api/notifications/vapid-key')
+def get_vapid_key():
+    return current_app.config['VAPID_PUBLIC_KEY']
+    
+
+@bp.route('/api/notifications/subscription', methods=['POST'])
+@require_auth
+def create_push_subscription():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.json
+    subscription = data['subscription']
+    participant_ids = data['participantIds']
+    
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+    
+    # Find existing subscriptions
+    existing_subscription = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if existing_subscription:
+        # Update existing subscription
+        existing_subscription.endpoint = subscription['endpoint']
+        existing_subscription.p256dh = subscription['keys']['p256dh']
+        existing_subscription.auth = subscription['keys']['auth']
+        existing_subscription.participant_ids = participant_ids
+        existing_subscription.is_active = True  # Reactivate
+        existing_subscription.paused_at = None  # Clear pause timestamp
+        existing_subscription.pause_reason = None  # Clear pause reason
+        existing_subscription.last_error_code = None  # Clear error code
+    else:
+        # Create new subscription
+        new_subscription = PushSubscription(
+            token_identifier=auth_token.token_identifier,
+            endpoint=subscription['endpoint'],
+            p256dh=subscription['keys']['p256dh'],
+            auth=subscription['keys']['auth'],
+            walking_bus_id=walking_bus_id,
+            participant_ids=participant_ids,
+            is_active=True
+        )
+        db.session.add(new_subscription)
+    
+    try:
+        db.session.commit()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'[NOTI] Error saving subscription: {str(e)}')
+        return jsonify({'error': 'Failed to save subscription'}), 500
+
+
+def cleanup_duplicate_subscriptions():
+    """Remove duplicate subscriptions keeping only the latest per token_identifier"""
+    try:
+        # Get all token_identifiers that have multiple subscriptions
+        query = db.session.query(PushSubscription.token_identifier)\
+            .group_by(PushSubscription.token_identifier)\
+            .having(db.func.count() > 1)
+        
+        duplicate_tokens = [row[0] for row in query.all()]
+        
+        for token_id in duplicate_tokens:
+            # Get all subscriptions for this token ordered by creation date
+            subs = PushSubscription.query\
+                .filter_by(token_identifier=token_id)\
+                .order_by(PushSubscription.created_at.desc())\
+                .all()
+            
+            # Keep the newest, delete the rest
+            for sub in subs[1:]:
+                db.session.delete(sub)
+        
+        db.session.commit()
+        current_app.logger.info(f"Cleaned up {len(duplicate_tokens)} duplicate subscriptions")
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error cleaning up duplicates: {str(e)}")
+
+
+
+@bp.route('/api/notifications/subscription', methods=['GET'])
+@require_auth
+def get_subscription_details():
+    walking_bus_id = get_current_walking_bus_id()
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+
+    subscription = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id
+    ).order_by(PushSubscription.created_at.desc()).first()
+
+    if subscription:
+        return jsonify({
+            'subscription': {
+                'endpoint': subscription.endpoint,
+                'keys': {
+                    'p256dh': subscription.p256dh,
+                    'auth': subscription.auth
+                },
+                'is_active': subscription.is_active
+            },
+            'participantIds': subscription.participant_ids
+        })
+    
+    return jsonify({'participantIds': []})
+
+
+@bp.route('/api/notifications/subscription', methods=['DELETE'])
+@require_auth
+def delete_push_subscription():
+    walking_bus_id = get_current_walking_bus_id()
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+
+    # Handle user-initiated deletion of specific subscription
+    if request.json.get('user_initiated'):
+        token_identifier = request.json.get('token_identifier')
+        endpoint = request.json.get('endpoint')
+        current_app.logger.info(f"[NOTI] Processing user deletion for token {token_identifier}")
+        
+        subscription = PushSubscription.query.filter_by(
+            token_identifier=token_identifier,
+            endpoint=endpoint,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        if subscription:
+            db.session.delete(subscription)
+            db.session.commit()
+            current_app.logger.info(f"[NOTI] Successfully deleted user-specified subscription")
+            return jsonify({'status': 'success', 'removed_count': 1})
+        
+        return jsonify({'status': 'success', 'removed_count': 0})
+
+    # Handle system cleanup (scheduler worker)
+    if request.json.get('complete_removal'):
+        current_app.logger.info(f"[NOTI] Processing system cleanup for token {auth_token.token_identifier}")
+        
+        subscriptions = PushSubscription.query.filter_by(
+            token_identifier=auth_token.token_identifier,
+            walking_bus_id=walking_bus_id
+        ).all()
+        
+        for subscription in subscriptions:
+            db.session.delete(subscription)
+        
+        db.session.commit()
+        current_app.logger.info(f"[NOTI] Removed {len(subscriptions)} subscriptions")
+        return jsonify({'status': 'success', 'removed_count': len(subscriptions)})
+
+    # Handle single subscription removal/deactivation
+    endpoint = request.json['endpoint']
+    subscription = PushSubscription.query.filter_by(
+        endpoint=endpoint,
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if subscription:
+        subscription.is_active = False
+        subscription.paused_at = get_current_time()
+        current_app.logger.info(f"[NOTI] System paused subscription {subscription.id}")
+        db.session.commit()
+    
+    return jsonify({'status': 'success'})
+
+
+@bp.route('/api/notifications/test', methods=['POST'])
+@require_auth
+def test_notification():
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.json
+    participant_ids = data['participantIds']
+    
+    # Get current user's auth token
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+
+    # Validate participants
+    participants = Participant.query.filter(
+        Participant.id.in_(participant_ids),
+        Participant.walking_bus_id == walking_bus_id
+    ).all()
+
+    if not participants:
+        return jsonify({
+            'status': 'error',
+            'message': 'Keine gültigen Teilnehmer gefunden'
+        }), 400
+
+    # Verify user has active subscription
+    subscription = PushSubscription.query.filter_by(
+        token_identifier=auth_token.token_identifier,
+        walking_bus_id=walking_bus_id,
+        is_active=True
+    ).first()
+
+    if not subscription:
+        return jsonify({
+            'status': 'error',
+            'message': 'Keine aktive Push-Subscription gefunden'
+        }), 400
+
+    # Create job data with user identifier
+    job_data = {
+        'type': 'test_notification',
+        'walking_bus_id': walking_bus_id,
+        'participant_ids': participant_ids,
+        'token_identifier': auth_token.token_identifier
+    }
+
+    # Store in Redis for scheduler
+    job_key = f'test_notification:{walking_bus_id}:{int(time.time())}'
+    redis_client.setex(
+        job_key,
+        300,  # 5 minutes TTL
+        json.dumps(job_data)
+    )
+
+    # Notify scheduler
+    redis_client.publish('test_notification_requests', json.dumps({
+        'type': 'new_test_notification',
+        'job_key': job_key
+    }))
+
+    current_app.logger.info(
+        f"[TEST] Queued notification for bus {walking_bus_id}, "
+        f"user {auth_token.token_identifier}, "
+        f"with {len(participants)} participants"
+    )
+
+    return jsonify({
+        'status': 'success',
+        'message': 'Test-Benachrichtigung wird in 2 Minuten zugestellt',
+        'participants': [
+            {'id': p.id, 'name': p.name}
+            for p in participants
+        ]
+    })
+
+
+
+@bp.route('/api/notifications/broadcast', methods=['POST'])
+@require_auth 
+def broadcast_notification():
+    walking_bus_id = get_current_walking_bus_id()
+    push_service = PushService(walking_bus_id)
+    
+    data = request.json
+    message = data.get('message', '').strip()
+    target_bus_id = data.get('target_bus_id')
+    
+    if not message:
+        return jsonify({'error': 'Message cannot be empty'}), 400
+
+    unique_id = str(uuid4())
+    results = []
+
+    notification_data = {
+        'title': 'Walking Bus Nachricht',
+        'body': message,
+        'data': {
+            'type': 'broadcast',
+            'messageId': unique_id
+        },
+        'tag': f'broadcast-{unique_id}',
+        'actions': [{
+            'action': 'okay',
+            'title': 'OK'
+        }],
+        'requireInteraction': True
+    }
+
+    # Get subscriptions based on target
+    subscriptions = push_service.get_subscriptions()
+    if target_bus_id:
+        subscriptions = [s for s in subscriptions if s.walking_bus_id == target_bus_id]
+
+    for subscription in subscriptions:
+        success, error, _ = push_service.send_notification(subscription, notification_data)
+        results.append({
+            'endpoint': subscription.endpoint,
+            'success': success,
+            'error': error
+        })
+
+    cleanup_result = push_service.cleanup_expired_subscriptions()
+
+    return jsonify({
+        'status': 'success',
+        'results': results,
+        'cleanup': cleanup_result
+    })
+
+
+@bp.route("/api/pwa-status", methods=["POST"])
+@require_auth
+def update_pwa_status():
+    data = request.get_json()
+    is_installed = data.get('is_installed', False)
+    user_agent = data.get('user_agent')
+
+    # Get current token
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.filter_by(id=token).first_or_404()
+
+    # Track changes for logging
+    status_changed = auth_token.is_pwa_installed != is_installed
+    agent_changed = auth_token.client_info != user_agent
+
+    # Update token information
+    if status_changed or agent_changed:
+        auth_token.is_pwa_installed = is_installed
+        auth_token.client_info = user_agent
+        auth_token.pwa_status_updated_at = get_current_time()
+        db.session.commit()
+
+        current_app.logger.info(
+            f"Updated PWA status for token {auth_token.token_identifier}: "
+            f"installed={is_installed}, agent={user_agent}"
+        )
+
+    return jsonify({"success": True})
+
 
 #####################################################
 ######################################################
@@ -1162,23 +1881,8 @@ def initialize_daily_status():
                 return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
         # Token handling
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        payload = jwt.decode(token, options={"verify_signature": False})
-        exp_timestamp = payload['exp']
-        exp_date = datetime.fromtimestamp(exp_timestamp)
-        remaining_days = (exp_date - datetime.utcnow()).days
-
-        # Add these logging statements
-        current_app.logger.info(f"[TOKEN] Current time: {datetime.utcnow()}")
-        current_app.logger.info(f"[TOKEN] Expiration date: {exp_date}")
-        current_app.logger.info(f"[TOKEN] Days remaining: {remaining_days}")
-
-        new_token = None
-        if remaining_days < 30:
-            verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            new_token = renew_auth_token(token, verified_payload)
-            current_app.logger.info("Created new token with extended expiration")
-            current_app.logger.info(f"[TOKEN] Created new token with {remaining_days} days remaining")
+        token = request.cookies.get('auth_token')
+        auth_result = check_and_renew_token(token) if token else None
 
         walking_bus_id = get_current_walking_bus_id()
         target_date = requested_date if requested_date else get_current_date()
@@ -1220,72 +1924,56 @@ def initialize_daily_status():
             walking_bus_id=walking_bus_id
         ).first()
 
-        # Check walking bus status
-        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
-        current_app.logger.info(f"Walking bus day status: {walking_bus_day}")
+        # Check walking bus status with reason
+        walking_bus_day, reason, reason_type = check_walking_bus_day(
+            target_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
 
-        # Initialize time_passed before any checks
+        # Time check for current day
         time_passed = False
-
-        # Get today's date for comparison
         today = get_current_date()
 
-        # Check walking bus status
-        walking_bus_day, reason, reason_type = check_walking_bus_day(target_date, include_reason=True)
-        current_app.logger.info(f"Walking bus day status: {walking_bus_day}")
-
-        # Then modify the time check to only apply for current day
         if walking_bus_day and schedule_data and schedule_data["end"]:
             end_time = datetime.strptime(schedule_data["end"], "%H:%M").time()
-            current_app.logger.info(f"Target date: {target_date}, Today: {today}")
-            current_app.logger.info(f"Parsed end_time: {end_time}")
             
-            # Ensure target_date is a date object for comparison
-            if isinstance(target_date, str):
-                target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
-            
-            # Only check time if we're looking at today
-            if target_date == today:
-                current_app.logger.info(f"Checking time for today: {current_time} > {end_time}")
-                if current_time > end_time:
-                    current_app.logger.info("Time check conditions met - updating status")
-                    walking_bus_day = False
-                    reason = "Der Walking Bus hat heute bereits stattgefunden."
-                    reason_type = "TIME_PASSED"
-                    time_passed = True
+            if target_date == today and current_time > end_time:
+                walking_bus_day = False
+                reason = "Der Walking Bus hat heute bereits stattgefunden."
+                reason_type = "TIME_PASSED"
+                time_passed = True
 
-        # Now handle reason formatting
-        if time_passed:
-            display_reason = reason
-        elif reason_type == "HOLIDAY" and isinstance(reason, dict):
-            display_reason = reason.get("full_reason", "")
-        else:
-            display_reason = str(reason)
+        # Handle reason formatting
+        display_reason = (
+            reason if time_passed
+            else reason.get("full_reason", "") if reason_type == "HOLIDAY" and isinstance(reason, dict)
+            else str(reason)
+        )
 
-        current_app.logger.info(f"Schedule data: {schedule_data}")
-        current_app.logger.info(f"Walking bus check results: day={walking_bus_day}, reason={reason}, type={reason_type}")
-        current_app.logger.info(f"Time check values: current={current_time}, end={end_time if 'end_time' in locals() else 'not set'}")
-
-        response = {
+        # Create response
+        response = jsonify({
             "success": True,
             "currentDate": target_date.isoformat(),
             "isWalkingBusDay": walking_bus_day,
             "reason": display_reason,
-            "reason_type": reason_type,  # This will now correctly show TIME_PASSED
+            "reason_type": reason_type,
             "note": daily_note.note if daily_note else None,
-            "schedule": schedule_data
-        }
+            "schedule": schedule_data,
+            "new_auth_token": auth_result['token'] if auth_result else None
+        })
 
-        if new_token:
-            response['new_auth_token'] = new_token
+        # Set new cookie if token was renewed
+        if auth_result:
+            response.set_cookie(**auth_result['cookie_settings'])
 
-        current_app.logger.info(f"Final response: {response}")
-        return jsonify(response)
+        return response
 
     except Exception as e:
         current_app.logger.error(f"Error in initialize_daily_status: {str(e)}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
 
 
 @bp.route("/api/week-overview")
@@ -1467,7 +2155,7 @@ def update_schedule():
     walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     
-    current_app.logger.info("[SCHEDULE] Starting schedule update")
+    current_app.logger.info(f"[SCHEDULE] Starting schedule update for bus {walking_bus_id}")
     
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
     if not schedule:
@@ -1495,10 +2183,14 @@ def update_schedule():
             setattr(schedule, f"{day}_end", end)
     
     db.session.commit()
-    current_app.logger.info("[SCHEDULE] Schedule update completed")
+    current_app.logger.info(f"[SCHEDULE] Schedule update completed for bus {walking_bus_id}")
+    
+    # Notify scheduler service via Redis
+    redis_client.publish('schedule_updates', json.dumps({
+        'bus_id': walking_bus_id
+    }))
     
     return jsonify({"success": True})
-
 
 
 @bp.route("/api/calendar-status", methods=["POST"])
@@ -1773,8 +2465,10 @@ def get_current_status(walking_bus_id, target_date):
 @bp.route('/stream')
 def stream():
     def event_stream():
+        walking_bus_id = get_current_walking_bus_id()
         pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
         pubsub.subscribe('status_updates')
+        pubsub.subscribe(f'walking_bus_{walking_bus_id}_attendance')
         last_time = None
         
         while True:
@@ -1788,7 +2482,19 @@ def stream():
                 # Get Redis messages - this is blocking until message arrives
                 message = pubsub.get_message(timeout=60.0)  # Block until message or next minute
                 if message and message['type'] == 'message':
-                    yield f"data: {message['data'].decode()}\n\n"
+                    channel = message['channel'].decode()
+                    if channel == 'status_updates':
+                        yield f"data: {message['data'].decode()}\n\n"
+                    elif channel == f'walking_bus_{walking_bus_id}_attendance':
+                        # Transform attendance message to SSE format
+                        attendance_data = json.loads(message['data'].decode())
+                        sse_message = {
+                            'type': 'attendance_update',
+                            'participant_id': attendance_data['participant_id'],
+                            'attendance': attendance_data['attendance'],
+                            'date': attendance_data['date']
+                        }
+                        yield f"data: {json.dumps(sse_message)}\n\n"
 
             except Exception as e:
                 current_app.logger.error(f"[STREAM] Error: {e}")
@@ -1972,9 +2678,273 @@ def ALT_stream():
 def service_worker():
     return send_from_directory('static', 'service-worker.js')
 
-@bp.route('/static/manifest.json')
+
+def get_base_manifest():
+    manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
+    with open(manifest_path, 'r') as f:
+        return json.load(f)
+
+# We need this since we use start_url in manifest.json 
+# to get rid of adress bar showing
+@bp.route('/.well-known/<path:filename>')
+def well_known(filename):
+    return send_from_directory('.well-known', filename, mimetype='application/json')
+
+
+@bp.route('/manifest')
 def manifest():
-    return send_from_directory('static', 'manifest.json')
+    browser_token = request.args.get('token')
+    manifest_data = get_base_manifest()
+
+    manifest_data["start_url"] = f"/pwa-login/{browser_token}"
+
+    return Response(
+        json.dumps(manifest_data),
+        mimetype='application/manifest+json'
+    )
+
+
+@bp.route("/api/pwa-setup", methods=["POST"])
+@require_auth
+def setup_pwa_token():
+    cleanup_expired_tokens()
+    cleanup_expired_auth_tokens()
+    data = request.get_json()
+    browser_token = data.get('browser_token')
+
+    current_app.logger.info(f"[PWA-SETUP] Processing setup request for browser token: {browser_token}")
+    
+    # Check if token already exists
+    existing_token = TempToken.query.get(browser_token)
+    if existing_token:
+        # Update expiry if token exists
+        old_expiry = existing_token.expiry
+        existing_token.expiry = datetime.now() + timedelta(minutes=5)
+        db.session.commit()
+        current_app.logger.info(
+            f"[PWA-SETUP] Extended existing token expiry: {browser_token}\n"
+            f"[PWA-SETUP] Old expiry: {old_expiry}\n"
+            f"[PWA-SETUP] New expiry: {existing_token.expiry}"
+        )
+        return jsonify({"success": True})
+    
+    # Get token and decode payload
+    token = request.cookies.get('auth_token')
+    auth_token = AuthToken.query.get(token)
+    payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+    
+    # Create new token only if it doesn't exist
+    new_token = TempToken(
+        id=browser_token,
+        expiry=datetime.now() + timedelta(minutes=5),
+        walking_bus_id=auth_token.walking_bus_id,
+        walking_bus_name=auth_token.walking_bus.name,
+        bus_password_hash=payload['bus_password_hash'],
+        created_by=auth_token.walking_bus_id,
+        is_pwa_token=True,
+        token_identifier=auth_token.token_identifier
+    )
+    
+    db.session.add(new_token)
+    db.session.commit()
+
+    current_app.logger.info(
+        f"[PWA-SETUP] Created new PWA token:\n"
+        f"[PWA-SETUP] Browser Token: {browser_token}\n"
+        f"[PWA-SETUP] Walking Bus: {new_token.walking_bus_name} (ID: {new_token.walking_bus_id})\n"
+        f"[PWA-SETUP] Expiry: {new_token.expiry}\n"
+        f"[PWA-SETUP] Token Identifier: {new_token.token_identifier}"
+    )
+    
+    return jsonify({"success": True})
+
+
+# No require_auth !! #
+@bp.route("/pwa-login/<token>")
+def pwa_login_route(token):
+    cleanup_expired_tokens()
+    cleanup_expired_auth_tokens()
+    if request.headers.get('Accept') == 'application/json':
+        temp_token = TempToken.query.get(token)
+        
+        # Validate PWA token
+        if not temp_token or not temp_token.is_pwa_token:
+            return jsonify({
+                "success": False,
+                "error": "Ungültiger PWA Login Token"
+            }), 401
+            
+        if datetime.now() > temp_token.expiry:
+            db.session.delete(temp_token)
+            db.session.commit()
+            return jsonify({
+                "success": False,
+                "error": "Der PWA Login Token ist abgelaufen"
+            }), 401
+
+        # Get existing auth token
+        old_token = AuthToken.query.filter_by(
+            token_identifier=temp_token.token_identifier,
+            is_active=True
+        ).first()
+        
+        if old_token:
+            # Create new token with PWA installation info
+            client_info = (
+                f"PWA Installation | "
+                f"Previous Token: {old_token.token_identifier[:8]}... | "
+                f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
+            )
+
+            auth_result = create_auth_token(
+                temp_token.walking_bus_id,
+                temp_token.walking_bus_name,
+                temp_token.bus_password_hash,
+                client_info=client_info,
+                token_identifier=temp_token.token_identifier
+            )
+            
+            # Set up token renewal relationships
+            new_token_record = AuthToken.query.get(auth_result['token'])
+            old_token.renewed_to = auth_result['token']
+            new_token_record.renewed_from = old_token.id
+            new_token_record.is_pwa_installed = True
+            
+            # Invalidate old token and clean up
+            old_token.invalidate("Renewed for PWA installation")
+            db.session.delete(temp_token)
+            db.session.commit()
+
+            # Set up session
+            session['walking_bus_id'] = temp_token.walking_bus_id
+            session['walking_bus_name'] = temp_token.walking_bus_name
+            session['bus_password_hash'] = temp_token.bus_password_hash
+            session.permanent = True
+
+            response = jsonify({
+                'success': True,
+                'auth_token': auth_result['token'],
+                'redirect_url': url_for('main.index')
+            })
+
+            # Set cookie using standardized settings
+            response.set_cookie(**auth_result['cookie_settings'])
+
+            return response
+
+    # Initial page load
+    return render_template('pwa-login.html')
+
+
+@bp.route('/api/check-auth-cookie', methods=['GET'])
+def check_auth():
+    token = request.cookies.get('auth_token')
+    if not token:
+        return jsonify({"authenticated": False})
+    
+    try:
+        # Nur Validierung, kein neuer Token
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        token_record = AuthToken.query.get(token)
+        
+        if not token_record or not token_record.is_active:
+            return jsonify({"authenticated": False})
+        
+        return jsonify({
+            "authenticated": True,
+            "auth_token": token,  # Bestehender Token
+            "redirect_url": "/"
+        })
+        
+    except jwt.InvalidTokenError:
+        return jsonify({"authenticated": False})
+
+
+@bp.route('/api/check-auth-localstorage', methods=['POST'])
+def validate_token():
+    token = request.json.get('token')
+    if not token:
+        return jsonify({"success": False})
+    
+    try:
+        # Nur Validierung durchführen
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        token_record = AuthToken.query.get(token)
+        
+        if not token_record or not token_record.is_active:
+            return jsonify({"success": False})
+        
+        response = jsonify({
+            "success": True,
+            "auth_token": token,  # Bestehender Token
+            "redirect_url": "/"
+        })
+        
+        # Cookie wiederherstellen
+        response.set_cookie(
+            'auth_token', 
+            token,
+            httponly=True,
+            secure=True,
+            samesite='Strict'
+        )
+        return response
+        
+    except jwt.InvalidTokenError:
+        return jsonify({"success": False})
+
+# @bp.route('/static/manifest.json')
+# def manifest():
+#     return send_from_directory('static', 'manifest.json')
+
+
+# @bp.route('/api/manifest')
+# @require_auth
+# def auth_manifest():
+#     token = request.headers.get('Authorization', '').replace('Bearer ', '')
+#     if not token and 'auth_token' in session:
+#         token = session['auth_token']
+    
+#     auth_token = AuthToken.query.filter_by(id=token).first()
+    
+#     # Load base manifest
+#     manifest_path = os.path.join(current_app.static_folder, 'manifest.json')
+#     with open(manifest_path, 'r') as f:
+#         manifest_data = json.load(f)
+    
+#     if not auth_token.is_pwa_installed:
+#         current_app.logger.info(f"[MANIFEST] Generating manifest for non-installed PWA. Token identifier: {auth_token.token_identifier}")
+        
+#         existing_token = TempToken.query.filter_by(
+#             token_identifier=auth_token.token_identifier,
+#             is_pwa_token=True
+#         ).first()
+        
+#         if existing_token:
+#             current_app.logger.info(f"[MANIFEST] Found existing PWA token: {existing_token.id}")
+#             existing_token.expiry = datetime.now() + timedelta(minutes=5)
+#             db.session.commit()
+#             token = existing_token.id
+#         else:
+#             current_app.logger.info("[MANIFEST] No existing token found, generating new one")
+#             token = generate_pwa_temp_token(auth_token)
+            
+#         start_url = url_for('main.temp_login_route', token=token, _external=True)
+#         manifest_data["start_url"] = start_url
+        
+#         for icon in manifest_data["icons"]:
+#             icon["src"] = url_for('static',
+#                                 filename=icon["src"].replace('/static/', ''),
+#                                 _external=True)
+                                
+#         # Write modified manifest back to file
+#         with open(manifest_path, 'w') as f:
+#             json.dump(manifest_data, f, indent=2)
+            
+#         current_app.logger.info(f"[MANIFEST] Updated manifest file with new start_url: {start_url}")
+    
+#     return jsonify({"success": True})
+
 
 
 def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):
@@ -2239,7 +3209,7 @@ def login():
         # Success case - create token and session
         user_agent = request.headers.get('User-Agent')
         password_hash = get_consistent_hash(bus.password)
-        auth_token = create_auth_token(
+        auth_result = create_auth_token(
             bus.id,
             bus.name,
             password_hash,
@@ -2251,11 +3221,16 @@ def login():
         session['bus_password_hash'] = password_hash
         session.permanent = True
 
-        return jsonify({
+        response = jsonify({
             'success': True,
-            'auth_token': auth_token,
+            'auth_token': auth_result['token'],
             'redirect_url': url_for('main.index')
         })
+
+        # Set cookie using settings from auth_result
+        response.set_cookie(**auth_result['cookie_settings'])
+        
+        return response
 
     # Handle failed login
     record_attempt()
@@ -2271,24 +3246,32 @@ def login():
 
 @bp.route("/logout")
 def logout():
-    # Get current token from header or session
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token and 'auth_token' in session:
-        token = session['auth_token']
-    
+    # Get token from cookie
+    token = request.cookies.get('auth_token')
     if token:
-        # Invalidate token in database
         token_record = AuthToken.query.get(token)
         if token_record:
             token_record.invalidate("User logout")
             db.session.commit()
     
+    # Clear session
     session.clear()
-    return jsonify({
+    
+    response = jsonify({
         "message": "Logged out successfully",
-        "clear_cache": True
-    }), 200, {
+        "clear_cache": True,
+        "unregister_worker": True  # Signal for frontend to unregister SW
+    })
+    
+    # Clear all site data - this handles cookies, cache and storage in one go
+    response.headers['Clear-Site-Data'] = '"cookies", "cache", "storage"'
+    
+    # Set additional cache prevention headers
+    response.headers.update({
         'Cache-Control': 'no-cache, no-store, must-revalidate, private',
         'Pragma': 'no-cache',
         'Expires': '-1'
-    }
+    })
+    
+    return response
+

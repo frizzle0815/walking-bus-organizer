@@ -1,20 +1,27 @@
 {
-    "name": "Walking Bus Organizer",
-    "short_name": "WalkBus",
-    "start_url": "/",
-    "display": "standalone",
-    "background_color": "#ffffff",
-    "theme_color": "#414141",
-    "icons": [
-        {
-            "src": "/static/icons/icon-192x192.png",
-            "sizes": "192x192",
-            "type": "image/png"
-        },
-        {
-            "src": "/static/icons/icon-512x512.png",
-            "sizes": "512x512",
-            "type": "image/png"
-        }
-    ]
+  "name": "Walking Bus Organizer",
+  "short_name": "WalkBus",
+  "start_url": "/pwa-login",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#414141",
+  "icons": [
+    {
+      "src": "static/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "static/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "permissions": [
+    "notifications"
+  ],
+  "gmc_sender_id": "103953800507",
+  "related_applications": [],
+  "prefer_related_applications": false
 }

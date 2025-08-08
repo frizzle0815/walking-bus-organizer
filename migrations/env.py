@@ -14,6 +14,11 @@ config = context.config
 fileConfig(config.config_file_name)
 logger = logging.getLogger('alembic.env')
 
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and name.startswith("apscheduler"):
+        return False
+    return True
+
 
 def get_engine():
     try:
@@ -100,6 +105,7 @@ def run_migrations_online():
         context.configure(
             connection=connection,
             target_metadata=get_metadata(),
+            include_object=include_object,
             **conf_args
         )
 

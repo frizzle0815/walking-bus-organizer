@@ -1,221 +1,166 @@
 <!-- auth.html -->
 <script>
 (function() {
+    window.TokenManager = class TokenManager {
+        async getToken() {
+            try {
+                // First try cookie-based auth
+                const response = await fetch('/api/check-auth-cookie', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+                
+                if (data.authenticated && data.auth_token) {
+                    console.log('[AUTH.HTML] Cookie token found');
+                    // Add this: Ensure localStorage backup matches cookie
+                    localStorage.setItem('auth_token', data.auth_token);
+                    console.log('[AUTH.HTML] Backup cookie in localStorage');
+                    return data.auth_token;
+                }
+                
+                // If cookie auth failed, try localStorage backup
+                const localToken = localStorage.getItem('auth_token');
+                if (localToken) {
+                    console.log('[AUTH.HTML] Found token in localStorage, attempting validation');
+                    
+                    const backupResponse = await fetch('/api/check-auth-localstorage', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ token: localToken })
+                    });
+                    
+                    const backupData = await backupResponse.json();
+                    
+                    if (backupData.success && backupData.auth_token) {
+                        console.log('[AUTH.HTML] localStorage token validated');
+                        return backupData.auth_token;
+                    }
+                    
+                    // Clear invalid localStorage token
+                    localStorage.removeItem('auth_token');
+                }
+                
+                console.log('[AUTH.HTML] No valid token found');
+                return null;
+                
+            } catch (error) {
+                console.error('[AUTH.HTML] GetToken error:', error);
+                return null;
+            }
+        }
+
+        async storeToken(token) {
+            // Store in localStorage as backup
+            localStorage.setItem('auth_token', token);
+        }
+
+        async clearToken() {
+            // Clear cookie
+            document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; secure; samesite=Strict';
+            // Clear backup
+            localStorage.removeItem('auth_token');
+        }
+    }
+
+    console.log('[AUTH.HTML] TokenManager initialized and ready for use');
+})();
+
+window.tokenManager = new TokenManager();
+
+(function() {
     // Make auth functions globally available
     window.fetchWithAuth = async function(url, options = {}) {
-        console.log('[AUTH.HTML][FETCH] Starting authenticated request to:', url);
-        
         try {
-            let token = null;
-            
-            // Try Service Worker cache first
-            if ('caches' in window) {
-                try {
-                    const cache = await caches.open('walking-bus-auth-v1');
-                    const tokenResponse = await cache.match('static/auth-token');
-                    if (tokenResponse) {
-                        const tokenData = await tokenResponse.json();
-                        token = tokenData.token;
-                        console.log('[AUTH.HTML][FETCH] Token retrieved from cache');
-                    }
-                } catch (error) {
-                    console.log('[AUTH.HTML][FETCH] Cache access failed, trying localStorage');
-                }
-            }
-            
-            // Fallback to localStorage if cache failed or isn't available
+            const token = await tokenManager.getToken();
             if (!token) {
-                token = localStorage.getItem('auth_token');
-                if (token) {
-                    console.log('[AUTH.HTML][FETCH] Token retrieved from localStorage');
-                }
-            }
-            
-            if (!token) {
-                console.log('[AUTH.HTML][FETCH] No token found in any storage');
                 window.location.href = '/login';
                 return;
             }
             
-            options.headers = {
-                ...options.headers,
-                'Authorization': `Bearer ${token}`
-            };
-            
-            console.log('[AUTH.HTML][FETCH] Sending request with auth header');
-            return fetch(url, options);
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            // Add this check
+            if (response.status === 401) {
+                await tokenManager.clearToken();
+                window.location.href = '/login';
+                return;
+            }
+
+            return response;
         } catch (error) {
-            console.error('[AUTH.HTML][FETCH] Error during authenticated request:', error);
             throw error;
         }
     };
 
-    window.getAuthToken = async function() {
-        // console.log('[AUTH.HTML] Attempting to retrieve auth token...');
-        
-        let token = null;
-        
-        // Try Service Worker cache first
-        if ('caches' in window) {
-            try {
-                const cache = await caches.open('walking-bus-auth-v1');
-                const response = await cache.match('static/auth-token');
-                if (response) {
-                    const data = await response.json();
-                    token = data.token;
-                    // console.log('[AUTH.HTML] Successfully retrieved auth token from cache');
-                }
-            } catch (error) {
-                console.log('[AUTH.HTML] Cache access failed, trying localStorage');
-            }
-        }
-        
-        // Fallback to localStorage
-        if (!token) {
-            token = localStorage.getItem('auth_token');
-            if (token) {
-                // console.log('[AUTH.HTML] Successfully retrieved auth token from localStorage');
-            }
-        }
-        
-        return token;
-    };
-
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
-        console.log(`[AUTH.HTML] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
+        console.log(`[AUTH] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
         
-        // Get token using our universal getAuthToken function
-        // This already handles both cache and localStorage fallback
-        const token = await window.getAuthToken();
+        const token = await tokenManager.getToken();
         
-        if (token) {
-            config.headers['Authorization'] = `Bearer ${token}`;
-            // console.log('[AUTH.HTML] Added auth token to request headers');
-        } else {
-            // console.log('[AUTH.HTML] No auth token available');
+        if (!token) {
+            console.log('[AUTH] No token found in interceptor, redirecting');
+            window.location.href = '/login';
+            return Promise.reject(new Error('No auth token'));
         }
         
+        config.headers['Authorization'] = `Bearer ${token}`;
+        config.headers['Accept'] = 'application/json';
+        config.headers['Content-Type'] = 'application/json';
+        
         return config;
-    }, (error) => {
-        // console.error('[AUTH.HTML] Error in request interceptor:', error);
-        return Promise.reject(error);
     });
 
 
     axios.interceptors.response.use(
-        response => response,
-        error => {
-            if (error.response?.status === 401) {
-                if (error.response?.data?.code === 'PASSWORD_CHANGED') {
-                    console.log('[AUTH] Password changed, clearing all tokens');
-                    localStorage.removeItem('auth_token');
-                    
-                    if ('serviceWorker' in navigator) {
-                        navigator.serviceWorker.ready.then(registration => {
-                            registration.active.postMessage({
-                                type: 'CLEAR_AUTH_TOKEN'
-                            });
-                        });
-                    }
-                }
-                window.location.href = '/login';
-            }
-            return Promise.reject(error);
-        }
-    );
-
-
-    // Der Token wird über die route initialize-daily-status geprüft und die hier definierte Aktualisierung durchgeführt
-    // wenn die Restlaufzeit zu gering ist
-    axios.interceptors.response.use(
         async response => {
             const newToken = response.data.new_auth_token;
             if (newToken) {
-                // console.log('[AUTH.HTML] New auth token received, preparing to update');
-                
-                // Always update localStorage first as fallback
-                localStorage.setItem('auth_token', newToken);
-                // console.log('[AUTH.HTML] Token updated in localStorage');
-                
-                // Try to update Service Worker cache if available
-                if ('serviceWorker' in navigator) {
-                    try {
-                        const activeWorker = await initializeServiceWorker();  // Token storage doesn't work without this - don't know why!
-                        console.log('[AUTH.HTML] Service Worker initialized for token update');
-
-                        await new Promise((resolve, reject) => {
-                            const messageChannel = new MessageChannel();
-                            const timeoutId = setTimeout(() => {
-                                console.log('[AUTH.HTML] Token update in Service Worker timed out');
-                                resolve(); // Continue with localStorage as fallback
-                            }, 5000);
-                            
-                            messageChannel.port1.onmessage = (event) => {
-                                clearTimeout(timeoutId);
-                                if (event.data.success) {
-                                    console.log('[AUTH.HTML] Token successfully updated in Service Worker');
-                                }
-                                resolve();
-                            };
-
-                            console.log('[AUTH.HTML] Sending new token to Service Worker');
-                            activeWorker.postMessage({
-                                type: 'STORE_AUTH_TOKEN',
-                                token: newToken
-                            }, [messageChannel.port2]);
-                        });
-                    } catch (error) {
-                        console.log('[AUTH.HTML] Service Worker update failed, using localStorage:', error);
-                        // Continue with localStorage as fallback
-                    }
-                }
+                await tokenManager.storeToken(newToken);
             }
             return response;
         },
         error => {
             if (error.response?.status === 401) {
-                console.log('[AUTH.HTML] Received 401, redirecting to login');
-                window.location.href = '/login';
-            }
+            console.log('[AUTH] Received 401 in axios response, clearing token');
+            tokenManager.clearToken();
+            window.location.href = '/login';
+        }
             return Promise.reject(error);
         }
     );
 })();
 
 
-//Make sure, we use the correct service worker
-async function initializeServiceWorker() {
-    console.log('[AUTH.HTML]Starting Service Worker initialization');
-    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-
-    if (registration.installing) {
-        console.log('[AUTH.HTML]Service Worker installing');
-        await new Promise(resolve => {
-            registration.installing.addEventListener('statechange', e => {
-                if (e.target.state === 'activated') {
-                    console.log('[AUTH.HTML]Service Worker activated');
-                    resolve();
-                }
-            });
-        });
-    }
-
-    return registration.active;
-}
-
 async function loginUser() {
     const form = document.getElementById('loginForm');
     if (!form) {
-        console.log('[AUTH.HTML]Login form not found, exiting loginUser function.');
+        console.log('[AUTH.HTML] Login form not found, exiting loginUser function.');
         return;
     }
 
-    form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        console.log('[AUTH.HTML]Form submission prevented, preparing to send login request.');
+    // Remove any existing submit handlers
+    const newForm = form.cloneNode(true);
+    form.parentNode.replaceChild(newForm, form);
 
-        const formData = new FormData(form);
+    newForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        console.log('[AUTH.HTML] Form submission prevented, preparing to send login request.');
+
+        const formData = new FormData(newForm);
 
         try {
             const response = await fetch('/login', {
@@ -227,140 +172,158 @@ async function loginUser() {
                 }
             });
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             const data = await response.json();
-            console.log('[AUTH.HTML]Response received:', data);
+            console.log('[AUTH.HTML] Response received:', data);
 
             if (!data.success) {
-                // Update form data if needed
                 if (data.buses) {
-                    const select = form.querySelector('select[name="walking_bus"]');
+                    const select = newForm.querySelector('select[name="walking_bus"]');
                     if (select) {
-                        select.innerHTML = data.buses.map(bus => 
+                        select.innerHTML = data.buses.map(bus =>
                             `<option value="${bus.id}" ${bus.id == data.selected_bus_id ? 'selected' : ''}>${bus.name}</option>`
                         ).join('');
                     }
                 }
-
-                // Display error message
-                const errorDiv = document.querySelector('.alert-danger') || 
-                               document.createElement('div');
-                errorDiv.className = 'alert alert-danger';
-                errorDiv.textContent = data.error;
-                
-                // Insert error before the form
-                const formContainer = form.parentNode;
-                const existingError = formContainer.querySelector('.alert-danger');
-                if (existingError) {
-                    formContainer.removeChild(existingError);
-                }
-                formContainer.insertBefore(errorDiv, form);
+                showErrorMessage(newForm, data.error);
                 return;
             }
 
-            // Handle successful login
             const { auth_token: authToken, redirect_url: redirectUrl } = data;
-
             if (authToken) {
-                console.log('[AUTH.HTML]Processing auth token');
-                
-                // Always store in localStorage as backup
-                localStorage.setItem('auth_token', authToken);
-                
-                // Try to store in Service Worker cache if available
-                if ('serviceWorker' in navigator) {
-                    try {
-                        const activeWorker = await initializeServiceWorker();
-                        console.log('[AUTH.HTML]Service Worker initialized');
-
-                        await new Promise((resolve, reject) => {
-                            const messageChannel = new MessageChannel();
-                            const timeoutId = setTimeout(() => {
-                                console.log('[AUTH.HTML]Token storage in Service Worker timed out, using localStorage');
-                                resolve(); // Continue with localStorage as fallback
-                            }, 5000);
-
-                            messageChannel.port1.onmessage = (event) => {
-                                clearTimeout(timeoutId);
-                                if (event.data.success) {
-                                    console.log('[AUTH.HTML]Token successfully stored in Service Worker');
-                                }
-                                resolve();
-                            };
-
-                            activeWorker.postMessage({
-                                type: 'STORE_AUTH_TOKEN',
-                                token: authToken
-                            }, [messageChannel.port2]);
-                        });
-                    } catch (error) {
-                        console.log('[AUTH.HTML]Service Worker storage failed, using localStorage:', error);
-                        // Continue with localStorage as fallback
-                    }
-                }
-
-                // Redirect after storage attempts are complete
+                console.log('[AUTH.HTML] Processing auth token');
+                await tokenManager.storeToken(authToken);
                 window.location.replace(redirectUrl);
             }
         } catch (error) {
-            console.error('[AUTH.HTML]Login error:', error);
-            // Show error in UI instead of alert
-            const errorDiv = document.querySelector('.alert-danger') || 
-                           document.createElement('div');
-            errorDiv.className = 'alert alert-danger';
-            errorDiv.textContent = 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.';
-            form.parentNode.insertBefore(errorDiv, form);
+            console.error('[AUTH.HTML] Login error:', error);
+            showErrorMessage(newForm, 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
         }
     });
+}
+
+
+async function attemptAutoLogin() {
+    console.log('[AUTH.HTML] Starting auto-login attempt...');
+    
+    try {
+        // First try cookie-based auth
+        const response = await fetch('/api/check-auth-cookie', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+        
+        if (data.authenticated) {
+            console.log('[AUTH.HTML] Cookie-based auto-login successful');
+            if (data.auth_token) {
+                await tokenManager.storeToken(data.auth_token);
+            }
+            window.location.replace(data.redirect_url);
+            return true;
+        }
+        
+        // If cookie auth failed, try localStorage backup
+        const localToken = localStorage.getItem('auth_token');
+        if (localToken) {
+            console.log('[AUTH.HTML] Found token in localStorage, attempting validation');
+            
+            const backupResponse = await fetch('/api/check-auth-localstorage', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ token: localToken })
+            });
+            
+            const backupData = await backupResponse.json();
+            
+            if (backupData.success) {
+                console.log('[AUTH.HTML] localStorage token validation successful');
+                if (backupData.auth_token) {
+                    await tokenManager.storeToken(backupData.auth_token);
+                }
+                window.location.replace(backupData.redirect_url);
+                return true;
+            }
+            
+            // Clear invalid localStorage token
+            localStorage.removeItem('auth_token');
+        }
+        
+        console.log('[AUTH.HTML] No valid authentication found');
+        return false;
+        
+    } catch (error) {
+        console.error('[AUTH.HTML] Auto-login error:', error);
+        return false;
+    }
+}
+
+
+
+
+// Helper function for error display
+function showErrorMessage(form, message) {
+    const errorDiv = document.querySelector('.alert-danger') || 
+                    document.createElement('div');
+    errorDiv.className = 'alert alert-danger';
+    errorDiv.textContent = message;
+    
+    const formContainer = form.parentNode;
+    const existingError = formContainer.querySelector('.alert-danger');
+    if (existingError) {
+        formContainer.removeChild(existingError);
+    }
+    formContainer.insertBefore(errorDiv, form);
 }
 
 // Add this at the end of the auth.html script section
 window.handleLogout = async function() {
     try {
-        console.log('[LOGOUT] Starting logout process');
+        // Clear localStorage first
+        localStorage.clear();
         
-        // Get current token before clearing storage
-        const token = await window.getAuthToken();
+        // Call backend logout route
+        const response = await fetch('/logout');
+        const data = await response.json();
         
-        localStorage.removeItem('auth_token');
-        console.log('[LOGOUT] Cleared localStorage');
-        
+        // Unregister all service workers
         if ('serviceWorker' in navigator) {
-            console.log('[LOGOUT] Service Worker available, starting initialization');
-            
-            const activeWorker = await initializeServiceWorker();
-            console.log('[LOGOUT] Service Worker initialized');
-            
-            const messageChannel = new MessageChannel();
-            console.log('[LOGOUT] Created message channel');
-            
-            await new Promise((resolve, reject) => {
-                messageChannel.port1.onmessage = (event) => {
-                    console.log('[LOGOUT] Received response from Service Worker:', event.data);
-                    resolve(event.data);
-                };
-                
-                console.log('[LOGOUT] Sending clear message to Service Worker');
-                activeWorker.postMessage({
-                    type: 'CLEAR_AUTH_TOKEN'
-                }, [messageChannel.port2]);
-            });
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+                await registration.unregister();
+            }
         }
-        
-        // Send token in logout request for server-side invalidation
-        console.log('[LOGOUT] Calling server logout endpoint');
-        await fetch('/logout', {
-            headers: token ? {
-                'Authorization': `Bearer ${token}`
-            } : {}
-        });
-        
-        console.log('[LOGOUT] Redirecting to login');
+
+        // Delete all caches completely
+        if ('caches' in window) {
+            const cacheKeys = await caches.keys();
+            await Promise.all(
+                cacheKeys.map(key => caches.delete(key))
+            );
+        }
+
         window.location.href = '/login';
-        
     } catch (error) {
-        console.error('[LOGOUT] Error during logout:', error);
+        console.error('[AUTH.HTML][LOGOUT] Error during logout:', error);
         window.location.href = '/login';
     }
 }
+
+
+navigator.serviceWorker.addEventListener('message', async (event) => {
+    if (event.data.type === 'AUTH_ERROR' && event.data.status === 401) {
+        await tokenManager.clearToken();
+        window.location.href = '/login';
+    }
+});
 
 </script>

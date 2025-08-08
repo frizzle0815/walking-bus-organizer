@@ -10,7 +10,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
       - REDIS_URL=redis://redis:6379
-      - SECRET_KEY={Choose_Random_Key}
+      - SECRET_KEY=${SECRET_KEY}
       - WALKING_BUSES=1:bus_name1:password1,2:bus_name2:password2
       - FLASK_ENV=production
       - HOLIDAY_COUNTRY=DE
@@ -18,7 +18,10 @@ services:
       - OPENWEATHER_API_KEY={your_api_key_here}
       - WEATHER_LAT=50.6612
       - WEATHER_LON=6.7871
-
+      - VAPID_EMAIL=your@email.com
+      - SHA256_FINGERPRINT=${SHA256_FINGERPRINT}
+    volumes:
+      - vapid_keys:/app/data
 
   db:
     image: postgres:15
@@ -46,5 +49,54 @@ services:
       timeout: 5s
       retries: 5
 
+  scheduler:
+    build: 
+      context: .
+      dockerfile: Dockerfile.scheduler
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=production
+      - VAPID_EMAIL=your@email.com
+    volumes:
+      - vapid_keys:/app/data
+
+  registration:
+    build: 
+      context: .
+      dockerfile: Dockerfile.registration
+    ports:
+      - "8001:5001"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://walkingbus:password@db:5432/walkingbus
+      - SECRET_KEY=${SECRET_KEY}
+      - FLASK_ENV=production
+      - PORT=5001
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SCHOOL_COORDINATES=${SCHOOL_COORDINATES:-52.5200,13.4050}
+      - SCHOOL_RADIUS=${SCHOOL_RADIUS:-30}
+      # Kontaktdaten für Impressum und Datenschutz
+      - CONTACT_NAME=${CONTACT_NAME}
+      - CONTACT_ADDRESS=${CONTACT_ADDRESS}
+      - CONTACT_PHONE=${CONTACT_PHONE}
+      - CONTACT_EMAIL=${CONTACT_EMAIL}
+      - SCHOOL_NAME=${SCHOOL_NAME}
+      - SCHOOL_ADDRESS=${SCHOOL_ADDRESS}
+      - SCHOOL_PRINCIPAL=${SCHOOL_PRINCIPAL}
+    volumes:
+      - ./registration_app:/app/registration_app
+
 volumes:
   postgres_data:
+  vapid_keys:

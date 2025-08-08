@@ -83,8 +83,8 @@ def get_consistent_hash(text):
     return sha256(str(text).encode()).hexdigest()
 
 
-def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None):
-    token_identifier = secrets.token_hex(32)
+def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None, token_identifier=None):
+    token_identifier = token_identifier or secrets.token_hex(32)
     current_time = get_current_time()
     exp_time = current_time + timedelta(days=60)
     token_payload = {
@@ -112,33 +112,79 @@ def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, clien
         db.session.add(token_record)
         db.session.commit()
         current_app.logger.info(f"Token created successfully: {token_identifier}")
-        return auth_token
+        return {
+            'token': auth_token,
+            'cookie_settings': {
+                'key': 'auth_token',
+                'value': auth_token,
+                'max_age': 60 * 24 * 60 * 60,  # 60 days
+                'secure': True,
+                'httponly': True,
+                'samesite': 'Strict'
+            }
+        }
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Token creation failed: {str(e)}")
         raise
 
 
+def check_and_renew_token(token):
+    """
+    Checks if token needs renewal and returns new token if necessary
+    Returns:
+        dict with new_token and cookie_settings if renewed, None otherwise
+    """
+    try:
+        # Initial payload check without verification
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp_date = datetime.fromtimestamp(payload['exp'])
+        remaining_days = (exp_date - datetime.utcnow()).days
+
+        current_app.logger.info(f"[AUTH-TOKEN] Checking token expiration: {remaining_days} days remaining")
+
+        if remaining_days < 30:
+            # Verify token before renewal
+            verified_payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            auth_result = renew_auth_token(token, verified_payload)
+            current_app.logger.info(f"[AUTH-TOKEN] Renewed token with {remaining_days} days remaining")
+            return auth_result
+
+        return None
+        
+    except jwt.InvalidTokenError:
+        current_app.logger.error("[AUTH-TOKEN] Invalid token during renewal check")
+        return None
+    except Exception as e:
+        current_app.logger.error(f"[AUTH-TOKEN] Error during renewal check: {str(e)}")
+        return None
+
 def renew_auth_token(old_token, verified_payload):
-    # Create new token with extended expiration
-    new_token = create_auth_token(
+    """
+    Creates new token and handles renewal chain
+    Returns:
+        dict containing new token and cookie settings
+    """
+    # Create new token with extended expiration, keeping same token_identifier
+    auth_result = create_auth_token(
         verified_payload['walking_bus_id'],
         verified_payload['walking_bus_name'],
-        verified_payload['bus_password_hash']
+        verified_payload['bus_password_hash'],
+        token_identifier=verified_payload['token_identifier']
     )
     
-    # Update old token record
+    # Update token chain
     old_token_record = AuthToken.query.get(old_token)
-    new_token_record = AuthToken.query.get(new_token)
+    new_token_record = AuthToken.query.get(auth_result['token'])
     
-    old_token_record.renewed_to = new_token
+    old_token_record.renewed_to = auth_result['token']
     new_token_record.renewed_from = old_token
     
-    # Mark old token as inactive
+    # Invalidate old token
     old_token_record.invalidate("Renewed with new token")
     
     db.session.commit()
-    return new_token
+    return auth_result
 
 
 def invalidate_all_tokens_for_bus(walking_bus_id, reason="Password changed"):
@@ -161,14 +207,20 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         current_app.logger.info("[AUTH] Starting authentication check")
         
-        # Token extraction with logging
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        # 1. Check cookie first (new primary method)
+        token = request.cookies.get('auth_token')
+        
+        # 2. Check Authorization header
+        if not token:
+            token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+        # 3. Check session as fallback (legacy support, temporary solution for smooth transition from v1.02b)
         if not token and 'auth_token' in session:
             token = session['auth_token']
-            current_app.logger.info("[AUTH] Using token from session")
-        
+            current_app.logger.info("[AUTH] Using legacy token from session")
+            
         if not token:
-            current_app.logger.warning("[AUTH] No token found in headers or session")
+            current_app.logger.warning("[AUTH] No token found in cookies or headers")
             return jsonify({"error": "No token provided", "redirect": True}), 401
 
         try:
@@ -279,7 +331,8 @@ def generate_temp_token():
     # Check existing tokens count for current walking bus
     current_tokens = TempToken.query.filter(
         TempToken.walking_bus_id == session['walking_bus_id'],
-        TempToken.expiry > datetime.now()
+        TempToken.expiry > datetime.now(),
+        TempToken.is_pwa_token == False
     ).count()
     
     if current_tokens >= MAX_TEMP_TOKENS:
@@ -328,7 +381,8 @@ def get_active_temp_tokens():
     
     tokens = TempToken.query.filter(
         TempToken.walking_bus_id == session['walking_bus_id'],
-        TempToken.expiry > current_time
+        TempToken.expiry > current_time,
+        TempToken.is_pwa_token == False  # Only get share tokens
     ).all()
     
     active_tokens = []
@@ -379,21 +433,27 @@ def temp_login(token):
         client_info = f"Created from temp token: {token} | User-Agent: {user_agent}"
         
         # Create proper auth token with database record
-        auth_token = create_auth_token(
+        auth_result = create_auth_token(
             walking_bus_id=token_data.walking_bus_id,
             walking_bus_name=token_data.walking_bus_name,
             bus_password_hash=token_data.bus_password_hash,
             client_info=client_info
         )
         
-        return jsonify({
+        response = jsonify({
             "success": True,
-            "auth_token": auth_token,
+            "auth_token": auth_result['token'],
             "redirect_url": "/"
         })
-    
+        
+        # Set cookie with auth token
+        cookie_settings = auth_result['cookie_settings']
+        response.set_cookie(**cookie_settings)
+        
+        return response
+        
     except Exception as e:
-        current_app.logger.error(f"Temp login error: {str(e)}")
+        current_app.logger.error(f"[TEMP-TOKEN] Temp login error: {str(e)}")
         return jsonify({"error": "Ungültiger Login Link"}), 401
 
 
@@ -402,6 +462,22 @@ def cleanup_expired_tokens():
     """Remove expired temporary tokens from database"""
     TempToken.query.filter(TempToken.expiry < datetime.now()).delete()
     db.session.commit()
+
+
+def cleanup_expired_auth_tokens():
+    """Mark expired auth tokens as inactive"""
+    now = datetime.now()
+    expired_tokens = AuthToken.query.filter(
+        AuthToken.expires_at < now,
+        AuthToken.is_active.is_(True)
+    ).all()
+    
+    for token in expired_tokens:
+        token.is_active = False
+        token.invalidated_at = now
+        
+    db.session.commit()
+    return len(expired_tokens)
 
 
 # Permanent Token 
@@ -413,3 +489,32 @@ def cleanup_old_tokens():
         AuthToken.invalidated_at < month_ago
     ).delete()
     db.session.commit()
+
+
+def generate_pwa_temp_token(auth_token):
+    cleanup_expired_tokens()
+
+    # Get bus config from environment
+    buses_env = os.environ.get('WALKING_BUSES', '').strip()
+    bus_configs = dict(
+        (int(b.split(':')[0]), get_consistent_hash(b.split(':')[2]))
+        for b in buses_env.split(',')
+        if len(b.split(':')) == 3
+    )
+    
+    # Get hash for this bus
+    bus_password_hash = bus_configs[auth_token.walking_bus_id]
+    
+    new_token = TempToken(
+        id=generate_short_token(),
+        expiry=datetime.now() + timedelta(minutes=5),
+        walking_bus_id=auth_token.walking_bus_id,
+        walking_bus_name=auth_token.walking_bus.name,
+        bus_password_hash=bus_password_hash,  # From bus configs
+        created_by=auth_token.walking_bus_id,
+        is_pwa_token=True,
+        token_identifier=auth_token.token_identifier
+    )
+    db.session.add(new_token)
+    db.session.commit()
+    return new_token.id

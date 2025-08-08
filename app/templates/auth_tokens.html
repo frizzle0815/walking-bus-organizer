@@ -7,6 +7,67 @@
         <div class="card-header">
             <h4>Walking Bus ID: {{ bus_id }}</h4>
         </div>
+
+        <!-- Temp Tokens Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>Temporäre Login-Tokens</h4>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Token</th>
+                                <th>Walking Bus</th>
+                                <th>Typ</th>
+                                <th>Status</th>
+                                <th>Erstellt am</th>
+                                <th>Läuft ab am</th>
+                                <th>Erstellt von</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for token in temp_tokens %}
+                            <tr class="{{ 'table-danger' if token.expiry < current_time }}">
+                                <td>{{ loop.index }}</td>
+                                <td>{{ token.id[:8] }}...</td>
+                                <td>{{ token.walking_bus_name }}</td>
+                                <td>
+                                    {% if token.is_pwa_token %}
+                                        <span class="badge bg-info">PWA Installation</span>
+                                    {% else %}
+                                        <span class="badge bg-primary">Share Link</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if token.expiry > current_time %}
+                                        <span class="badge bg-success">Gültig</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Abgelaufen</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>{{ token.expiry.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>
+                                    {% if token.token_identifier %}
+                                        {{ token.token_identifier[:4] }}...
+                                    {% else %}
+                                        <span class="text-muted">n.a.</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center">Keine temporären Tokens vorhanden</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
         
         <!-- Active Tokens Section -->
         <div class="card-body">
@@ -18,6 +79,8 @@
                             <th>#</th>
                             <th>Token Identifier</th>
                             <th>Client</th>
+                            <th>PWA Status</th>
+                            <th>User</th>
                             <th>Erstellt am</th>
                             <th>Zuletzt verwendet</th>
                             <th>Läuft ab am</th>
@@ -30,6 +93,22 @@
                             <td>{{ loop.index }}</td>
                             <td>{{ token.token_identifier[:4] }}...</td>
                             <td>{{ token.platform }}</td>
+                            <td>
+                                {% if token.is_pwa_installed %}
+                                    <i class="fas fa-check-circle text-success" title="Als App installiert"></i>
+                                {% else %}
+                                    <i class="fas fa-xmark-circle text-danger" title="Nicht als App installiert"></i>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% for sub in token.subscriptions %}
+                                    {% for participant in sub.participants %}
+                                        <span class="badge bg-info me-1">{{ participant }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="text-muted">Keine Abonnements</span>
+                                {% endfor %}
+                            </td>
                             <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.last_used.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
@@ -66,6 +145,7 @@
                                 <th>#</th>
                                 <th>Token Identifier</th>
                                 <th>Client</th>
+                                <th>PWA Status</th>
                                 <th>Erstellt am</th>
                                 <th>Deaktiviert am</th>
                                 <th>Grund</th>
@@ -77,6 +157,13 @@
                                 <td>{{ loop.index }}</td>
                                 <td>{{ token.token_identifier[:4] }}...</td>
                                 <td>{{ token.platform }}</td>
+                                <td>
+                                    {% if token.is_pwa_installed %}
+                                        <i class="fas fa-check-circle text-success" title="Als App installiert"></i>
+                                    {% else %}
+                                        <i class="fas fa-xmark-circle text-danger" title="Nicht als App installiert"></i>
+                                    {% endif %}
+                                </td>
                                 <td>{{ token.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                                 <td>{{ token.invalidated_at.strftime('%d.%m.%Y %H:%M') }}</td>
                                 <td>{{ token.invalidation_reason }}</td>
