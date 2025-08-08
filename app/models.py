@@ -49,6 +49,7 @@ class CalendarStatus(db.Model):
     date = db.Column(db.Date, nullable=False)
     status = db.Column(db.Boolean, nullable=False)
     is_manual_override = db.Column(db.Boolean, default=False)  # Track if manually set
+    attendance = db.Column(db.Boolean, default=False)  # Anwesenheit am Walking Bus
     
     participant = db.relationship('Participant', backref='calendar_entries')
 
