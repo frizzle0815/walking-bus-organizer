@@ -1017,6 +1017,64 @@ def get_participant_weekday_status(participant_id, weekday):
     return jsonify({"status": status})
 
 
+@bp.route("/api/attendance/<int:participant_id>", methods=["PATCH"])
+@require_auth
+def toggle_attendance(participant_id):
+    walking_bus_id = get_current_walking_bus_id()
+    current_date = get_current_date()
+    
+    # Nur für aktuellen Tag möglich
+    participant = Participant.query.filter_by(
+        id=participant_id,
+        walking_bus_id=walking_bus_id
+    ).first_or_404()
+    
+    # Prüfe ob Teilnehmer heute zugesagt hat
+    calendar_entry = CalendarStatus.query.filter_by(
+        participant_id=participant_id,
+        date=current_date,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    # Bestimme den aktuellen Teilnahme-Status
+    current_participation = calendar_entry.status if calendar_entry else getattr(
+        participant, WEEKDAY_MAPPING[current_date.weekday()], True
+    )
+    
+    # Nur für Teilnehmer die zugesagt haben
+    if not current_participation:
+        return jsonify({"error": "Anwesenheit kann nur für teilnehmende Personen geändert werden"}), 400
+    
+    # Erstelle Calendar Entry wenn nicht vorhanden
+    if not calendar_entry:
+        calendar_entry = CalendarStatus(
+            participant_id=participant_id,
+            date=current_date,
+            status=True,  # Implizit durch Teilnahme
+            is_manual_override=False,
+            attendance=False,
+            walking_bus_id=walking_bus_id
+        )
+        db.session.add(calendar_entry)
+    
+    # Toggle Anwesenheit
+    calendar_entry.attendance = not calendar_entry.attendance
+    db.session.commit()
+    
+    # Redis Event senden
+    redis_client.publish(f'walking_bus_{walking_bus_id}_attendance', json.dumps({
+        'participant_id': participant_id,
+        'attendance': calendar_entry.attendance,
+        'date': current_date.isoformat()
+    }))
+    
+    return jsonify({
+        "attendance": calendar_entry.attendance,
+        "participant_id": participant.id,
+        "date": current_date.isoformat()
+    })
+
+
 @bp.route("/api/participation/<int:participant_id>/status")
 @require_auth
 def get_participant_current_status(participant_id):
@@ -1097,6 +1155,7 @@ def get_daily_status():
     # Get participant states for this date
     participants = Participant.query.filter_by(walking_bus_id=walking_bus_id).all()
     participant_states = {}
+    participant_attendance = {}
     
     for participant in participants:
         calendar_entry = CalendarStatus.query.filter_by(
@@ -1110,6 +1169,10 @@ def get_daily_status():
             weekday,
             True
         )
+        
+        # Anwesenheit nur für aktuellen Tag laden
+        if target_date == get_current_date():
+            participant_attendance[participant.id] = calendar_entry.attendance if calendar_entry else False
 
     response = jsonify({
         "currentDate": target_date.isoformat(),
@@ -1120,6 +1183,7 @@ def get_daily_status():
         "note": daily_note.note if daily_note else None,
         "schedule": schedule_data,
         "participantStates": participant_states,
+        "participantAttendance": participant_attendance if target_date == get_current_date() else {},
         "new_auth_token": auth_result['token'] if auth_result else None
     })
 
@@ -1160,6 +1224,44 @@ def get_bus_weather():
                     'last_updated': calculation.last_updated.isoformat()
                 }
             })
+        
+        # No calculation found - try to create one from available data
+        print(f"[WEATHER] No calculation found, trying to create one from available data")
+        from app.services.weather_service import WeatherService
+        from app.models import WalkingBusSchedule
+        
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus_id).first()
+        if schedule:
+            weather_service = WeatherService()
+            weather_data = weather_service.get_weather_for_timeframe(date_obj, schedule, include_details=True)
+            
+            if weather_data:
+                # Create and save the calculation
+                calc = WeatherCalculation(
+                    walking_bus_id=bus_id,
+                    date=date_obj,
+                    icon=weather_data['result']['icon'],
+                    precipitation=weather_data['result']['precipitation'],
+                    pop=weather_data['result']['pop'],
+                    calculation_type=weather_data['calculation_details']['coverage_type'],
+                    last_updated=get_current_time()
+                )
+                db.session.add(calc)
+                db.session.commit()
+                
+                print(f"[WEATHER] Created calculation: type={calc.calculation_type}, "
+                      f"precip={calc.precipitation}, pop={calc.pop}")
+                
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'icon': calc.icon,
+                        'precipitation': calc.precipitation,
+                        'pop': calc.pop,
+                        'calculation_type': calc.calculation_type,
+                        'last_updated': calc.last_updated.isoformat()
+                    }
+                })
         
         print(f"[WEATHER] No data for bus {bus_id} on {date_obj}")
         return jsonify({
@@ -2363,8 +2465,10 @@ def get_current_status(walking_bus_id, target_date):
 @bp.route('/stream')
 def stream():
     def event_stream():
+        walking_bus_id = get_current_walking_bus_id()
         pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
         pubsub.subscribe('status_updates')
+        pubsub.subscribe(f'walking_bus_{walking_bus_id}_attendance')
         last_time = None
         
         while True:
@@ -2378,7 +2482,19 @@ def stream():
                 # Get Redis messages - this is blocking until message arrives
                 message = pubsub.get_message(timeout=60.0)  # Block until message or next minute
                 if message and message['type'] == 'message':
-                    yield f"data: {message['data'].decode()}\n\n"
+                    channel = message['channel'].decode()
+                    if channel == 'status_updates':
+                        yield f"data: {message['data'].decode()}\n\n"
+                    elif channel == f'walking_bus_{walking_bus_id}_attendance':
+                        # Transform attendance message to SSE format
+                        attendance_data = json.loads(message['data'].decode())
+                        sse_message = {
+                            'type': 'attendance_update',
+                            'participant_id': attendance_data['participant_id'],
+                            'attendance': attendance_data['attendance'],
+                            'date': attendance_data['date']
+                        }
+                        yield f"data: {json.dumps(sse_message)}\n\n"
 
             except Exception as e:
                 current_app.logger.error(f"[STREAM] Error: {e}")
