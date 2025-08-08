@@ -141,6 +141,10 @@
         background-color: #a9e6b7;
     }
 
+    .participant-status-attending {
+        background: linear-gradient(to right, #007bff 0%, #a9e6b7 25%);
+    }
+
     .participant-status-inactive {
         background-color: #f8bfc3;
     }
@@ -346,6 +350,46 @@
 
     .icon-disabled {
         color: #6c757d;  /* Bootstrap's secondary gray color */
+    }
+
+    /* Special styling for attending icon (fa-check) */
+    .traffic-light.icon-attending {
+        color: #ffffff !important;
+        background-color: transparent !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        font-weight: bold !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 1.2em !important;
+        height: 1.2em !important;
+        font-size: 0.9em !important;
+        margin-right: 0.5rem !important;
+        line-height: 1 !important;
+        position: relative !important;
+    }
+
+    .traffic-light.icon-attending::before {
+        content: "\f00c" !important;
+        color: #ffffff !important;
+        font-family: "Font Awesome 5 Free" !important;
+        font-weight: 900 !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+    }
+
+    /* Loading spinner styling for traffic lights */
+    .traffic-light.fa-spinner {
+        color: #ffffff !important;
+        font-size: 0.9em !important;
+        width: 1.2em !important;
+        height: 1.2em !important;
+        margin-right: 0.5rem !important;
     }
 
     /* Traffic Light Icons */
@@ -707,7 +751,8 @@
 const PARTICIPANT_STATES = {
     ACTIVE: 'active',
     INACTIVE: 'inactive',
-    DISABLED: 'disabled'
+    DISABLED: 'disabled',
+    ATTENDING: 'attending'
 };
 
 const WALKING_BUS_STATES = {
@@ -841,6 +886,17 @@ function showLoadingError(overlay) {
 
 async function loadInitialData() {
     console.log('[INITIAL_LOAD] Starting initial data load');
+
+    // Token validation
+    const token = await window.tokenManager.getToken();
+        if (!token) {
+            console.log('[INITIAL_LOAD] No auth token found, redirecting to login');
+            window.location.href = '/login';
+            return;
+        }
+    
+    console.log('[INITIAL_LOAD] Auth token verified, proceeding with data load');
+
     const stationsContainer = document.getElementById('stations');
     const tempContainer = document.createElement('div');
     tempContainer.style.display = 'none';
@@ -899,6 +955,9 @@ async function loadInitialData() {
             currentDate: dailyStatusResponse.data.currentDate,
             weekOverview: weekResponse.data
         };
+
+        // Set global daily status before rendering
+        globalDailyStatus = enhancedDailyStatus;
 
         // Render everything into hidden container
         await renderFullView(
@@ -1009,7 +1068,20 @@ function calculateParticipantStatusState(participantId, dailyStatus) {
         return PARTICIPANT_STATES.DISABLED;
     }
 
-    const finalState = participantState ? PARTICIPANT_STATES.ACTIVE : PARTICIPANT_STATES.INACTIVE;
+    if (!participantState) {
+        const finalState = PARTICIPANT_STATES.INACTIVE;
+        console.log('[STATUS][CALC] Final state:', finalState);
+        return finalState;
+    }
+
+    // Prüfe Anwesenheit nur für aktuellen Tag
+    if (currentDay && dailyStatus.participantAttendance && dailyStatus.participantAttendance[participantId]) {
+        const finalState = PARTICIPANT_STATES.ATTENDING;
+        console.log('[STATUS][CALC] Final state:', finalState);
+        return finalState;
+    }
+
+    const finalState = PARTICIPANT_STATES.ACTIVE;
     console.log('[STATUS][CALC] Final state:', finalState);
     return finalState;
 }
@@ -1023,11 +1095,17 @@ function updateParticipantStatusUI(participantElement, state) {
 
     const icon = participantElement.querySelector('.traffic-light');
     const button = participantElement.querySelector('.status-button');
+    const participantId = participantElement.dataset.participantId;
+    
+    // Remove any existing click handler first
+    icon.onclick = null;
+    icon.style.cursor = 'default';
     
     participantElement.classList.remove(
         'participant-status-active',
         'participant-status-inactive',
-        'participant-status-disabled'
+        'participant-status-disabled',
+        'participant-status-attending'
     );
     
     switch(state) {
@@ -1038,6 +1116,33 @@ function updateParticipantStatusUI(participantElement, state) {
             button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
             button.innerHTML = '<i class="fas fa-check"></i>';
             button.disabled = false;
+            
+            // Add click handler for attendance toggle (only for current day)
+            if (globalDailyStatus && isCurrentDay(globalDailyStatus.currentDate)) {
+                icon.style.cursor = 'pointer';
+                icon.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleAttendance(participantId, icon);
+                };
+            }
+            break;
+            
+        case PARTICIPANT_STATES.ATTENDING:
+            //console.log('[STATUS][UI] Setting ATTENDING state');
+            participantElement.classList.add('participant-status-attending');
+            icon.className = 'fas fa-check traffic-light icon-attending';
+            button.className = 'btn btn-sm rounded-pill status-button btn-outline-success';
+            button.innerHTML = '<i class="fas fa-check"></i>';
+            button.disabled = false;
+            
+            // Add click handler for attendance toggle (only for current day)  
+            if (globalDailyStatus && isCurrentDay(globalDailyStatus.currentDate)) {
+                icon.style.cursor = 'pointer';
+                icon.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleAttendance(participantId, icon);
+                };
+            }
             break;
             
         case PARTICIPANT_STATES.INACTIVE:
@@ -1272,7 +1377,7 @@ function updateStationStats(stationId) {
     
     const totalParticipants = participants.length;
     const activeParticipants = Array.from(participants)
-        .filter(p => p.classList.contains('participant-status-active')).length;
+        .filter(p => p.classList.contains('participant-status-active') || p.classList.contains('participant-status-attending')).length;
 
     // Update station stats
     const statsElement = document.getElementById(`stats-station-${stationId}`);
@@ -1291,7 +1396,7 @@ function updateTotalStats() {
     const allParticipants = document.querySelectorAll('.participant-item');
     const totalParticipants = allParticipants.length;
     const activeParticipants = Array.from(allParticipants)
-        .filter(p => p.classList.contains('participant-status-active')).length;
+        .filter(p => p.classList.contains('participant-status-active') || p.classList.contains('participant-status-attending')).length;
 
     const totalStats = document.getElementById('stats-total');
     if (totalStats) {
@@ -1329,6 +1434,169 @@ async function TEST_toggleParticipation(participantId, button) {
     }
 }
 
+async function toggleAttendance(participantId, iconElement) {
+    // Get participant element directly
+    const participantElement = document.querySelector(`[data-participant-id="${participantId}"]`);
+    
+    if (!participantElement) {
+        console.error('[ATTENDANCE] Participant element not found');
+        return;
+    }
+
+    // Check if this participant is already being updated
+    console.log('[ATTENDANCE] Current updating flag:', participantElement.dataset.updating);
+    if (participantElement.dataset.updating === 'true') {
+        console.log('[ATTENDANCE] Participant already being updated');
+        return;
+    }
+    
+    // Set updating flag for this specific participant
+    participantElement.dataset.updating = 'true';
+    console.log('[ATTENDANCE] Set updating flag to true');
+
+    // Get the currently displayed date from the UI
+    const selectedDateElement = document.querySelector('.week-container .selected-day .calendar-day');
+    const currentDisplayedDate = selectedDateElement ? selectedDateElement.dataset.date : new Date().toISOString().split('T')[0];
+    
+    console.log('[ATTENDANCE] Current displayed date:', currentDisplayedDate);
+    console.log('[ATTENDANCE] Today date:', new Date().toISOString().split('T')[0]);
+
+    // Nur für aktuellen Tag erlaubt
+    if (!isCurrentDay(currentDisplayedDate)) {
+        console.log('[ATTENDANCE] Attendance only for current day, displayed:', currentDisplayedDate);
+        participantElement.dataset.updating = 'false';
+        return;
+    }
+
+    // Load current daily status for the displayed date
+    let dailyStatus;
+    try {
+        const dailyStatusResponse = await axios.get('/api/daily-status', {
+            params: { date: currentDisplayedDate }
+        });
+        dailyStatus = dailyStatusResponse.data;
+        console.log('[ATTENDANCE] Loaded daily status for date:', currentDisplayedDate, dailyStatus);
+    } catch (error) {
+        console.error('[ATTENDANCE] Failed to load daily status:', error);
+        participantElement.dataset.updating = 'false';
+        return;
+    }
+
+    // Prüfe ob Walking Bus bereits vorbei ist
+    const isTimePassedForToday = dailyStatus.schedule?.end &&
+                               checkTimePassed(dailyStatus.schedule.end);
+    if (isTimePassedForToday) {
+        console.log('[ATTENDANCE] Walking Bus already passed');
+        participantElement.dataset.updating = 'false';
+        return;
+    }
+
+    // Prüfe ob Teilnehmer im korrekten Status ist (ACTIVE oder ATTENDING)
+    const participantState = calculateParticipantStatusState(participantId, dailyStatus);
+    console.log('[ATTENDANCE] Participant state for current displayed date:', participantState);
+    if (participantState !== PARTICIPANT_STATES.ACTIVE && participantState !== PARTICIPANT_STATES.ATTENDING) {
+        console.log('[ATTENDANCE] Participant not in correct state for attendance:', participantState);
+        participantElement.dataset.updating = 'false';
+        return;
+    }
+
+    // Store original state for potential rollback
+    const originalIconClass = iconElement.className;
+    const wasAttending = participantState === PARTICIPANT_STATES.ATTENDING;
+    
+    console.log('[ATTENDANCE] Starting try block, wasAttending:', wasAttending);
+    
+    try {
+        // Start visual animation - toggle between ACTIVE and ATTENDING
+        const newAttendingState = !wasAttending;
+        
+        console.log('[ATTENDANCE] About to update visual state, newAttendingState:', newAttendingState);
+        
+        // Immediately update visual state
+        participantElement.classList.remove('participant-status-active', 'participant-status-attending');
+        participantElement.classList.add(newAttendingState ? 'participant-status-attending' : 'participant-status-active');
+        
+        // Update icon immediately
+        const icon = participantElement.querySelector('.traffic-light');
+        icon.className = `fas traffic-light ${
+            newAttendingState ? 'fa-check icon-attending' : 'fa-walking icon-active'
+        }`;
+        
+        console.log('[ATTENDANCE] Visual state updated');
+        
+        // Replace icon with spinner temporarily
+        const currentIconClass = iconElement.className;
+        iconElement.className = 'fas fa-spinner fa-spin traffic-light icon-active';
+        console.log('[ATTENDANCE] Replaced icon with spinner');
+
+        // Make API call
+        console.log('[ATTENDANCE] About to make API call');
+        const response = await axios.patch(`/api/attendance/${participantId}`, {}, {
+            timeout: 4000
+        });
+
+        console.log('[ATTENDANCE] API Response:', response.data);
+
+        // Update local and global state
+        if (!dailyStatus.participantAttendance) {
+            dailyStatus.participantAttendance = {};
+        }
+        dailyStatus.participantAttendance[participantId] = response.data.attendance;
+        
+        console.log('[ATTENDANCE] Updated local dailyStatus:', dailyStatus.participantAttendance);
+        
+        // Update global state if it's the same date
+        if (globalDailyStatus && globalDailyStatus.currentDate === currentDisplayedDate) {
+            if (!globalDailyStatus.participantAttendance) {
+                globalDailyStatus.participantAttendance = {};
+            }
+            globalDailyStatus.participantAttendance[participantId] = response.data.attendance;
+            console.log('[ATTENDANCE] Updated global dailyStatus:', globalDailyStatus.participantAttendance);
+        }
+        
+        // Update UI with final state (this will restore the correct icon)
+        const finalState = calculateParticipantStatusState(participantId, dailyStatus);
+        
+        // Save updating flag before UI update
+        const isUpdating = participantElement.dataset.updating;
+        updateParticipantStatusUI(participantElement, finalState);
+        // Restore updating flag after UI update
+        participantElement.dataset.updating = isUpdating;
+
+        console.log('[ATTENDANCE] Attendance updated successfully');
+
+    } catch (error) {
+        console.error('[ATTENDANCE] Error updating attendance:', error);
+        
+        // Restore icon state before spinner on error  
+        iconElement.className = currentIconClass;
+        
+        // Revert visual state
+        const revertState = wasAttending ? PARTICIPANT_STATES.ATTENDING : PARTICIPANT_STATES.ACTIVE;
+        
+        // Save updating flag before UI update
+        const isUpdating = participantElement.dataset.updating;
+        updateParticipantStatusUI(participantElement, revertState);
+        // Restore updating flag after UI update
+        participantElement.dataset.updating = isUpdating;
+        
+        // Show error indication
+        const warningIcon = document.createElement('i');
+        warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
+        warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
+        warningIcon.style.color = '#dc3545';
+        warningIcon.style.marginLeft = '5px';
+        iconElement.parentElement.appendChild(warningIcon);
+        
+        setTimeout(() => warningIcon.remove(), 5000);
+    } finally {
+        console.log('[ATTENDANCE] Finally block - setting updating to false');
+        participantElement.dataset.updating = 'false';
+        console.log('[ATTENDANCE] Final updating flag:', participantElement.dataset.updating);
+    }
+}
+
+
 
 async function toggleParticipation(participantId, button) {
     const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
@@ -1340,7 +1608,8 @@ async function toggleParticipation(participantId, button) {
     }
     participantItem.dataset.updating = 'true';
     
-    const wasActive = participantItem.classList.contains('participant-status-active');
+    const wasActive = participantItem.classList.contains('participant-status-active') || 
+                      participantItem.classList.contains('participant-status-attending');
     const newStatus = !wasActive;
     const originalButtonContent = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
     const icon = participantItem.querySelector('.traffic-light');
@@ -1348,7 +1617,7 @@ async function toggleParticipation(participantId, button) {
     
     try {
         // Immediately update visual state
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive', 'participant-status-attending');
         participantItem.classList.add(newStatus ? 'participant-status-active' : 'participant-status-inactive');
         
         // Start animation
@@ -1372,6 +1641,11 @@ async function toggleParticipation(participantId, button) {
                 params: { date: selectedDate }
             });
             
+            // Update global daily status to preserve attendance data
+            if (globalDailyStatus && globalDailyStatus.currentDate === selectedDate) {
+                globalDailyStatus = dailyStatusResponse.data;
+            }
+            
             updateStationStats(stationId);
             updateTotalStats();
             
@@ -1389,7 +1663,7 @@ async function toggleParticipation(participantId, button) {
         
         // Revert visual state
         icon.className = originalIconClass;
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
+        participantItem.classList.remove('participant-status-active', 'participant-status-inactive', 'participant-status-attending');
         participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
         
         // Show error indicators
@@ -1480,6 +1754,29 @@ async function animateStatusChange(element, newStatus) {
         // Update icon immediately with animation
         icon.className = `fas traffic-light ${
             newStatus ? 'fa-walking icon-active' : 'fa-person icon-inactive'
+        }`;
+
+        element.addEventListener('animationend', () => {
+            element.classList.remove(animationClass);
+            resolve();
+        }, {once: true});
+        
+        element.classList.add(animationClass);
+    });
+}
+
+async function animateAttendanceChange(element, newAttendingState) {
+    return new Promise(resolve => {
+        const animationClass = newAttendingState ? 'active-to-attending' : 'attending-to-active';
+        const icon = element.querySelector('.traffic-light');
+        
+        // Update classes immediately
+        element.classList.remove('participant-status-active', 'participant-status-attending');
+        element.classList.add(newAttendingState ? 'participant-status-attending' : 'participant-status-active');
+        
+        // Update icon immediately with animation
+        icon.className = `fas traffic-light ${
+            newAttendingState ? 'fa-check icon-active' : 'fa-walking icon-active'
         }`;
 
         element.addEventListener('animationend', () => {
@@ -1685,6 +1982,7 @@ function render_participantItem(participant, dailyStatus) {
     
     const icon = document.createElement('i');
     icon.classList.add('fas', 'traffic-light');
+    // Click-Handler wird in updateParticipantStatusUI je nach Status gesetzt
     nameSpan.appendChild(icon);
     nameSpan.appendChild(document.createTextNode(participant.name));
 
@@ -2492,6 +2790,9 @@ function initializeSSE() {
             case 'status_change':
                 SSE_handleStatusUpdate(data);
                 break;
+            case 'attendance_update':
+                SSE_handleAttendanceUpdate(data);
+                break;
             case 'time_update':
                 SSE_updateTimeDisplay(data.time);
                 break;
@@ -2531,7 +2832,9 @@ function SSE_handleStatusUpdate(data) {
             currentDate: data.date,
             participantStates: participantStates,
             schedule: data.schedule,
-            isWalkingBusDay: data.isWalkingBusDay
+            isWalkingBusDay: data.isWalkingBusDay,
+            // Preserve existing attendance data
+            participantAttendance: globalDailyStatus?.participantAttendance || {}
         };
 
         updateAllParticipantStates(dailyStatus);
@@ -2542,6 +2845,27 @@ function SSE_handleStatusUpdate(data) {
     }
 }
 
+function SSE_handleAttendanceUpdate(data) {
+    console.log('[SSE] Handling attendance update:', data);
+    
+    const selectedDate = document.querySelector('.week-container .selected-day .calendar-day')?.dataset.date;
+    
+    // Only proceed if we're viewing the current date
+    if (selectedDate === data.date) {
+        // Update global state
+        if (!globalDailyStatus.participantAttendance) {
+            globalDailyStatus.participantAttendance = {};
+        }
+        globalDailyStatus.participantAttendance[data.participant_id] = data.attendance;
+        
+        // Update UI by recalculating status
+        const participantElement = document.querySelector(`[data-participant-id="${data.participant_id}"]`);
+        if (participantElement) {
+            const newState = calculateParticipantStatusState(data.participant_id, globalDailyStatus);
+            updateParticipantStatusUI(participantElement, newState);
+        }
+    }
+}
 
 function SSE_updateTimeDisplay(time) {
     const timeElement = document.getElementById('current-time');
@@ -2563,6 +2887,7 @@ function SSE_handleError() {
 
 function SSE_updateConnectionStatus(status) {
     const indicator = document.querySelector('.connection-indicator');
+    const connectionAlert = document.getElementById('connection-alert');
     if (!indicator) return;
 
     // Remove all possible states
@@ -2577,6 +2902,9 @@ function SSE_updateConnectionStatus(status) {
         case 'connected':
             indicator.classList.add('connected');
             indicator.className = 'fas fa-circle connection-indicator connected';
+            if (connectionAlert) {
+                    connectionAlert.classList.add('d-none');
+                }
             break;
         case 'disconnected':
             indicator.classList.add('disconnected');

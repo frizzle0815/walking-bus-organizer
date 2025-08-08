@@ -36,7 +36,13 @@
     <!-- Info Box -->
     <div class="alert alert-info" role="alert">
         <i class="fas fa-info-circle me-2"></i>
-        Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest. Du wirst automatisch etwa eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.
+        <div class="ms-4">
+            <p>Wähle hier die Teilnehmer, für die Du Erinnerungen erhalten möchtest.</p>
+            
+            <p>Du wirst automatisch etwa eine Stunde vor Beginn des Walking Bus eine Erinnerung erhalten.</p>
+            
+            <p>Erinnerungen erfolgen nur für Tage, an denen Du normalerweise am Walking Bus teilnimmst.</p>
+        </div>
     </div>
 
     <!-- Requirements Check -->
@@ -45,9 +51,6 @@
             <h5 class="mb-0">Systemvoraussetzungen</h5>
         </div>
         <div class="card-body">
-            <div id="systemRequirements" class="mb-4">
-                <!-- Status messages will be inserted here -->
-            </div>
             <ul class="list-group">
                 <li class="list-group-item d-flex align-items-center" id="pwaCheck">
                     <span class="status-icon me-2">
@@ -71,7 +74,7 @@
             <h5 class="mb-0">Test Benachrichtigungen</h5>
         </div>
         <div class="card-body">
-            <p class="text-muted">Hier können Sie die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
+            <p class="text-muted">Hier kannst Du die Benachrichtigungen für die ausgewählten Teilnehmer testen.</p>
             <button id="testNotification" class="btn btn-secondary">
                 <i class="fas fa-bell me-2"></i>Test-Benachrichtigung senden
             </button>
@@ -83,8 +86,8 @@
         <div class="card-header">
             <h5 class="mb-0">Teilnehmer auswählen</h5>
         </div>
-            <div class="d-grid gap-2 mt-3">
-                <button id="saveSubscriptions" class="btn btn-primary" disabled>
+            <div class="px-3 mt-3">
+                <button id="saveSubscriptions" class="btn btn-primary w-100" disabled>
                     <i class="fas fa-save me-2"></i>Änderungen speichern
                 </button>
             </div>
@@ -201,24 +204,37 @@ class NotificationManager {
     async checkSubscriptionStatus() {
         console.log('[NOTI] Checking subscription status');
         
-        // Erst Service Worker registrieren und aktivieren
-        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        // Get or create registration
+        let registration = await navigator.serviceWorker.getRegistration();
         
-        // Auf Aktivierung warten
-        if (registration.installing) {
+        if (!registration) {
+            registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('[NOTI] New registration created');
+        }
+        
+        // Wait for active service worker
+        if (registration.installing || registration.waiting) {
             await new Promise(resolve => {
-                registration.installing.addEventListener('statechange', e => {
-                    if (e.target.state === 'activated') resolve();
+                registration.addEventListener('activate', () => {
+                    console.log('[NOTI] Service Worker activated');
+                    resolve();
                 });
             });
         }
-        console.log('[NOTI] Service Worker activated');
         
-        // Jetzt erst Subscription prüfen
+        // Verify active worker
+        if (!registration.active) {
+            console.log('[NOTI] No active service worker found');
+            return false;
+        }
+        
+        // Check subscription
         const subscription = await registration.pushManager.getSubscription();
-        this.subscriptionStatus = !!subscription;
-        return this.subscriptionStatus;
+        console.log('[NOTI] Subscription status:', !!subscription);
+        
+        return !!subscription;
     }
+
 
 
     async createNewSubscription() {
@@ -331,6 +347,7 @@ class NotificationManager {
             });
         }
     }
+
 
     async handleParticipantChange() {
         const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
@@ -565,10 +582,20 @@ function setupCheckboxListeners() {
 
 
 document.getElementById('saveSubscriptions').addEventListener('click', async () => {
+    const saveButton = document.getElementById('saveSubscriptions');
+    const originalContent = saveButton.innerHTML;
+
     if (pendingChanges.size === 0) {
         showToast('Keine Änderungen vorhanden', 'info');
         return;
     }
+
+    // Set loading state
+    saveButton.disabled = true;
+    saveButton.innerHTML = `
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        Speichere...
+    `;
 
     try {
         const selectedIds = Array.from(document.querySelectorAll('.participant-checkbox:checked'))
@@ -603,13 +630,17 @@ document.getElementById('saveSubscriptions').addEventListener('click', async () 
         );
 
         pendingChanges.clear();
-        document.getElementById('saveSubscriptions').disabled = true;
-
+        
     } catch (error) {
         console.error('[NOTI.HTML] Error saving changes:', error);
         showToast('Fehler beim Speichern', 'error');
+    } finally {
+        // Always restore button state
+        saveButton.innerHTML = originalContent;
+        saveButton.disabled = true; // Keeps button disabled after successful save
     }
 });
+
 
 
 // Enhanced device and browser detection

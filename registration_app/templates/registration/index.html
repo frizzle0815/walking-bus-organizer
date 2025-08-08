@@ -1,0 +1,854 @@
+{% extends "registration/base.html" %}
+
+{% block title %}Anmeldung - Walking Bus{% endblock %}
+
+{% block head %}
+<style>
+    /* Mobile-optimierte Styles */
+    .registration-map {
+        height: 300px;
+        border: 2px solid #dee2e6;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+        position: relative;
+    }
+    
+    .map-overlay {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        z-index: 1000;
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        font-size: 0.875rem;
+    }
+    
+    .address-search-container {
+        position: relative;
+    }
+    
+    .address-feedback {
+        margin-top: 0.5rem;
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+    }
+    
+    .address-feedback.success {
+        background-color: #d1e7dd;
+        border: 1px solid #badbcc;
+        color: #0f5132;
+    }
+    
+    .address-feedback.error {
+        background-color: #f8d7da;
+        border: 1px solid #f5c2c7;
+        color: #842029;
+    }
+    
+    .address-feedback.warning {
+        background-color: #fff3cd;
+        border: 1px solid #ffecb5;
+        color: #664d03;
+    }
+    
+    .route-preview {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+    
+    .form-floating > label {
+        font-size: 0.875rem;
+    }
+    
+    .btn-lg {
+        padding: 0.75rem 1.5rem;
+        font-size: 1.1rem;
+    }
+    
+    @media (max-width: 576px) {
+        .container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        
+        .registration-map {
+            height: 250px;
+        }
+        
+        .map-overlay {
+            font-size: 0.8rem;
+            padding: 0.375rem;
+        }
+        
+        .card-body {
+            padding: 1rem;
+        }
+        
+        .form-floating > .form-control {
+            height: calc(3rem + 2px);
+            font-size: 1rem;
+        }
+        
+        .form-floating > label {
+            font-size: 0.85rem;
+        }
+    }
+    
+    .loading-spinner {
+        display: none;
+        text-align: center;
+        padding: 1rem;
+    }
+    
+    .route-highlight {
+        font-weight: bold;
+        color: #0d6efd;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-lg-10 col-xl-8">
+        <!-- Zurück-Button -->
+        <div class="mb-3">
+            <a href="/" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-2"></i>Zurück zur Übersicht
+            </a>
+        </div>
+
+        <div class="card shadow-lg">
+            <div class="card-header bg-success text-white">
+                <h3 class="card-title mb-0">
+                    <i class="fas fa-user-plus me-2"></i>
+                    Walking Bus Anmeldung
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Willkommen!</strong> 
+                    Melden Sie Ihr Kind hier für den Walking Bus an. Wir nehmen danach Kontakt zu Euch auf!
+                </div>
+
+                <form id="registrationForm">
+                    <!-- Kind-Informationen -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-child me-2"></i>Informationen zum Kind</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="childFirstName" name="child_first_name" required>
+                                        <label for="childFirstName">
+                                            <i class="fas fa-user me-2"></i>Vorname des Kindes *
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="childLastName" name="child_last_name" required>
+                                        <label for="childLastName">
+                                            <i class="fas fa-user me-2"></i>Nachname des Kindes *
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-floating mb-0">
+                                <select class="form-select" id="schoolClass" name="school_class" required>
+                                    <option value="">Bitte wählen...</option>
+                                    {% for class_name in school_classes %}
+                                    <option value="{{ class_name }}">{{ class_name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <label for="schoolClass">
+                                    <i class="fas fa-graduation-cap me-2"></i>Klasse *
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Kontakt-Informationen -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-phone me-2"></i>Kontakt-Informationen</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="tel" class="form-control" id="phone" name="phone" required>
+                                        <label for="phone">
+                                            <i class="fas fa-phone me-2"></i>Handynummer *
+                                        </label>
+                                        <div class="form-text">
+                                            Für die Kontaktaufnahme (bevorzugt WhatsApp)
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="tel" class="form-control" id="phoneSecondary" name="phone_secondary">
+                                        <label for="phoneSecondary">
+                                            <i class="fas fa-phone me-2"></i>Zweite Handynummer (optional)
+                                        </label>
+                                        <div class="form-text">
+                                            Alternative Kontaktmöglichkeit
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <div class="form-floating mb-0">
+                                        <input type="email" class="form-control" id="email" name="email">
+                                        <label for="email">
+                                            <i class="fas fa-envelope me-2"></i>E-Mail (optional)
+                                        </label>
+                                        <div class="form-text">
+                                            Alternative Kontaktaufnahme
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Adresse und Karte -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Adresse und Standort</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="address-search-container">
+                                <div class="form-floating mb-3">
+                                    <textarea class="form-control" id="address" name="address" required style="height: 80px;"></textarea>
+                                    <label for="address">
+                                        <i class="fas fa-home me-2"></i>Vollständige Adresse *
+                                    </label>
+                                    <div class="form-text">
+                                        Straße, Hausnummer, PLZ, Ort - danach auf "Adresse suchen" klicken. Es genügt auch ein ungefährer Standort.
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex gap-2 mb-3">
+                                    <button type="button" class="btn btn-outline-primary flex-fill" id="searchAddressBtn">
+                                        <i class="fas fa-search me-2"></i>Adresse suchen
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" id="clearMapBtn">
+                                        <i class="fas fa-times me-2"></i>Löschen
+                                    </button>
+                                </div>
+                                
+                                <div id="addressFeedback" class="address-feedback" style="display: none;"></div>
+                            </div>
+
+                            <!-- Karte -->
+                            <div id="registrationMap" class="registration-map">
+                                <!-- <div class="map-overlay">
+                                    <div id="mapStatus">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        Geben Sie Ihre Adresse ein und klicken Sie auf "Adresse suchen"
+                                    </div>
+                                </div> -->
+                            </div>
+                            
+                            <div class="loading-spinner" id="loadingSpinner">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Suche läuft...</span>
+                                </div>
+                                <div class="mt-2">Adresse wird gesucht...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Walking Bus Route -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-route me-2"></i>Walking Bus Route</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-floating mb-3">
+                                <select class="form-select" id="walkingBusRoute" name="walking_bus_route_id" required>
+                                    <option value="">Bitte wählen...</option>
+                                    {% for route in walking_bus_routes %}
+                                    <option value="{{ route.id }}" data-color="{{ route.color }}">{{ route.name }}</option>
+                                    {% endfor %}
+                                    <option value="interest_only">🔍 Nur Interesse anmelden (ich weiß noch nicht, welche Route passt)</option>
+                                </select>
+                                <label for="walkingBusRoute">
+                                    <i class="fas fa-route me-2"></i>Walking Bus Option *
+                                </label>
+                                <div class="form-text">
+                                    Wählen Sie eine bestehende Route oder melden Sie Ihr generelles Interesse an
+                                </div>
+                            </div>
+
+                            <!-- Route Vorschau -->
+                            <div id="routePreview" class="route-preview" style="display: none;">
+                                <div id="routePreviewContent"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Begleitung -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-users me-2"></i>Begleitung</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-hand-holding-heart me-2"></i>Ihre Unterstützung *
+                                </label>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="radio" name="accompaniment_type" id="companion" value="companion" required>
+                                    <label class="form-check-label" for="companion">
+                                        <strong>Ich kann als Begleitperson mitgehen</strong>
+                                        <div class="form-text">Regelmäßige Begleitung der Kinder auf dem Schulweg</div>
+                                    </label>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="radio" name="accompaniment_type" id="substitute" value="substitute" required>
+                                    <label class="form-check-label" for="substitute">
+                                        <strong>Ich kann mich als Springer zur Verfügung stellen</strong>
+                                        <div class="form-text">Vertretung bei Bedarf oder Ausfall anderer Begleitpersonen</div>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>Hinweis:</strong> Die konkrete Abstimmung darüber, an welchen Tagen Sie begleiten, 
+                                erfolgt zu einem späteren Zeitpunkt in der WhatsApp-Gruppe. Dort können Sie sich mit 
+                                anderen Eltern koordinieren und einen passenden Plan erstellen.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Datenschutz und Absenden -->
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="dataProtection" required>
+                                <label class="form-check-label" for="dataProtection">
+                                    <strong>Datenschutz:</strong> Ich stimme zu, dass meine Angaben zur Kontaktaufnahme 
+                                    und Routenplanung gespeichert werden. Die Adresse wird nur in Form von Koordinaten 
+                                    gespeichert. *
+                                </label>
+                            </div>
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-success btn-lg" id="submitBtn">
+                                    <i class="fas fa-paper-plane me-2"></i>
+                                    Anmeldung senden
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Erfolgs-Modal -->
+        <div class="modal fade" id="successModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-check-circle me-2"></i>
+                            Anmeldung erfolgreich
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>Vielen Dank für die Anmeldung!</strong></p>
+                        <p>Die Anmeldung für <strong id="successChildName"></strong> wurde erfolgreich übermittelt.</p>
+                        <p>Wir haben Ihre Daten erhalten und werden uns in Kürze bei Ihnen melden.</p>
+                        
+                        <div class="alert alert-success">
+                            <i class="fas fa-map-marker-alt me-2"></i>
+                            Ihre Adresse wurde erfolgreich lokalisiert und ist im gültigen Bereich.
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-users me-2"></i>
+                            <strong>Nächste Schritte:</strong> Sie werden zur WhatsApp-Gruppe hinzugefügt, 
+                            wo die konkrete Abstimmung der Begleitzeiten erfolgt.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                        <a href="/" class="btn btn-primary">
+                            <i class="fas fa-map me-2"></i>
+                            Zur Übersicht
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Globale Variablen
+    let map;
+    let currentMarker = null;
+    let routePolylines = [];
+    let schoolMarker = null;
+    let currentCoordinates = null;
+    let routes = [];
+    let config = {};
+    let selectedRouteId = null; // Neue Variable für ausgewählte Route
+    
+    // Modals und UI-Elemente
+    const form = document.getElementById('registrationForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+    const addressInput = document.getElementById('address');
+    const searchBtn = document.getElementById('searchAddressBtn');
+    const clearBtn = document.getElementById('clearMapBtn');
+    const routeSelect = document.getElementById('walkingBusRoute');
+    const addressFeedback = document.getElementById('addressFeedback');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const mapStatus = document.getElementById('mapStatus');
+    const routePreview = document.getElementById('routePreview');
+    const routePreviewContent = document.getElementById('routePreviewContent');
+    
+    // Initialisierung
+    async function init() {
+        await loadConfig();
+        await loadRoutes();
+        initMap();
+        setupEventListeners();
+    }
+    
+    // Konfiguration laden
+    async function loadConfig() {
+        try {
+            const response = await axios.get('/api/config');
+            config = response.data;
+        } catch (error) {
+            console.error('Fehler beim Laden der Konfiguration:', error);
+        }
+    }
+    
+    // Routen laden
+    async function loadRoutes() {
+        try {
+            const response = await axios.get('/api/routes');
+            routes = response.data;
+        } catch (error) {
+            console.error('Fehler beim Laden der Routen:', error);
+        }
+    }
+    
+    // Karte initialisieren
+    function initMap() {
+        const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
+        
+        map = L.map('registrationMap', {
+            center: [schoolLat, schoolLon],
+            zoom: 12,
+            zoomControl: true,
+            attributionControl: false
+        });
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+        
+        // Schul-Marker
+        schoolMarker = L.marker([schoolLat, schoolLon], {
+            icon: L.divIcon({
+                html: '<i class="fas fa-school" style="color: red; font-size: 20px;"></i>',
+                iconSize: [25, 25],
+                className: 'custom-div-icon'
+            })
+        }).addTo(map).bindPopup('<strong>Schule</strong><br>Ziel aller Walking Bus Routen');
+        
+        // Routen auf Karte anzeigen
+        displayRoutes();
+        
+        // updateMapStatus('Karte geladen. Geben Sie Ihre Adresse ein.');
+    }
+    
+    // Routen auf Karte anzeigen
+    function displayRoutes() {
+        // Bestehende Routen löschen
+        routePolylines.forEach(polyline => map.removeLayer(polyline));
+        routePolylines = [];
+        
+        routes.forEach(route => {
+            if (route.route_coordinates && route.route_coordinates.length > 0) {
+                const polyline = L.polyline(route.route_coordinates, {
+                    color: route.color,
+                    weight: 3,
+                    opacity: 0.7
+                }).addTo(map);
+                
+                polyline.bindPopup(`<strong>${route.name}</strong><br>${route.description || ''}`);
+                polyline.routeId = route.id;
+                routePolylines.push(polyline);
+            }
+        });
+    }
+    
+    // Route hervorheben
+    function highlightRoute(routeId) {
+        routePolylines.forEach(polyline => {
+            if (polyline.routeId === routeId) {
+                polyline.setStyle({
+                    weight: 6,
+                    opacity: 1.0,
+                    color: polyline.options.color
+                });
+            } else {
+                polyline.setStyle({
+                    weight: 3,
+                    opacity: 0.4
+                });
+            }
+        });
+    }
+    
+    // Alle Routen normal anzeigen
+    function resetRouteHighlight() {
+        routePolylines.forEach(polyline => {
+            polyline.setStyle({
+                weight: 3,
+                opacity: 0.7
+            });
+        });
+    }
+    
+    // Event Listeners
+    function setupEventListeners() {
+        // Adresse suchen
+        searchBtn.addEventListener('click', searchAddress);
+        addressInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchAddress();
+            }
+        });
+        
+        // Karte löschen
+        clearBtn.addEventListener('click', clearMap);
+        
+        // Route-Auswahl
+        routeSelect.addEventListener('change', onRouteChange);
+        
+        // Form-Validation
+        form.addEventListener('submit', onFormSubmit);
+        
+        // Telefonnummer-Formatierung
+        document.getElementById('phone').addEventListener('input', formatPhoneNumber);
+        document.getElementById('phoneSecondary').addEventListener('input', formatPhoneNumber);
+    }
+    
+    // Karte auf relevante Elemente zentrieren
+    function fitMapToRelevantElements() {
+        const elementsToFit = [];
+        const [schoolLat, schoolLon] = config.school_coordinates || [52.5200, 13.4050];
+        
+        // Schule immer einbeziehen
+        elementsToFit.push(L.marker([schoolLat, schoolLon]));
+        
+        // Gefundene Adresse einbeziehen (falls vorhanden)
+        if (currentCoordinates) {
+            elementsToFit.push(L.marker([currentCoordinates.lat, currentCoordinates.lon]));
+            console.log('[INDEX.html][MAP] Adresse in Zoom einbezogen:', currentCoordinates);
+        }
+        
+        // Ausgewählte Route einbeziehen (falls vorhanden und nicht "Nur Interesse")
+        if (selectedRouteId && selectedRouteId !== 'interest_only') {
+            const selectedRoute = routes.find(r => r.id === selectedRouteId);
+            if (selectedRoute && selectedRoute.route_coordinates && selectedRoute.route_coordinates.length > 0) {
+                // Alle Punkte der Route hinzufügen
+                selectedRoute.route_coordinates.forEach(coord => {
+                    elementsToFit.push(L.marker(coord));
+                });
+                console.log('[INDEX.html][MAP] Route in Zoom einbezogen:', selectedRoute.name);
+            }
+        }
+        
+        if (elementsToFit.length > 1) {
+            const group = new L.featureGroup(elementsToFit);
+            map.fitBounds(group.getBounds(), {
+                padding: [30, 30],
+                maxZoom: 15
+            });
+            console.log('[INDEX.html][MAP] Zoom angepasst für', elementsToFit.length, 'Elemente');
+        } else {
+            // Fallback: Nur auf Schule zentrieren
+            map.setView([schoolLat, schoolLon], 12);
+            console.log('[INDEX.html][MAP] Fallback: Zoom auf Schule');
+        }
+    }
+    
+    // Adresse suchen (angepasst)
+    async function searchAddress() {
+        const address = addressInput.value.trim();
+        if (!address) {
+            showAddressFeedback('Bitte geben Sie eine Adresse ein.', 'error');
+            return;
+        }
+        
+        setLoading(true);
+        hideAddressFeedback();
+        
+        try {
+            const response = await axios.post('/api/geocode', { address });
+            
+            if (response.data.success) {
+                const { latitude, longitude, display_name } = response.data;
+                currentCoordinates = { lat: latitude, lon: longitude };
+                
+                // Marker setzen
+                if (currentMarker) {
+                    map.removeLayer(currentMarker);
+                }
+                
+                currentMarker = L.marker([latitude, longitude], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-home" style="color: green; font-size: 18px;"></i>',
+                        iconSize: [25, 25],
+                        className: 'custom-div-icon'
+                    })
+                }).addTo(map).bindPopup(`<strong>Ihre Adresse</strong><br>${display_name}`);
+                
+                // Karte auf relevante Elemente anpassen
+                fitMapToRelevantElements();
+                
+                showAddressFeedback(`✓ Adresse gefunden: ${display_name}`, 'success');
+                console.log('[INDEX.html][GEOCODING] Adresse erfolgreich gefunden');
+                
+            } else {
+                // Spezifische Fehlermeldung anzeigen
+                const errorMsg = response.data.error || 'Adresse konnte nicht gefunden werden';
+                const isRadiusError = response.data.radius_error || false;
+                
+                if (isRadiusError) {
+                    showAddressFeedback(`🚫 ${errorMsg}`, 'warning');
+                    console.log('[INDEX.html][GEOCODING] Radius-Fehler:', errorMsg);
+                } else {
+                    showAddressFeedback(`✗ ${errorMsg}`, 'error');
+                    console.log('[INDEX.html][GEOCODING] Geocoding-Fehler:', errorMsg);
+                }
+            }
+            
+        } catch (error) {
+            console.error('[INDEX.html][GEOCODING] Request-Fehler:', error);
+            
+            if (error.response && error.response.data) {
+                const errorMsg = error.response.data.error || 'Unbekannter Fehler';
+                const isRadiusError = error.response.data.radius_error || false;
+                
+                if (isRadiusError) {
+                    showAddressFeedback(`🚫 ${errorMsg}`, 'warning');
+                } else {
+                    showAddressFeedback(`✗ ${errorMsg}`, 'error');
+                }
+            } else {
+                showAddressFeedback('✗ Fehler beim Suchen der Adresse. Bitte versuchen Sie es erneut.', 'error');
+            }
+        } finally {
+            setLoading(false);
+        }
+    }
+    
+    // Karte löschen
+    function clearMap() {
+        if (currentMarker) {
+            map.removeLayer(currentMarker);
+            currentMarker = null;
+        }
+        currentCoordinates = null;
+        hideAddressFeedback();
+        // updateMapStatus('Geben Sie Ihre Adresse ein und klicken Sie auf "Adresse suchen"');
+        
+        console.log('[INDEX.html][MAP] Karte geleert');
+        
+        // Zoom anpassen (nur Schule und ggf. Route)
+        fitMapToRelevantElements();
+    }
+    
+    // Route-Änderung
+    function onRouteChange() {
+        const selectedValue = routeSelect.value;
+        selectedRouteId = selectedValue ? (selectedValue === 'interest_only' ? 'interest_only' : parseInt(selectedValue)) : null;
+        
+        console.log('[INDEX.html][ROUTE] Route geändert:', selectedValue);
+        
+        if (selectedValue === 'interest_only') {
+            resetRouteHighlight();
+            routePreviewContent.innerHTML = `
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Nur Interesse anmelden</strong><br>
+                    Sie wissen noch nicht, welche Route für Sie geeignet ist? Kein Problem!<br>
+                    <small>Nach Ihrer Anmeldung schauen wir gemeinsam, welche Möglichkeiten es gibt 
+                    oder ob sich eine neue Route mit anderen Interessenten bilden lässt.</small>
+                </div>
+            `;
+            routePreview.style.display = 'block';
+            
+            // Zoom ohne Route anpassen
+            fitMapToRelevantElements();
+            
+        } else if (selectedValue) {
+            const routeId = parseInt(selectedValue);
+            const route = routes.find(r => r.id === routeId);
+            
+            if (route) {
+                highlightRoute(routeId);
+                routePreviewContent.innerHTML = `
+                    <div class="d-flex align-items-center">
+                        <div style="width: 20px; height: 20px; background-color: ${route.color}; border-radius: 3px; margin-right: 10px;"></div>
+                        <div>
+                            <strong class="route-highlight">${route.name}</strong><br>
+
+                        </div>
+                    </div>
+                `;
+                routePreview.style.display = 'block';
+                
+                // Zoom mit Route anpassen
+                fitMapToRelevantElements();
+            }
+        } else {
+            resetRouteHighlight();
+            routePreview.style.display = 'none';
+            
+            // Zoom ohne Route anpassen
+            fitMapToRelevantElements();
+        }
+    }
+    
+    // Form-Submit (erweitert)
+    async function onFormSubmit(e) {
+        e.preventDefault();
+        
+        // Prüfen ob Adresse gesucht wurde
+        if (!currentCoordinates) {
+            showAddressFeedback('Bitte suchen Sie zuerst Ihre Adresse auf der Karte.', 'warning');
+            addressInput.focus();
+            return;
+        }
+        
+        setSubmitLoading(true);
+        
+        try {
+            const formData = new FormData(form);
+            const data = {
+                child_first_name: formData.get('child_first_name'),
+                child_last_name: formData.get('child_last_name'),
+                school_class: formData.get('school_class'),
+                phone: formData.get('phone'),
+                phone_secondary: formData.get('phone_secondary'),
+                email: formData.get('email'),
+                address: formData.get('address'),
+                walking_bus_route_id: formData.get('walking_bus_route_id') === 'interest_only' ? 'interest_only' : parseInt(formData.get('walking_bus_route_id')),
+                accompaniment_type: formData.get('accompaniment_type')
+            };
+            
+            const response = await axios.post('/api/register', data);
+            
+            if (response.status === 201) {
+                // Erfolg
+                document.getElementById('successChildName').textContent = `${data.child_first_name} ${data.child_last_name}`;
+                form.reset();
+                clearMap();
+                routePreview.style.display = 'none';
+                resetRouteHighlight();
+                successModal.show();
+                console.log('[INDEX.html][REGISTER] Registrierung erfolgreich');
+            }
+        } catch (error) {
+            console.error('[INDEX.html][REGISTER] Registrierung fehlgeschlagen:', error);
+            
+            let errorMessage = 'Ein unbekannter Fehler ist aufgetreten.';
+            let isRadiusError = false;
+            
+            if (error.response && error.response.data) {
+                errorMessage = error.response.data.error || errorMessage;
+                isRadiusError = error.response.data.radius_error || false;
+            }
+            
+            if (error.response && error.response.data && error.response.data.geocoding_failed) {
+                if (isRadiusError) {
+                    showAddressFeedback(`🚫 ${errorMessage}`, 'warning');
+                } else {
+                    showAddressFeedback(`✗ ${errorMessage}`, 'error');
+                }
+            } else {
+                alert(`Fehler: ${errorMessage}`);
+            }
+        } finally {
+            setSubmitLoading(false);
+        }
+    }
+    
+    // Hilfsfunktionen
+    function showAddressFeedback(message, type) {
+        addressFeedback.textContent = message;
+        addressFeedback.className = `address_address ${type}`;
+        addressFeedback.style.display = 'block';
+    }
+    
+    function hideAddressFeedback() {
+        addressFeedback.style.display = 'none';
+    }
+    
+    function setLoading(loading) {
+        if (loading) {
+            loadingSpinner.style.display = 'block';
+            searchBtn.disabled = true;
+            searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Suche...';
+        } else {
+            loadingSpinner.style.display = 'none';
+            searchBtn.disabled = false;
+            searchBtn.innerHTML = '<i class="fas fa-search me-2"></i>Adresse suchen';
+        }
+    }
+    
+    function setSubmitLoading(loading) {
+        if (loading) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Wird gesendet...';
+        } else {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Anmeldung senden';
+        }
+    }
+    
+    // function updateMapStatus(message) {
+    //     mapStatus.innerHTML = `<i class="fas fa-info-circle me-2"></i>${message}`;
+    // }
+    
+    function formatPhoneNumber(e) {
+        let value = e.target.value.replace(/\D/g, '');
+        if (value.length > 11) {
+            value = value.slice(0, 11);
+        }
+        e.target.value = value;
+    }
+    
+    // App starten
+    init();
+});
+</script>
+{% endblock %}

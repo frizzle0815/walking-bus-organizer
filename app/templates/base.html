@@ -153,6 +153,18 @@
       </div>
    </div>
  </nav>
+
+ <div id="update-notification" class="toast align-items-center" role="alert" aria-live="assertive" aria-atomic="true" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:1050;">
+    <div class="d-flex">
+        <div class="toast-body d-flex align-items-center">
+            <i class="fas fa-arrow-circle-up text-primary me-2"></i>
+            Update durchgeführt auf:
+            <span class="badge bg-secondary version-badge ms-2"></span>
+        </div>
+        <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+</div>
+
  {% endif %}
  <div class="container {% if hide_menu %}mt-0{% else %}mt-4{% endif %}">
      {% block content %}{% endblock %}
@@ -424,14 +436,98 @@
 <script>
 let authInitialized = false;
 
+async function checkVersion() {
+    console.log('[VERSION][START] Starting version check process');
+
+    // 1. Register and update service worker
+    const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+    console.log('[VERSION][REGISTER] Service worker registered');
+    
+    await registration.update();
+    console.log('[VERSION][UPDATE] Service worker update triggered');
+
+    // 2. Wait for any installing worker to activate
+    if (registration.installing) {
+        console.log('[VERSION][INSTALL] New service worker installing');
+        await new Promise(resolve => {
+            registration.installing.addEventListener('statechange', e => {
+                console.log(`[VERSION][STATE] Service worker state changed to: ${e.target.state}`);
+                if (e.target.state === 'activated') {
+                    console.log('[VERSION][ACTIVATE] Service worker activated');
+                    resolve();
+                }
+            });
+        });
+    }
+
+    // 3. Check version using MessageChannel
+    console.log('[VERSION][CHANNEL] Creating message channel');
+    const messageChannel = new MessageChannel();
+    
+    return new Promise((resolve) => {
+        messageChannel.port1.onmessage = (event) => {
+            console.log('[VERSION][MESSAGE] Received message:', event.data);
+            
+            if (event.data.type === 'VERSION_INFO') {
+                const storedVersion = localStorage.getItem('app_version');
+                console.log('[VERSION][STORED] Current stored version:', storedVersion);
+                console.log('[VERSION][NEW] New version:', event.data.version);
+                
+                if (registration.waiting) {
+                    console.log('[VERSION][WAITING] Found waiting service worker, sending SKIP_WAITING');
+                    registration.waiting.postMessage({type: 'SKIP_WAITING'});
+                }
+
+                if (storedVersion && storedVersion !== event.data.version) {
+                    console.log('[VERSION][CHANGE] Version change detected');
+                    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                        console.log('[VERSION][IOS] iOS device detected, handling special case');
+                        // showUpdateNotification(event.data.version);
+                        localStorage.setItem('app_version', event.data.version);
+                        reloadCorePagesforiOS();
+                    } else {
+                        console.log('[VERSION][OTHER] Non-iOS device, handling standard update');
+                        // showUpdateNotification(event.data.version);
+                        localStorage.setItem('app_version', event.data.version);
+                        reloadCorePagesforiOS();
+                    }
+                } else {
+                    console.log('[VERSION][FIRST] First installation or no version change');
+                    localStorage.setItem('app_version', event.data.version);
+                }
+            }
+            resolve();
+        };
+
+        console.log('[VERSION][CHECK] Sending version check message to service worker');
+        registration.active.postMessage(
+            { type: 'CHECK_VERSION' },
+            [messageChannel.port2]
+        );
+    });
+}
+
+
+function showUpdateNotification(version) {
+    const toast = new bootstrap.Toast(document.getElementById('update-notification'), {
+        autohide: false
+    });
+    const versionBadge = document.querySelector('.version-badge');
+    versionBadge.textContent = version;
+    toast.show();
+}
+
  // Service Worker registration
  async function registerServiceWorker() {
-     if ('serviceWorker' in navigator) {
-         try {
+    if ('serviceWorker' in navigator) {
+        try {
+            // 1. Wait for any existing service worker to be ready
+           
+            // 2. Register new service worker
             const registration = await navigator.serviceWorker.register('/static/service-worker.js');
             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration successful');
 
-            // Wait for activation if installing
+            // 3. Wait for activation if installing
             if (registration.installing) {
                 await new Promise(resolve => {
                     registration.installing.addEventListener('statechange', e => {
@@ -443,7 +539,7 @@ let authInitialized = false;
                 });
             }
 
-            // Dummy request to keep service-worker alive for android
+            // 4. Setup periodic sync for Android
             if ('periodicSync' in registration) {
                 const status = await navigator.permissions.query({
                     name: 'periodic-background-sync'
@@ -451,61 +547,59 @@ let authInitialized = false;
                 
                 if (status.state === 'granted') {
                     await registration.periodicSync.register('keep-alive', {
-                        minInterval: 15 * 60 * 1000 // 15 Minuten
+                        minInterval: 15 * 60 * 1000 // 15 minutes
                     });
                     console.log('[BASE.HTML][SYNC] Periodic sync registered');
                 }
             }
 
-            // Now safely send message to activated worker
+            // 5. Send subscription check message
             const messageChannel = new MessageChannel();
             registration.active.postMessage({
                 type: 'CHECK_SUBSCRIPTION'
             }, [messageChannel.port2]);
+            
+            // 6. Log state and check for updates
+            console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');
+            console.log('[BASE.HTML][UPDATE] Checking for service worker updates...');
+            
+            try {
+                await registration.update();
+                console.log('[BASE.HTML][UPDATE] Update check completed - No new version found');
+            } catch (updateError) {
+                console.log('[BASE.HTML][UPDATE] Update check failed:', updateError);
+            }
+            
+            // 7. Setup update handling
+            registration.addEventListener('updatefound', () => {
+                console.log('[BASE.HTML][UPDATE] New service worker found and installing');
+                const newWorker = registration.installing;
+                
+                newWorker.addEventListener('statechange', () => {
+                    console.log('[BASE.HTML][UPDATE] Service worker state changed to:', newWorker.state);
+                    
+                    if (newWorker.state === 'installed') {
+                        if (navigator.serviceWorker.controller) {
+                            console.log('[BASE.HTML][UPDATE] New service worker installed and ready to take over');
+                            console.log('[BASE.HTML][UPDATE] Reloading page to activate new service worker');
+                            newWorker.postMessage({type: 'SKIP_WAITING'});
+                            console.log('[BASE.HTML][UPDATE] Sent SKIP_WAITING message to new worker');
+                        } else {
+                            console.log('[BASE.HTML][UPDATE] Service worker installed for the first time');
+                        }
+                    }
+                });
+            });
+            
+            return registration;
+        } catch (err) {
+            console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed:', err);
+            throw err; // Rethrow to handle in calling code
+        }
+    }
+    return null;
+}
 
-
-             
-             // Log current service worker state
-             console.log('[BASE.HTML][UPDATE] Current service worker state:', registration.active ? 'active' : 'none');
-             
-             // Force check for updates immediately
-             console.log('[BASE.HTML][UPDATE] Checking for service worker updates...');
-             
-             try {
-                 await registration.update();
-                 console.log('[BASE.HTML][UPDATE] Update check completed - No new version found');
-             } catch (updateError) {
-                 console.log('[BASE.HTML][UPDATE] Update check failed:', updateError);
-             }
-             
-             // Listen for new service worker installation
-             registration.addEventListener('updatefound', () => {
-                 console.log('[BASE.HTML][UPDATE] New service worker found and installing');
-                 const newWorker = registration.installing;
-                 
-                 newWorker.addEventListener('statechange', () => {
-                     console.log('[BASE.HTML][UPDATE] Service worker state changed to:', newWorker.state);
-                     
-                     if (newWorker.state === 'installed') {
-                         if (navigator.serviceWorker.controller) {
-                             console.log('[BASE.HTML][UPDATE] New service worker installed and ready to take over');
-                             console.log('[BASE.HTML][UPDATE] Reloading page to activate new service worker');
-                             newWorker.postMessage({type: 'SKIP_WAITING'});
-                             console.log('[BASE.HTML][UPDATE] Sent SKIP_WAITING message to new worker');
-                         } else {
-                             console.log('[BASE.HTML][UPDATE] Service worker installed for the first time');
-                         }
-                     }
-                 });
-             });
-             
-             return registration;
-         } catch (err) {
-             console.log('[BASE.HTML][CENTRAL] ServiceWorker registration failed:', err);
-         }
-     }
-     return null;
- }
 
  navigator.serviceWorker.addEventListener('controllerchange', () => {
     console.log('[BASE.HTML][UPDATE] New service worker took control, reloading page');
@@ -560,7 +654,10 @@ window.PWAManager = {
         await fetchWithAuth('/api/pwa-status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_installed: status })
+            body: JSON.stringify({ 
+                is_installed: status,
+                user_agent: navigator.userAgent  // Access userAgent directly from navigator
+            })
         });
     },
 
@@ -640,8 +737,20 @@ if (installApp) {
 
  // Main initialization
  document.addEventListener('DOMContentLoaded', async () => {
-     console.log('[BASE.HTML]fetchWithAuth available:', typeof window.fetchWithAuth);
-     console.log('[BASE.HTML]axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+     console.log('[BASE.HTML] fetchWithAuth available:', typeof window.fetchWithAuth);
+     console.log('[BASE.HTML] axios interceptors initialized:', axios.interceptors.request.handlers.length > 0);
+
+    // Register service worker
+    if (window.location.pathname !== '/login') {
+        try {
+            console.log('[BASE.HTML][SW] Starting service worker registration...');
+            await registerServiceWorker();
+            await checkVersion();
+            console.log('[BASE.HTML][SW] Service worker registration complete');
+        } catch (error) {
+            console.log('[BASE.HTML] Service worker operations failed:', error);
+        }
+    }
 
      if (window.location.pathname === '/login') {
         const autoLoginSuccessful = await attemptAutoLogin();
@@ -649,9 +758,6 @@ if (installApp) {
             loginUser();
         }
     }
-
-     // Register service worker
-     await registerServiceWorker();
 
      // UI Components initialization
      const darkModeToggle = document.getElementById('darkModeToggle');
@@ -704,9 +810,11 @@ if (installApp) {
      }
 
      // Hack for iOS before starting checkWithAuth
+     console.log('[BASE.HTML] DOM loaded, checking fetchWithAuth...');
      while (!window.fetchWithAuth) {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
+    console.log('[BASE.HTML] fetchWithAuth available, updating notification...');
     await updateNotificationIndicator();
  });
 
@@ -778,42 +886,100 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 async function updateNotificationIndicator() {
+    console.log('[BASE.HTML][SUB] Function called');
     const indicator = document.querySelector('.notification-indicator');
     
-    if (!indicator) {
-        console.log('[BASE.HTML] Notification indicator element not found');
-        return;
-    }
+    // if (!indicator) {
+    //     console.log('[BASE.HTML][SUB] Notification indicator element not found');
+    //     return;
+    // }
 
-    // Start with disabled state
     indicator.classList.add('disabled');
 
     if ('serviceWorker' in navigator) {
         try {
-            const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+            console.log('[BASE.HTML][SUB] Starting registration...');
             
-            // Create MessageChannel for two-way communication
+            // Check if we already have an active service worker
+            const existingRegistration = await navigator.serviceWorker.getRegistration();
+            let registration;
+            
+            if (existingRegistration?.active) {
+                console.log('[BASE.HTML][SUB] Using existing active service worker');
+                registration = existingRegistration;
+            } else {
+                // Only register new if needed
+                console.log('[BASE.HTML][SUB] Registering new service worker...');
+                registration = await navigator.serviceWorker.register('/static/service-worker.js');
+                
+                if (registration.installing) {
+                    console.log('[BASE.HTML][SUB] Waiting for installation...');
+                    await new Promise(resolve => {
+                        registration.installing.addEventListener('statechange', e => {
+                            console.log('[BASE.HTML][SUB] Worker state:', e.target.state);
+                            if (e.target.state === 'activated') {
+                                console.log('[BASE.HTML][SUB] Service Worker activated');
+                                resolve();
+                            }
+                        });
+                    });
+                }
+            }
+
+            if (!registration.active) {
+                console.log('[BASE.HTML][SUB] No active service worker found');
+                return;
+            }
+
+            console.log('[BASE.HTML][SUB] Creating message channel...');
             const messageChannel = new MessageChannel();
             
-            // Handle response from service worker
-            messageChannel.port1.onmessage = (event) => {
-                if (event.data.hasSubscription) {
-                    indicator.classList.remove('disabled');
-                } else {
-                    indicator.classList.add('disabled');
-                }
-            };
+            const subscriptionCheck = new Promise((resolve) => {
+                messageChannel.port1.onmessage = (event) => {
+                    console.log('[BASE.HTML][SUB] Received subscription status:', event.data);
+                    resolve(event.data.hasSubscription);
+                };
+            });
 
-            // Send check request with MessageChannel port
+            console.log('[BASE.HTML][SUB] Sending check message...');
             registration.active.postMessage(
                 { type: 'CHECK_SUBSCRIPTION' },
                 [messageChannel.port2]
             );
 
+            const hasSubscription = await Promise.race([
+                subscriptionCheck,
+                new Promise((_, reject) => 
+                    setTimeout(() => reject('Timeout'), 5000)
+                )
+            ]);
+            
+            if (hasSubscription) {
+                indicator.classList.remove('disabled');
+            }
+
         } catch (error) {
-            console.log('[BASE.HTML] Error checking notification status:', error);
+            console.log('[BASE.HTML][SUB] Error checking notification status:', error);
         }
     }
+}
+
+
+
+
+async function reloadCorePagesforiOS() {
+    const pagesToReload = [
+        '/',  // base.html is included in all
+    ];
+    
+    const timestamp = Date.now();
+    
+    // Fetch all pages with timestamp parameter only
+    await Promise.all(
+        pagesToReload.map(page => 
+            fetch(`${page}?v=${timestamp}`)
+        )
+    ); 
 }
 
 </script>

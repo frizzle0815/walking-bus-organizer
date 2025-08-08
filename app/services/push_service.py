@@ -4,7 +4,18 @@ import time
 from pywebpush import webpush, WebPushException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_
-from ..models import db, PushSubscription, Participant, CalendarStatus, PushNotificationLog, AuthToken, WeatherCalculation
+from ..models import (
+    db,
+    PushSubscription,
+    Participant,
+    CalendarStatus,
+    PushNotificationLog,
+    AuthToken,
+    WeatherCalculation,
+    WalkingBusOverride,
+    DailyNote,
+    SchoolHoliday
+)
 from urllib.parse import urlparse
 from .. import get_or_generate_vapid_keys, get_current_date, get_current_time, WEEKDAY_MAPPING
 import os
@@ -57,14 +68,14 @@ class PushService:
         
         return all_subscriptions
 
-    def send_notification(self, subscription, notification_data):
+    def send_notification(self, subscription, notification_data, defer_subscription_pause=False):
         """Send single push notification with error handling"""
         vapid_keys = get_or_generate_vapid_keys()
         # First clean up old logs
         self.cleanup_old_logs()
 
         if not subscription.is_active:
-            return False, "Subscription is paused"
+            return False, "Subscription is paused", None
 
         try:
             # Log attempt
@@ -98,6 +109,7 @@ class PushService:
                 'endpoint': subscription.endpoint,
                 'client_info': subscription.auth_token.client_info
             }
+            enhanced_notification_data['attempted_send'] = True
 
             # Rest of the method remains the same until log creation
             log_entry = PushNotificationLog(
@@ -112,7 +124,7 @@ class PushService:
             db.session.commit()
             
             current_app.logger.info(f"[PUSH][SUCCESS] Sent notification to endpoint: {subscription.endpoint}")
-            return True, None
+            return True, None, None
 
         except WebPushException as e:
             error_str = str(e)
@@ -141,24 +153,32 @@ class PushService:
             db.session.add(log_entry)
             db.session.commit()
 
-            # Default behavior: Pause subscription for any error code
-            # except specific ones that need different handling
-            if status_code not in (429, 413):
+            # Only pause subscription immediately for rate limits and oversized payloads
+            # For fatal errors, return error info to caller for later processing
+            if status_code == 429:
+                retry_after = e.response.headers.get('Retry-After', '60')
+                current_app.logger.warning(f"[PUSH][RATE_LIMIT] Rate limit hit. Retry after {retry_after} seconds")
+                return False, str(e), None
+            elif status_code == 413:
+                current_app.logger.error(f"[PUSH][ERROR] Payload too large ({len(json.dumps(notification_data))} bytes)")
+                return False, str(e), None
+            
+            # For other errors, return error info for deferred handling
+            if not defer_subscription_pause:
                 subscription.is_active = False
                 subscription.paused_at = get_current_time()
                 subscription.pause_reason = error_str
                 subscription.last_error_code = status_code
                 db.session.commit()
                 current_app.logger.info(f"[PUSH][PAUSE] Subscription {subscription.id} paused - Status: {status_code}")
-            
-            # Handle special cases
-            if status_code == 429:
-                retry_after = e.response.headers.get('Retry-After', '60')
-                current_app.logger.warning(f"[PUSH][RATE_LIMIT] Rate limit hit. Retry after {retry_after} seconds")
-            elif status_code == 413:
-                current_app.logger.error(f"[PUSH][ERROR] Payload too large ({len(json.dumps(notification_data))} bytes)")
-
-            return False, str(e)
+                return False, str(e), None
+            else:
+                # Return error info for deferred handling
+                return False, str(e), {
+                    'status_code': status_code,
+                    'error_str': error_str,
+                    'should_pause': status_code not in (429, 413)
+                }
 
     def cleanup_old_logs(self):
         """Delete push notification logs older than 7 days"""
@@ -177,94 +197,180 @@ class PushService:
         """Prepare and send individual schedule notifications for each participant"""
         target_date = get_current_date()
         weekday = WEEKDAY_MAPPING[target_date.weekday()]
-        
         subscriptions = self.get_subscriptions()
         results = []
-        
+
         for subscription in subscriptions:
             participants = Participant.query.filter(
                 Participant.id.in_(subscription.participant_ids),
                 Participant.walking_bus_id == self.walking_bus_id
             ).all()
-            
+
+            # Track if subscription should be paused after all participants
+            subscription_error_info = None
+
             for participant in participants:
-                # Check if participant normally attends on this weekday
                 normally_attends = getattr(participant, weekday, True)
                 
-                if normally_attends:
-                    # Get calendar entry for this date
-                    calendar_entry = CalendarStatus.query.filter_by(
-                        participant_id=participant.id,
-                        date=target_date,
-                        walking_bus_id=self.walking_bus_id
-                    ).first()
-                    
-                    # Determine actual status from calendar entry or default weekday setting
-                    is_attending = calendar_entry.status if calendar_entry else normally_attends
-                    
-                    # Get weather calculation for today
-                    weather_info = WeatherCalculation.query.filter_by(
-                        walking_bus_id=self.walking_bus_id,
-                        date=target_date
-                    ).first()
+                # Create base log entry for each check
+                log_entry = PushNotificationLog(
+                    walking_bus_id=self.walking_bus_id,
+                    subscription_id=subscription.id,
+                    notification_type='schedule_reminder',
+                    success=True,
+                    status_code=200,
+                    notification_data={
+                        'participant_id': participant.id,
+                        'participant_name': participant.name,
+                        'attempted_send': False,
+                        'weekday': weekday,
+                        'normally_attends': normally_attends
+                    }
+                )
 
-                    # Base status message without weather
+                if not normally_attends:
+                    log_entry.notification_data['reason'] = f"Keine Teilnahme am {weekday}"
+                    db.session.add(log_entry)
+                    db.session.commit()
+                    continue
+
+                # Get calendar status
+                calendar_entry = CalendarStatus.query.filter_by(
+                    participant_id=participant.id,
+                    date=target_date,
+                    walking_bus_id=self.walking_bus_id
+                ).first()
+                
+                is_attending = calendar_entry.status if calendar_entry else normally_attends
+                
+                # Get additional info
+                weather_info = WeatherCalculation.query.filter_by(
+                    walking_bus_id=self.walking_bus_id,
+                    date=target_date
+                ).first()
+
+                bus_override = WalkingBusOverride.query.filter_by(
+                    walking_bus_id=self.walking_bus_id,
+                    date=target_date
+                ).first()
+
+                daily_note = DailyNote.query.filter_by(
+                    walking_bus_id=self.walking_bus_id,
+                    date=target_date
+                ).first()
+
+                # Check for school holidays/vacation (no push notifications during vacation)
+                holiday = SchoolHoliday.query\
+                    .filter(SchoolHoliday.start_date <= target_date)\
+                    .filter(SchoolHoliday.end_date >= target_date)\
+                    .first()
+                
+                if holiday:
+                    # Skip push notifications during vacation/holidays
+                    log_entry.notification_data['reason'] = f"Keine Push-Benachrichtigung während {holiday.name}"
+                    log_entry.notification_data['holiday_name'] = holiday.name
+                    db.session.add(log_entry)
+                    db.session.commit()
+                    continue
+
+                # Build message
+                if bus_override and not bus_override.is_active:
+                    status_message = f"❌ Heute kein Walking Bus ❌\nGrund: {bus_override.reason}"
+                else:
                     base_message = (
-                        f"{participant.name} ist für heute angemeldet ✅" 
+                        f"{participant.name} ist für heute angemeldet ✅"
                         if is_attending
                         else f"{participant.name} ist für heute abgemeldet ❌"
                     )
-
-                    # Only add weather info if calculations exist
+                    
+                    message_parts = [base_message]
+                    
                     if weather_info:
                         weather_message = "Es bleibt trocken ☀️"
                         if weather_info.precipitation > 0.5:
                             weather_message = f"Starker Regen erwartet 🌧️ ({weather_info.precipitation:.2f}mm)"
                         elif weather_info.precipitation > 0:
                             weather_message = f"Leichter Regen erwartet 🌦️ ({weather_info.precipitation:.2f}mm)"
-                        status_message = f"{base_message}\n \n{weather_message}"
-                    else:
-                        status_message = base_message
-
-                    notification_data = {
-                        'title': 'Walking Bus Erinnerung',
-                        'body': status_message,
-                        'data': {
-                            'type': 'schedule_reminder',
-                            'participantId': participant.id,
-                            'participantName': participant.name,
-                            'currentStatus': is_attending,
-                            'date': target_date.isoformat()
-                        },
-                        'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
-                        'actions': [
-                            {
-                                'action': 'toggle_status',
-                                'title': 'Abmelden' if is_attending else 'Anmelden'
-                            },
-                            {
-                                'action': 'okay',
-                                'title': 'OK'
-                            }
-                        ],
-                        'requireInteraction': True
-                    }
+                        message_parts.append(weather_message)
                     
-                    success, error = self.send_notification(subscription, notification_data)
-                    results.append({
-                        'subscription_id': subscription.id,
-                        'participant': participant.name,
-                        'status': 'attending' if is_attending else 'not_attending',
-                        'success': success,
-                        'error': error
-                    })
-        
+                    if daily_note:
+                        message_parts.append(f"Hinweis: {daily_note.note}")
+                        
+                    status_message = "\n".join(message_parts)
+
+                notification_data = {
+                    'title': 'Walking Bus Erinnerung',
+                    'body': status_message,
+                    'data': {
+                        'type': 'schedule_reminder',
+                        'participantId': participant.id,
+                        'participantName': participant.name,
+                        'currentStatus': is_attending,
+                        'date': target_date.isoformat()
+                    },
+                    'tag': f'schedule-reminder-{participant.id}-{int(time.time())}',
+                    'actions': [
+                        {
+                            'action': 'okay',
+                            'title': 'OK'
+                        }
+                    ] if bus_override and not bus_override.is_active else [
+                        {
+                            'action': 'toggle_status',
+                            'title': 'Abmelden' if is_attending else 'Anmelden'
+                        },
+                        {
+                            'action': 'okay',
+                            'title': 'OK'
+                        }
+                    ],
+                    'requireInteraction': True
+                }
+
+                # Mark as attempted before sending
+                log_entry.notification_data['attempted_send'] = True
+                log_entry.notification_data['message'] = status_message
+                db.session.add(log_entry)
+                db.session.commit()
+
+                current_app.logger.info(f"""
+                    [PUSH][DEBUG] Created log entry:
+                    - Participant: {participant.id}
+                    - Attempted: {log_entry.notification_data.get('attempted_send')}
+                    - Data: {log_entry.notification_data}
+                """)
+                
+                # Send notification with deferred pause handling
+                success, error, error_info = self.send_notification(subscription, notification_data, defer_subscription_pause=True)
+                
+                # Track fatal errors for later subscription pause
+                if not success and error_info and error_info.get('should_pause'):
+                    subscription_error_info = error_info
+                
+                results.append({
+                    'subscription_id': subscription.id,
+                    'participant': participant.name,
+                    'status': 'attending' if is_attending else 'not_attending',
+                    'success': success,
+                    'error': error
+                })
+
+            # Handle subscription pause after all participants processed
+            if subscription_error_info:
+                subscription.is_active = False
+                subscription.paused_at = get_current_time()
+                subscription.pause_reason = subscription_error_info['error_str']
+                subscription.last_error_code = subscription_error_info['status_code']
+                db.session.commit()
+                current_app.logger.info(f"[PUSH][PAUSE] Subscription {subscription.id} paused after processing all participants - Status: {subscription_error_info['status_code']}")
+
         cleanup_result = self.cleanup_expired_subscriptions()
         
         return {
             'notifications_sent': results,
             'cleanup': cleanup_result
         }
+
 
     def cleanup_expired_subscriptions(self):
         try:

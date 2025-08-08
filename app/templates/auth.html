@@ -3,33 +3,58 @@
 (function() {
     window.TokenManager = class TokenManager {
         async getToken() {
-            // Direct cookie access using regex
-            const cookieString = document.cookie;
-            console.log('[AUTH.HTML] Raw cookie string:', cookieString);
-            
-            // Use regex to find auth_token
-            const match = cookieString.match(/auth_token=([^;]+)/);
-            console.log('[AUTH.HTML] Cookie match result:', match);
-            
-            if (match && match[1]) {
-                const token = match[1];
-                console.log('[AUTH.HTML] Found token:', token);
-                return token;
-            }
+            try {
+                // First try cookie-based auth
+                const response = await fetch('/api/check-auth-cookie', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
 
-            // Fallback to localStorage
-            const localToken = localStorage.getItem('auth_token');
-            console.log('[AUTH.HTML] LocalStorage token:', localToken);
-            
-            if (localToken) {
-                document.cookie = `auth_token=${localToken}; max-age=${30*24*60*60}; secure; samesite=Strict`;
-                return localToken;
+                const data = await response.json();
+                
+                if (data.authenticated && data.auth_token) {
+                    console.log('[AUTH.HTML] Cookie token found');
+                    // Add this: Ensure localStorage backup matches cookie
+                    localStorage.setItem('auth_token', data.auth_token);
+                    console.log('[AUTH.HTML] Backup cookie in localStorage');
+                    return data.auth_token;
+                }
+                
+                // If cookie auth failed, try localStorage backup
+                const localToken = localStorage.getItem('auth_token');
+                if (localToken) {
+                    console.log('[AUTH.HTML] Found token in localStorage, attempting validation');
+                    
+                    const backupResponse = await fetch('/api/check-auth-localstorage', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ token: localToken })
+                    });
+                    
+                    const backupData = await backupResponse.json();
+                    
+                    if (backupData.success && backupData.auth_token) {
+                        console.log('[AUTH.HTML] localStorage token validated');
+                        return backupData.auth_token;
+                    }
+                    
+                    // Clear invalid localStorage token
+                    localStorage.removeItem('auth_token');
+                }
+                
+                console.log('[AUTH.HTML] No valid token found');
+                return null;
+                
+            } catch (error) {
+                console.error('[AUTH.HTML] GetToken error:', error);
+                return null;
             }
-
-            return null;
         }
-
-
 
         async storeToken(token) {
             // Store in localStorage as backup
@@ -52,28 +77,51 @@ window.tokenManager = new TokenManager();
 (function() {
     // Make auth functions globally available
     window.fetchWithAuth = async function(url, options = {}) {
-    try {
-        // Cookie will be sent automatically
-        const response = await fetch(url, options);
+        try {
+            const token = await tokenManager.getToken();
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+            
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'Authorization': `Bearer ${token}`
+                }
+            });
 
-        if (response.status === 401) {
-            await tokenManager.clearToken();
-            window.location.href = '/login';
-            return;
+            // Add this check
+            if (response.status === 401) {
+                await tokenManager.clearToken();
+                window.location.href = '/login';
+                return;
+            }
+
+            return response;
+        } catch (error) {
+            throw error;
         }
-
-        return response;
-    } catch (error) {
-        throw error;
-    }
-};
+    };
 
     // Initialize Axios interceptor
     axios.interceptors.request.use(async (config) => {
-        // No need to add Authorization header - cookie is sent automatically
+        console.log(`[AUTH] Intercepting ${config.method?.toUpperCase()} request to: ${config.url}`);
+        
+        const token = await tokenManager.getToken();
+        
+        if (!token) {
+            console.log('[AUTH] No token found in interceptor, redirecting');
+            window.location.href = '/login';
+            return Promise.reject(new Error('No auth token'));
+        }
+        
+        config.headers['Authorization'] = `Bearer ${token}`;
+        config.headers['Accept'] = 'application/json';
+        config.headers['Content-Type'] = 'application/json';
+        
         return config;
-    }, (error) => {
-        return Promise.reject(error);
     });
 
 
@@ -87,15 +135,10 @@ window.tokenManager = new TokenManager();
         },
         error => {
             if (error.response?.status === 401) {
-                if (error.response?.data?.code === 'PASSWORD_CHANGED') {
-                    console.log('[AUTH.HTML] Password changed, clearing all tokens');
-                } else {
-                    console.log('[AUTH.HTML] Received 401, clearing tokens and redirecting to login');
-                }
-                
-                tokenManager.clearToken();
-                window.location.href = '/login';
-            }
+            console.log('[AUTH] Received 401 in axios response, clearing token');
+            tokenManager.clearToken();
+            window.location.href = '/login';
+        }
             return Promise.reject(error);
         }
     );
@@ -109,11 +152,15 @@ async function loginUser() {
         return;
     }
 
-    form.addEventListener('submit', async (event) => {
+    // Remove any existing submit handlers
+    const newForm = form.cloneNode(true);
+    form.parentNode.replaceChild(newForm, form);
+
+    newForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         console.log('[AUTH.HTML] Form submission prevented, preparing to send login request.');
 
-        const formData = new FormData(form);
+        const formData = new FormData(newForm);
 
         try {
             const response = await fetch('/login', {
@@ -125,28 +172,27 @@ async function loginUser() {
                 }
             });
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             const data = await response.json();
             console.log('[AUTH.HTML] Response received:', data);
 
             if (!data.success) {
-                // Update bus selection if needed
                 if (data.buses) {
-                    const select = form.querySelector('select[name="walking_bus"]');
+                    const select = newForm.querySelector('select[name="walking_bus"]');
                     if (select) {
                         select.innerHTML = data.buses.map(bus =>
                             `<option value="${bus.id}" ${bus.id == data.selected_bus_id ? 'selected' : ''}>${bus.name}</option>`
                         ).join('');
                     }
                 }
-
-                // Show error message
-                showErrorMessage(form, data.error);
+                showErrorMessage(newForm, data.error);
                 return;
             }
 
-            // Handle successful login
             const { auth_token: authToken, redirect_url: redirectUrl } = data;
-
             if (authToken) {
                 console.log('[AUTH.HTML] Processing auth token');
                 await tokenManager.storeToken(authToken);
@@ -154,7 +200,7 @@ async function loginUser() {
             }
         } catch (error) {
             console.error('[AUTH.HTML] Login error:', error);
-            showErrorMessage(form, 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+            showErrorMessage(newForm, 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
         }
     });
 }
