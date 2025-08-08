@@ -1225,6 +1225,44 @@ def get_bus_weather():
                 }
             })
         
+        # No calculation found - try to create one from available data
+        print(f"[WEATHER] No calculation found, trying to create one from available data")
+        from app.services.weather_service import WeatherService
+        from app.models import WalkingBusSchedule
+        
+        schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=bus_id).first()
+        if schedule:
+            weather_service = WeatherService()
+            weather_data = weather_service.get_weather_for_timeframe(date_obj, schedule, include_details=True)
+            
+            if weather_data:
+                # Create and save the calculation
+                calc = WeatherCalculation(
+                    walking_bus_id=bus_id,
+                    date=date_obj,
+                    icon=weather_data['result']['icon'],
+                    precipitation=weather_data['result']['precipitation'],
+                    pop=weather_data['result']['pop'],
+                    calculation_type=weather_data['calculation_details']['coverage_type'],
+                    last_updated=get_current_time()
+                )
+                db.session.add(calc)
+                db.session.commit()
+                
+                print(f"[WEATHER] Created calculation: type={calc.calculation_type}, "
+                      f"precip={calc.precipitation}, pop={calc.pop}")
+                
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'icon': calc.icon,
+                        'precipitation': calc.precipitation,
+                        'pop': calc.pop,
+                        'calculation_type': calc.calculation_type,
+                        'last_updated': calc.last_updated.isoformat()
+                    }
+                })
+        
         print(f"[WEATHER] No data for bus {bus_id} on {date_obj}")
         return jsonify({
             'status': 'success',

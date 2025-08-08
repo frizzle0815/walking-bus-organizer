@@ -752,9 +752,12 @@ class WeatherService:
             return result
 
         logger.info("[WEATHER][TIMEFRAME] No hourly data, falling back to daily")
-        daily_timestamp = datetime.combine(date, time(12, 0), tzinfo=TIMEZONE)
+        # Search for daily record for the given date (regardless of exact time)
+        date_start = datetime.combine(date, time(0, 0), tzinfo=TIMEZONE)
+        date_end = datetime.combine(date, time(23, 59, 59), tzinfo=TIMEZONE)
+        
         daily_record = Weather.query.filter(
-            Weather.timestamp == daily_timestamp,
+            Weather.timestamp.between(date_start, date_end),
             Weather.forecast_type == 'daily'
         ).first()
 
@@ -779,7 +782,7 @@ class WeatherService:
                         'coverage_type': 'daily',
                         'data_type': 'daily',
                         'daily_used': {
-                            'timestamp': daily_record.timestamp.strftime('%Y-%m-%d'),
+                            'timestamp': daily_record.timestamp.strftime('%Y-%m-%d %H:%M'),
                             'total_precipitation': daily_record.total_precipitation,
                             'pop': daily_record.pop
                         }
