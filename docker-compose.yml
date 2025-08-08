@@ -50,9 +50,8 @@ services:
       retries: 5
 
   scheduler:
-    build: 
-      context: .
-      dockerfile: Dockerfile.scheduler
+    build: .
+    command: ["python", "-m", "app.scheduler_worker"]
     depends_on:
       db:
         condition: service_healthy
@@ -70,9 +69,8 @@ services:
       - vapid_keys:/app/data
 
   registration:
-    build: 
-      context: .
-      dockerfile: Dockerfile.registration
+    build: .
+    command: ["python", "registration_app/run.py"]
     ports:
       - "8001:5001"
     depends_on:
