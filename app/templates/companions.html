@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+<div class="container-fluid px-2">
+    <h1 class="h3 text-center my-3">Begleiter-Verwaltung</h1>
+
+    <!-- Dienstplan für die nächsten 4 Wochen -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-calendar-alt me-2"></i>
+                Dienstplan - Nächste 4 Wochen
+            </h5>
+        </div>
+        <div class="card-body">
+            <div id="scheduleContainer" class="schedule-overview">
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Lade Dienstplan...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Begleiter-Verwaltung -->
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-users me-2"></i>
+                Begleiter-Verwaltung
+            </h5>
+        </div>
+        <div class="card-body">
+            <!-- Add Companion Button -->
+            <div class="d-grid mb-3">
+                <button id="addCompanionBtn" class="btn btn-primary btn-lg">
+                    <i class="fas fa-plus"></i> Neuer Begleiter
+                </button>
+            </div>
+
+            <!-- Companions Container -->
+            <div id="companionsContainer">
+                <!-- Companion cards will be inserted here -->
+            </div>
+
+            <!-- Companion Template -->
+            <div class="companion-template d-none">
+                <div class="card mb-3 companion-card">
+                    <div class="card-header d-flex align-items-center bg-light py-2">
+                        <input type="text" class="form-control companion-name me-2" placeholder="Name des Begleiters">
+                        <div class="form-check me-2">
+                            <input type="checkbox" class="form-check-input is-substitute" id="substitute-{id}">
+                            <label class="form-check-label" for="substitute-{id}">Springer</label>
+                        </div>
+                        <button class="btn btn-danger btn-sm delete-companion">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="days-container d-flex justify-content-between">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input monday" id="mon-companion-{id}">
+                                <label class="form-check-label" for="mon-companion-{id}">Mo</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input tuesday" id="tue-companion-{id}">
+                                <label class="form-check-label" for="tue-companion-{id}">Di</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input wednesday" id="wed-companion-{id}">
+                                <label class="form-check-label" for="wed-companion-{id}">Mi</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input thursday" id="thu-companion-{id}">
+                                <label class="form-check-label" for="thu-companion-{id}">Do</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input friday" id="fri-companion-{id}">
+                                <label class="form-check-label" for="fri-companion-{id}">Fr</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input saturday" id="sat-companion-{id}">
+                                <label class="form-check-label" for="sat-companion-{id}">Sa</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input sunday" id="sun-companion-{id}">
+                                <label class="form-check-label" for="sun-companion-{id}">So</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Companion Modal -->
+<div class="modal fade" id="addCompanionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Begleiter hinzufügen</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <select id="companionSelect" class="form-select">
+                    <option value="">Begleiter auswählen...</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="button" class="btn btn-primary" id="confirmAddCompanion">Hinzufügen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.schedule-overview {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.schedule-day {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+    background-color: #ffffff;
+}
+
+.schedule-day-header {
+    background-color: #f8f9fa;
+    padding: 0.75rem;
+    font-weight: 600;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.schedule-companions {
+    padding: 0.75rem;
+}
+
+.companion-badge {
+    background-color: #0d6efd;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    margin: 0.125rem;
+    display: inline-block;
+    font-size: 0.875rem;
+    position: relative;
+}
+
+.companion-badge.substitute {
+    background-color: #6c757d;
+}
+
+.companion-badge.manual {
+    background-color: #198754;
+}
+
+.companion-badge .remove-btn {
+    background: rgba(255, 255, 255, 0.3);
+    border: none;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    margin-left: 0.25rem;
+    font-size: 0.7rem;
+    cursor: pointer;
+    color: white;
+}
+
+.add-companion-btn {
+    background-color: #e9ecef;
+    border: 2px dashed #6c757d;
+    color: #6c757d;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    margin: 0.125rem;
+    display: inline-block;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.add-companion-btn:hover {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    color: white;
+}
+
+.companion-card {
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-check-label {
+    font-size: 0.9rem;
+    margin-left: 4px;
+}
+
+.form-check-input:disabled {
+    background-color: #e9ecef;
+    border-color: #ced4da;
+}
+
+.form-check-input:disabled + .form-check-label {
+    color: #6c757d;
+}
+
+.days-container .form-check {
+    margin-bottom: 0;
+}
+
+@media (max-width: 576px) {
+    .days-container {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.5rem;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let globalSchedule = {};
+    let companions = [];
+    let selectedDate = null;
+    let addCompanionModal;
+
+    const companionsContainer = document.getElementById('companionsContainer');
+    const addCompanionBtn = document.getElementById('addCompanionBtn');
+    const scheduleContainer = document.getElementById('scheduleContainer');
+    const companionTemplate = document.querySelector('.companion-template');
+
+    // Initialize Bootstrap modal
+    addCompanionModal = new bootstrap.Modal(document.getElementById('addCompanionModal'));
+
+    // Load initial data
+    loadWalkingBusSchedule().then(() => {
+        loadCompanions();
+        loadScheduleOverview();
+    });
+
+    // Event listeners
+    addCompanionBtn.addEventListener('click', createNewCompanion);
+    document.getElementById('confirmAddCompanion').addEventListener('click', addCompanionToDate);
+
+    async function loadWalkingBusSchedule() {
+        try {
+            const response = await fetchWithAuth('/api/walking-bus-schedule');
+            globalSchedule = await response.json();
+            console.log('Loaded walking bus schedule:', globalSchedule);
+        } catch (error) {
+            console.error('Failed to load walking bus schedule:', error);
+        }
+    }
+
+    async function loadCompanions() {
+        try {
+            const response = await fetchWithAuth('/api/companions');
+            companions = await response.json();
+            renderCompanions();
+        } catch (error) {
+            console.error('Failed to load companions:', error);
+        }
+    }
+
+    async function loadScheduleOverview() {
+        try {
+            const now = new Date();
+            const response = await fetchWithAuth(`/api/companions/schedule/${now.getFullYear()}/${now.getMonth()}`);
+            const scheduleData = await response.json();
+            renderScheduleOverview(scheduleData);
+        } catch (error) {
+            console.error('Failed to load schedule overview:', error);
+            scheduleContainer.innerHTML = '<div class="alert alert-danger">Fehler beim Laden des Dienstplans</div>';
+        }
+    }
+
+    function renderScheduleOverview(scheduleData) {
+        if (scheduleData.length === 0) {
+            scheduleContainer.innerHTML = '<div class="alert alert-info">Keine Walking Bus Tage in den nächsten 4 Wochen</div>';
+            return;
+        }
+
+        const html = scheduleData.map(day => {
+            const date = new Date(day.date);
+            const dateStr = date.toLocaleDateString('de-DE', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+
+            const companionsHtml = day.companions.map(companion => `
+                <span class="companion-badge ${companion.is_substitute ? 'substitute' : ''} ${companion.is_manual ? 'manual' : ''}" 
+                      title="${companion.is_substitute ? 'Springer' : ''} ${companion.is_manual ? '(Manuell hinzugefügt)' : ''}">
+                    ${companion.name}
+                    <button class="remove-btn" onclick="removeCompanionFromDate(${companion.id}, '${day.date}')" 
+                            title="Entfernen">×</button>
+                </span>
+            `).join('');
+
+            return `
+                <div class="schedule-day">
+                    <div class="schedule-day-header">
+                        ${dateStr}
+                    </div>
+                    <div class="schedule-companions">
+                        ${companionsHtml}
+                        <span class="add-companion-btn" onclick="showAddCompanionModal('${day.date}')" 
+                              title="Begleiter hinzufügen">
+                            <i class="fas fa-plus"></i>
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        scheduleContainer.innerHTML = html;
+    }
+
+    function renderCompanions() {
+        companionsContainer.innerHTML = '';
+        
+        companions.forEach(companion => {
+            const companionCard = createCompanionCard(companion);
+            companionsContainer.appendChild(companionCard);
+        });
+    }
+
+    function createCompanionCard(companion) {
+        console.log('Creating companion card for:', companion);
+        console.log('Current globalSchedule:', globalSchedule);
+        
+        const newCompanion = companionTemplate.cloneNode(true);
+        newCompanion.classList.remove('d-none', 'companion-template');
+        
+        const companionCard = newCompanion.querySelector('.companion-card');
+        companionCard.dataset.companionId = companion.id;
+        
+        // Set companion name
+        const nameInput = newCompanion.querySelector('.companion-name');
+        nameInput.value = companion.name;
+        nameInput.addEventListener('change', () => updateCompanion(companion.id, { name: nameInput.value }));
+        
+        // Set substitute checkbox
+        const substituteCheck = newCompanion.querySelector('.is-substitute');
+        substituteCheck.id = `substitute-${companion.id}`;
+        substituteCheck.checked = companion.is_substitute;
+        substituteCheck.addEventListener('change', () => {
+            updateCompanion(companion.id, { is_substitute: substituteCheck.checked });
+            // Hide/show day checkboxes based on substitute status
+            toggleDaysVisibility(newCompanion, substituteCheck.checked);
+            
+            // Update checkbox disabled state when substitute status changes
+            updateDaysCheckboxes(newCompanion, companion.id, substituteCheck.checked);
+        });
+        
+        // Update label for attribute
+        const substituteLabel = newCompanion.querySelector('label[for="substitute-{id}"]');
+        if (substituteLabel) {
+            substituteLabel.setAttribute('for', `substitute-${companion.id}`);
+        }
+
+        // Set weekday checkboxes
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        days.forEach(day => {
+            const checkbox = newCompanion.querySelector(`.${day}`);
+            const label = newCompanion.querySelector(`label[for="${day}-companion-{id}"]`);
+            
+            if (checkbox && label) {
+                checkbox.id = `${day}-companion-${companion.id}`;
+                label.setAttribute('for', `${day}-companion-${companion.id}`);
+                
+                checkbox.checked = companion[day];
+                
+                // Enable/disable based on walking bus schedule and substitute status
+                const isScheduleActive = globalSchedule[day] && globalSchedule[day].active;
+                checkbox.disabled = !isScheduleActive || companion.is_substitute;
+                
+                console.log(`Day ${day}: scheduleActive=${isScheduleActive}, isSubstitute=${companion.is_substitute}, disabled=${checkbox.disabled}`);
+                
+                if (!isScheduleActive) {
+                    label.classList.add('text-muted');
+                }
+                
+                checkbox.addEventListener('change', () => {
+                    const updateData = {};
+                    updateData[day] = checkbox.checked;
+                    console.log(`Updating companion ${companion.id} for ${day}:`, checkbox.checked);
+                    updateCompanion(companion.id, updateData);
+                });
+            }
+        });
+
+        // Initially hide/show days based on substitute status
+        toggleDaysVisibility(newCompanion, companion.is_substitute);
+        
+        // Delete button
+        const deleteBtn = newCompanion.querySelector('.delete-companion');
+        deleteBtn.addEventListener('click', () => deleteCompanion(companion.id, newCompanion));
+        
+        return newCompanion;
+    }
+
+    function toggleDaysVisibility(companionElement, isSubstitute) {
+        const daysContainer = companionElement.querySelector('.days-container');
+        if (isSubstitute) {
+            daysContainer.style.display = 'none';
+        } else {
+            daysContainer.style.display = 'flex';
+        }
+    }
+
+    function updateDaysCheckboxes(companionElement, companionId, isSubstitute) {
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        days.forEach(day => {
+            const checkbox = companionElement.querySelector(`.${day}`);
+            if (checkbox) {
+                const isScheduleActive = globalSchedule[day] && globalSchedule[day].active;
+                checkbox.disabled = !isScheduleActive || isSubstitute;
+                console.log(`Updated ${day} checkbox for companion ${companionId}: disabled=${checkbox.disabled}`);
+            }
+        });
+    }
+
+    async function createNewCompanion() {
+        try {
+            // Ensure schedule is loaded before creating companion
+            if (!globalSchedule || Object.keys(globalSchedule).length === 0) {
+                await loadWalkingBusSchedule();
+            }
+            
+            const response = await fetchWithAuth('/api/companions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Neuer Begleiter' })
+            });
+            
+            const newCompanion = await response.json();
+            companions.push(newCompanion);
+            
+            const companionCard = createCompanionCard(newCompanion);
+            companionsContainer.appendChild(companionCard);
+            
+            // Focus on name input
+            companionCard.querySelector('.companion-name').focus();
+            
+        } catch (error) {
+            console.error('Failed to create companion:', error);
+        }
+    }
+
+    async function updateCompanion(companionId, data) {
+        try {
+            console.log(`Sending update for companion ${companionId}:`, data);
+            
+            const response = await fetchWithAuth(`/api/companions/${companionId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            const result = await response.json();
+            console.log('Update response:', result);
+            
+            // Update local data
+            const companion = companions.find(c => c.id === companionId);
+            if (companion) {
+                Object.assign(companion, data);
+            }
+            
+            // Refresh schedule overview to reflect changes
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to update companion:', error);
+        }
+    }
+
+    async function deleteCompanion(companionId, element) {
+        if (!confirm('Begleiter wirklich löschen?')) {
+            return;
+        }
+        
+        try {
+            await fetchWithAuth(`/api/companions/${companionId}`, {
+                method: 'DELETE'
+            });
+            
+            element.remove();
+            companions = companions.filter(c => c.id !== companionId);
+            
+            // Refresh schedule overview
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to delete companion:', error);
+        }
+    }
+
+    // Global functions for onclick handlers
+    window.showAddCompanionModal = function(date) {
+        selectedDate = date;
+        
+        // Populate companion select
+        const companionSelect = document.getElementById('companionSelect');
+        companionSelect.innerHTML = '<option value="">Begleiter auswählen...</option>';
+        
+        companions.forEach(companion => {
+            const option = document.createElement('option');
+            option.value = companion.id;
+            option.textContent = companion.name + (companion.is_substitute ? ' (Springer)' : '');
+            companionSelect.appendChild(option);
+        });
+        
+        addCompanionModal.show();
+    };
+
+    window.removeCompanionFromDate = async function(companionId, date) {
+        try {
+            await fetchWithAuth('/api/companions/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    companion_id: companionId,
+                    date: date,
+                    action: 'remove'
+                })
+            });
+            
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to remove companion from date:', error);
+        }
+    };
+
+    async function addCompanionToDate() {
+        const companionSelect = document.getElementById('companionSelect');
+        const companionId = companionSelect.value;
+        
+        if (!companionId || !selectedDate) {
+            return;
+        }
+        
+        try {
+            await fetchWithAuth('/api/companions/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    companion_id: parseInt(companionId),
+                    date: selectedDate,
+                    action: 'add'
+                })
+            });
+            
+            addCompanionModal.hide();
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to add companion to date:', error);
+        }
+    }
+});
+</script>
+{% endblock %}

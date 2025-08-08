@@ -349,3 +349,46 @@ class Route(db.Model):
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class Companion(db.Model):
+    __tablename__ = 'companions'
+    
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    position = db.Column(db.Integer, nullable=False, default=0)  # Reihenfolge für die Anzeige
+    
+    # Wochentage wie bei den Participants
+    monday = db.Column(db.Boolean, default=False)
+    tuesday = db.Column(db.Boolean, default=False)
+    wednesday = db.Column(db.Boolean, default=False)
+    thursday = db.Column(db.Boolean, default=False)
+    friday = db.Column(db.Boolean, default=False)
+    saturday = db.Column(db.Boolean, default=False)
+    sunday = db.Column(db.Boolean, default=False)
+    
+    # Springer haben keinen festen Wochentag
+    is_substitute = db.Column(db.Boolean, default=False)
+    
+    # Relationships
+    walking_bus = db.relationship('WalkingBus', backref='companions')
+
+
+class CompanionSchedule(db.Model):
+    __tablename__ = 'companion_schedules'
+    
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    companion_id = db.Column(db.Integer, db.ForeignKey('companions.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    is_scheduled = db.Column(db.Boolean, default=True)  # True = eingeteilt, False = abgesagt
+    is_manual_override = db.Column(db.Boolean, default=False)  # True = manuell hinzugefügt/entfernt
+    
+    # Relationships
+    companion = db.relationship('Companion', backref='schedules')
+    walking_bus = db.relationship('WalkingBus', backref='companion_schedules')
+    
+    __table_args__ = (
+        db.UniqueConstraint('companion_id', 'date', name='uq_companion_date'),
+    )
