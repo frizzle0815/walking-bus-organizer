@@ -379,16 +379,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 checkbox.checked = companion[day];
                 
-                // Enable/disable based on walking bus schedule and substitute status
-                const isScheduleActive = globalSchedule[day] && globalSchedule[day].active;
-                checkbox.disabled = !isScheduleActive || companion.is_substitute;
-                
-                console.log(`Day ${day}: scheduleActive=${isScheduleActive}, isSubstitute=${companion.is_substitute}, disabled=${checkbox.disabled}`);
-                
-                if (!isScheduleActive) {
-                    label.classList.add('text-muted');
-                }
-                
                 checkbox.addEventListener('change', () => {
                     const updateData = {};
                     updateData[day] = checkbox.checked;
@@ -397,6 +387,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             }
         });
+
+        // Update checkbox states after setting them up
+        updateDaysCheckboxes(newCompanion, companion.id, companion.is_substitute);
 
         // Initially hide/show days based on substitute status
         toggleDaysVisibility(newCompanion, companion.is_substitute);
@@ -418,13 +411,34 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateDaysCheckboxes(companionElement, companionId, isSubstitute) {
+        console.log(`updateDaysCheckboxes called for companion ${companionId}, isSubstitute=${isSubstitute}`);
+        console.log('globalSchedule at update time:', globalSchedule);
+        
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
         days.forEach(day => {
             const checkbox = companionElement.querySelector(`.${day}`);
+            // Find label by the checkbox's actual ID after it's been set
+            const checkboxId = checkbox ? checkbox.id : `${day}-companion-${companionId}`;
+            const label = companionElement.querySelector(`label[for="${checkboxId}"]`);
+            
+            console.log(`Processing day ${day}: checkbox found=${!!checkbox}, label found=${!!label}, checkboxId=${checkboxId}`);
+            
             if (checkbox) {
                 const isScheduleActive = globalSchedule[day] && globalSchedule[day].active;
                 checkbox.disabled = !isScheduleActive || isSubstitute;
-                console.log(`Updated ${day} checkbox for companion ${companionId}: disabled=${checkbox.disabled}`);
+                
+                // Update label styling based on schedule status if label exists
+                if (label) {
+                    if (!isScheduleActive || isSubstitute) {
+                        label.classList.add('text-muted');
+                    } else {
+                        label.classList.remove('text-muted');
+                    }
+                }
+                
+                console.log(`Updated ${day} checkbox for companion ${companionId}: scheduleActive=${isScheduleActive}, isSubstitute=${isSubstitute}, disabled=${checkbox.disabled}`);
+            } else {
+                console.log(`FAILED to find checkbox for ${day}`);
             }
         });
     }
