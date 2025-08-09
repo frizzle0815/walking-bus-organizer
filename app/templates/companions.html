@@ -122,35 +122,150 @@
 .schedule-overview {
     max-height: 400px;
     overflow-y: auto;
+    overflow-x: auto;
 }
 
-.schedule-day {
+/* Grid Layout Styles */
+.schedule-grid {
     border: 1px solid #dee2e6;
     border-radius: 0.375rem;
-    margin-bottom: 1rem;
+    overflow: hidden;
+    min-width: 100%;
     background-color: #ffffff;
 }
 
-.schedule-day-header {
+.schedule-header {
+    display: grid;
     background-color: #f8f9fa;
-    padding: 0.75rem;
     font-weight: 600;
-    border-bottom: 1px solid #dee2e6;
+    border-bottom: 2px solid #dee2e6;
+    grid-template-columns: repeat(var(--active-days), 1fr);
+    min-width: max-content;
 }
 
-.schedule-companions {
-    padding: 0.75rem;
+.schedule-week-row {
+    display: grid;
+    border-bottom: 1px solid #dee2e6;
+    grid-template-columns: repeat(var(--active-days), 1fr);
+    min-height: 80px;
+    min-width: max-content;
+}
+
+.month-header {
+    background-color: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-weight: 600;
+    color: #495057;
+    grid-column: 1 / -1;
+}
+
+.month-name {
+    font-size: 0.9rem;
+}
+
+.day-header-cell {
+    padding: 0.75rem 0.5rem;
+    text-align: center;
+    border-right: 1px solid #dee2e6;
+    background-color: #f8f9fa;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.day-cell {
+    padding: 0.5rem;
+    border-right: 1px solid #dee2e6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 80px;
+    position: relative;
+}
+
+.day-cell.cancelled {
+    background-color: #fff5f5;
+    border-color: #fed7d7;
+}
+
+.day-number {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #495057;
+    margin-bottom: 0.25rem;
+}
+
+.day-companions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    flex: 1;
+    width: 100%;
+}
+
+.day-status {
+    color: #6c757d;
+    font-size: 0.7rem;
+    text-align: center;
+    padding: 0.2rem;
+    font-style: italic;
+    line-height: 1.2;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.day-number.day-inactive {
+    color: #6c757d;
+    opacity: 0.7;
+}
+
+.day-number.manual-override {
+    position: relative;
+}
+
+.day-number.manual-override::after {
+    content: '✎';
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    font-size: 0.6rem;
+    opacity: 0.7;
+}
+
+.no-data {
+    color: #adb5bd;
+    font-style: italic;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
 }
 
 .companion-badge {
     background-color: #0d6efd;
     color: white;
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.375rem;
-    margin: 0.125rem;
-    display: inline-block;
-    font-size: 0.875rem;
+    padding: 0.2rem 0.4rem;
+    padding-right: 1.4rem;
+    border-radius: 0.25rem;
+    margin: 0.1rem 0;
+    display: block;
+    font-size: 0.75rem;
     position: relative;
+    text-align: left;
+    width: 100%;
+    max-width: 120px;
+}
+
+.companion-name {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
 }
 
 .companion-badge.substitute {
@@ -167,23 +282,33 @@
     border-radius: 50%;
     width: 18px;
     height: 18px;
-    margin-left: 0.25rem;
     font-size: 0.7rem;
     cursor: pointer;
     color: white;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    z-index: 1;
 }
 
 .add-companion-btn {
     background-color: #e9ecef;
-    border: 2px dashed #6c757d;
+    border: 1px dashed #6c757d;
     color: #6c757d;
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.375rem;
-    margin: 0.125rem;
-    display: inline-block;
-    font-size: 0.875rem;
+    padding: 0.3rem;
+    border-radius: 0.25rem;
+    margin: 0.1rem 0;
+    display: block;
+    font-size: 0.7rem;
     cursor: pointer;
     transition: all 0.2s;
+    width: 100%;
+    text-align: center;
+    max-width: 120px;
 }
 
 .add-companion-btn:hover {
@@ -215,11 +340,106 @@
     margin-bottom: 0;
 }
 
-@media (max-width: 576px) {
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+    .schedule-overview {
+        max-height: 300px;
+    }
+    
+    .month-name {
+        font-size: 0.8rem;
+    }
+    
+    .day-header-cell {
+        padding: 0.5rem 0.3rem;
+        font-size: 0.8rem;
+    }
+    
+    .day-cell {
+        padding: 0.3rem;
+        min-height: 70px;
+    }
+    
+    .day-number {
+        font-size: 0.75rem;
+    }
+    
+    .companion-badge {
+        font-size: 0.65rem;
+        padding: 0.15rem 0.3rem;
+        padding-right: 1.2rem;
+        max-width: 100px;
+    }
+    
+    .add-companion-btn {
+        font-size: 0.6rem;
+        padding: 0.25rem;
+        max-width: 100px;
+    }
+    
+    .day-status {
+        font-size: 0.6rem;
+        padding: 0.1rem;
+    }
+    
+    .companion-badge .remove-btn {
+        width: 16px;
+        height: 16px;
+        font-size: 0.6rem;
+        top: 1px;
+        right: 1px;
+    }
+    
     .days-container {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .schedule-overview {
+        max-height: 250px;
+    }
+    
+    .month-name {
+        font-size: 0.75rem;
+    }
+    
+    .day-header-cell {
+        padding: 0.4rem 0.2rem;
+        font-size: 0.75rem;
+    }
+    
+    .day-cell {
+        padding: 0.2rem;
+        min-height: 60px;
+    }
+    
+    .companion-badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.2rem;
+        padding-right: 1rem;
+        max-width: 80px;
+    }
+    
+    .add-companion-btn {
+        font-size: 0.55rem;
+        padding: 0.2rem;
+        max-width: 80px;
+    }
+    
+    .day-status {
+        font-size: 0.55rem;
+        padding: 0.05rem;
+    }
+    
+    .companion-badge .remove-btn {
+        width: 14px;
+        height: 14px;
+        font-size: 0.55rem;
+        top: 1px;
+        right: 1px;
     }
 }
 </style>
@@ -272,56 +492,350 @@ document.addEventListener('DOMContentLoaded', function() {
     async function loadScheduleOverview() {
         try {
             const now = new Date();
-            const response = await fetchWithAuth(`/api/companions/schedule/${now.getFullYear()}/${now.getMonth()}`);
-            const scheduleData = await response.json();
-            renderScheduleOverview(scheduleData);
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const currentWeekStart = getWeekStart(today);
+            
+            // Calculate the end of 4 weeks from current week start (end of 4th week = Sunday)
+            const fourWeeksEnd = new Date(currentWeekStart);
+            fourWeeksEnd.setDate(fourWeeksEnd.getDate() + (4 * 7) - 1); // End of 4th week (Sunday)
+            
+            // Add a safety buffer to ensure we get the next month too
+            const safeEnd = new Date(fourWeeksEnd);
+            safeEnd.setDate(safeEnd.getDate() + 7); // Add one more week as buffer
+            
+            console.log('Debug: Lade Schedule-Daten von', currentWeekStart.toISOString().split('T')[0], 'bis', fourWeeksEnd.toISOString().split('T')[0]);
+            console.log('Debug: Mit Puffer bis', safeEnd.toISOString().split('T')[0]);
+            
+            // Debug: Datum-Problem in loadScheduleOverview
+            console.log('Debug: loadScheduleOverview now =', now);
+            console.log('Debug: loadScheduleOverview today =', today);
+            console.log('Debug: API wird aufgerufen für Jahr/Monat:', now.getFullYear(), '/', now.getMonth());
+            
+            // Determine which months we need to load for complete 4-week coverage + buffer
+            const startYear = currentWeekStart.getFullYear();
+            const startMonth = currentWeekStart.getMonth();
+            const endYear = safeEnd.getFullYear();
+            const endMonth = safeEnd.getMonth();
+            
+            // Build list of year/month combinations to load
+            const monthsToLoad = [];
+            let currentYear = startYear;
+            let currentMonth = startMonth;
+            
+            while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
+                monthsToLoad.push({ year: currentYear, month: currentMonth });
+                currentMonth++;
+                if (currentMonth > 11) {
+                    currentMonth = 0;
+                    currentYear++;
+                }
+            }
+            
+            console.log('Debug: Monate zum Laden:', monthsToLoad);
+            
+            // Load all required months for schedule data plus calendar data
+            const schedulePromises = monthsToLoad.map(({year, month}) => 
+                fetchWithAuth(`/api/companions/schedule/${year}/${month}`)
+            );
+            const calendarPromise = fetchWithAuth(`/api/calendar/months/${startYear}/${startMonth}/4`);
+            
+            const [calendarResponse, ...scheduleResponses] = await Promise.all([
+                calendarPromise,
+                ...schedulePromises
+            ]);
+            
+            const calendarData = await calendarResponse.json();
+            const scheduleDataArrays = await Promise.all(scheduleResponses.map(r => r.json()));
+            
+            // Combine all months of schedule data
+            const scheduleData = scheduleDataArrays.flat();
+            
+            console.log('Debug: Schedule-Daten pro Monat:', scheduleDataArrays.map((data, i) => 
+                `Monat ${monthsToLoad[i].year}-${monthsToLoad[i].month + 1}: ${data.length} Tage`
+            ));
+            
+            renderScheduleOverview(scheduleData, calendarData);
         } catch (error) {
             console.error('Failed to load schedule overview:', error);
             scheduleContainer.innerHTML = '<div class="alert alert-danger">Fehler beim Laden des Dienstplans</div>';
         }
     }
 
-    function renderScheduleOverview(scheduleData) {
+    function renderScheduleOverview(scheduleData, calendarData) {
         if (scheduleData.length === 0) {
             scheduleContainer.innerHTML = '<div class="alert alert-info">Keine Walking Bus Tage in den nächsten 4 Wochen</div>';
             return;
         }
 
-        const html = scheduleData.map(day => {
+        // Create schedule lookup map
+        const scheduleMap = {};
+        scheduleData.forEach(day => {
+            scheduleMap[day.date] = day;
+        });
+
+        // Filter für vollständige Wochen: Beginne mit der aktuellen Woche
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Nur Datum, ohne Zeit
+        const currentWeekStart = getWeekStart(today);
+        
+        // WICHTIG: Nutze Calendar-Daten als master source für alle Tage
+        // Schedule-API gibt nur Tage zurück, die bereits Zuweisungen haben!
+        const filteredData = calendarData.filter(day => {
+            const dayDate = new Date(day.date);
+            const dayName = getDayName(dayDate.getDay());
+            const activeDays = getActiveDaysFromSchedule();
+            
+            // Nur Tage ab aktueller Woche UND nur normalerweise aktive Wochentage
+            return dayDate >= currentWeekStart && activeDays.includes(dayName);
+        }).map(calendarDay => {
+            // Ergänze Calendar-Daten mit Schedule-Daten falls vorhanden
+            const scheduleDay = scheduleMap[calendarDay.date];
+            
+            console.log(`Debug: Tag ${calendarDay.date}, is_active: ${calendarDay.is_active}, scheduleDay: ${scheduleDay ? 'vorhanden' : 'nicht vorhanden'}`);
+            
+            return {
+                date: calendarDay.date,
+                companions: scheduleDay ? scheduleDay.companions : [],
+                is_active: calendarDay.is_active,
+                reason: calendarDay.reason,
+                reason_type: calendarDay.reason_type
+            };
+        });
+        
+        console.log('Debug: Heute ist', today.toISOString().split('T')[0]);
+        console.log('Debug: Aktuelle Woche startet', currentWeekStart.toISOString().split('T')[0]);
+        
+        // Debug: Zeitzone und Datum-Details
+        const nowRaw = new Date();
+        console.log('Debug: nowRaw =', nowRaw);
+        console.log('Debug: nowRaw.toISOString() =', nowRaw.toISOString());
+        console.log('Debug: nowRaw.toLocaleDateString() =', nowRaw.toLocaleDateString());
+        console.log('Debug: Browser Zeitzone:', Intl.DateTimeFormat().resolvedOptions().timeZone);
+        console.log('Debug: now.getFullYear() =', nowRaw.getFullYear());
+        console.log('Debug: now.getMonth() =', nowRaw.getMonth());
+        console.log('Debug: now.getDate() =', nowRaw.getDate());
+        console.log('Debug: Gefilterte Daten:', filteredData.length, 'Tage');
+        console.log('Debug: Calendar Daten:', calendarData.length, 'Tage');
+        console.log('Debug: Schedule Daten original:', scheduleData.length, 'Tage');
+        
+        // Debug: Zeige Datumsbereich der Schedule-Daten
+        if (scheduleData.length > 0) {
+            const dates = scheduleData.map(d => d.date).sort();
+            console.log('Debug: Schedule Datumsbereich:', dates[0], 'bis', dates[dates.length-1]);
+            
+            // Debug: Zeige alle August-Tage in scheduleData
+            const augustDates = dates.filter(d => d.startsWith('2025-08')).sort();
+            console.log('Debug: August-Tage in scheduleData:', augustDates);
+        }
+        
+        // Debug: Zeige alle Daten für 29.08.
+        const aug29 = '2025-08-29';
+        const scheduleForAug29 = scheduleData.find(d => d.date === aug29);
+        const calendarForAug29 = calendarData.find(d => d.date === aug29);
+        const filteredForAug29 = filteredData.find(d => d.date === aug29);
+        console.log('Debug: 29.08. in scheduleData:', scheduleForAug29);
+        console.log('Debug: 29.08. in calendarData:', calendarForAug29);
+        console.log('Debug: 29.08. in filteredData:', filteredForAug29);
+        
+        // Debug: Zeige alle filteredData Daten rund um den 29.08.
+        const aug28 = filteredData.find(d => d.date === '2025-08-28');
+        const aug29filtered = filteredData.find(d => d.date === '2025-08-29');
+        const sep01 = filteredData.find(d => d.date === '2025-09-01');
+        console.log('Debug: 28.08. in filteredData:', aug28);
+        console.log('Debug: 29.08. in filteredData:', aug29filtered);
+        console.log('Debug: 01.09. in filteredData:', sep01);
+        
+
+
+        // Group data by weeks
+        const weekGroups = {};
+        const activeDays = getActiveDaysFromSchedule();
+        
+        // Set CSS custom property for grid columns
+        document.documentElement.style.setProperty('--active-days', activeDays.length);
+        
+        filteredData.forEach(day => {
             const date = new Date(day.date);
-            const dateStr = date.toLocaleDateString('de-DE', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
+            const weekStart = getWeekStart(date);
+            const weekKey = weekStart.toISOString().split('T')[0];
+            
+            if (!weekGroups[weekKey]) {
+                weekGroups[weekKey] = {
+                    weekStart: weekStart,
+                    days: {}
+                };
+            }
+            
+            const dayName = getDayName(date.getDay());
+            if (activeDays.includes(dayName)) {
+                weekGroups[weekKey].days[dayName] = day;
+            }
+        });
+
+        // Alle Tage sind bereits in filteredData enthalten, keine weitere Ergänzung nötig
+        console.log('Debug: Alle Tage bereits gefiltert und ergänzt');
+        
+        // Debug: Prüfe ob 29.08. in weekGroups ist
+        Object.entries(weekGroups).forEach(([weekKey, week]) => {
+            if (week.days.friday && week.days.friday.date === aug29) {
+                console.log('Debug: 29.08. gefunden in Woche', weekKey, ':', week.days.friday);
+            }
+        });
+        
+        // Debug: Prüfe welcher Wochentag der 29.08. ist
+        const aug29Date = new Date('2025-08-29');
+        const aug29DayName = getDayName(aug29Date.getDay());
+        console.log('Debug: 29.08. ist ein', aug29DayName);
+        console.log('Debug: Aktive Tage:', getActiveDaysFromSchedule());
+
+        // Sort weeks chronologically and group by month
+        const sortedWeeks = Object.values(weekGroups).sort((a, b) => a.weekStart - b.weekStart);
+        const monthGroups = {};
+        
+        sortedWeeks.forEach(week => {
+            const monthKey = week.weekStart.toISOString().substring(0, 7); // YYYY-MM
+            if (!monthGroups[monthKey]) {
+                monthGroups[monthKey] = [];
+            }
+            monthGroups[monthKey].push(week);
+        });
+
+        let html = '<div class="schedule-grid">';
+        
+        // Generate header with active day names
+        html += '<div class="schedule-header">';
+        activeDays.forEach(dayName => {
+            html += `<div class="day-header-cell">${getDayAbbreviation(dayName)}</div>`;
+        });
+        html += '</div>';
+
+        // Generate rows for each month and week
+        Object.entries(monthGroups).forEach(([monthKey, weeks]) => {
+            const monthDate = new Date(monthKey + '-01');
+            const monthName = monthDate.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+            
+            // Month header
+            html += `<div class="month-header">
+                        <div class="month-name">${monthName}</div>
+                     </div>`;
+            
+            // Weeks in this month
+            weeks.forEach(week => {
+                html += '<div class="schedule-week-row">';
+                
+                activeDays.forEach(dayName => {
+                    const dayData = week.days[dayName];
+                    
+                    // Debug für 29.08.
+                    if (dayData && dayData.date === '2025-08-29') {
+                        console.log('Debug: Rendere 29.08.:', dayData);
+                    }
+                    
+                    // Add CSS classes for cancelled days
+                    const cellClasses = ['day-cell'];
+                    if (dayData && !dayData.is_active) {
+                        cellClasses.push('cancelled');
+                    }
+                    
+                    html += `<div class="${cellClasses.join(' ')}">`;
+                    
+                    if (dayData) {
+                        const date = new Date(dayData.date);
+                        const dayNumber = date.getDate();
+                        
+                        // Add day-specific CSS classes
+                        const cellClasses = [];
+                        const isActive = dayData.is_active !== false;
+                        
+                        if (!isActive) {
+                            cellClasses.push('day-inactive');
+                        }
+                        if (dayData.reason_type === 'MANUAL_OVERRIDE') {
+                            cellClasses.push('manual-override');
+                        }
+                        
+                        html += `<div class="day-number ${cellClasses.join(' ')}">${dayNumber}</div>`;
+                        
+                        if (isActive) {
+                            const companionsHtml = dayData.companions.map(companion => `
+                                <span class="companion-badge ${companion.is_substitute ? 'substitute' : ''} ${companion.is_manual ? 'manual' : ''}" 
+                                      title="${companion.is_substitute ? 'Springer' : ''} ${companion.is_manual ? '(Manuell hinzugefügt)' : ''}">
+                                    <span class="companion-name">${companion.name}</span>
+                                    <button class="remove-btn" onclick="removeCompanionFromDate(${companion.id}, '${dayData.date}')" 
+                                            title="Entfernen">×</button>
+                                </span>
+                            `).join('');
+                            
+                            html += `<div class="day-companions">${companionsHtml}</div>`;
+                            html += `<span class="add-companion-btn" onclick="showAddCompanionModal('${dayData.date}')" 
+                                          title="Begleiter hinzufügen">
+                                        <i class="fas fa-plus"></i>
+                                     </span>`;
+                        } else {
+                            // Walking bus is not active - show reason
+                            html += `<div class="day-status">${dayData.reason || 'Kein Walking Bus'}</div>`;
+                        }
+                    } else {
+                        html += '<div class="no-data">-</div>';
+                    }
+                    
+                    html += '</div>';
+                });
+                
+                html += '</div>';
             });
-
-            const companionsHtml = day.companions.map(companion => `
-                <span class="companion-badge ${companion.is_substitute ? 'substitute' : ''} ${companion.is_manual ? 'manual' : ''}" 
-                      title="${companion.is_substitute ? 'Springer' : ''} ${companion.is_manual ? '(Manuell hinzugefügt)' : ''}">
-                    ${companion.name}
-                    <button class="remove-btn" onclick="removeCompanionFromDate(${companion.id}, '${day.date}')" 
-                            title="Entfernen">×</button>
-                </span>
-            `).join('');
-
-            return `
-                <div class="schedule-day">
-                    <div class="schedule-day-header">
-                        ${dateStr}
-                    </div>
-                    <div class="schedule-companions">
-                        ${companionsHtml}
-                        <span class="add-companion-btn" onclick="showAddCompanionModal('${day.date}')" 
-                              title="Begleiter hinzufügen">
-                            <i class="fas fa-plus"></i>
-                        </span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
+        });
+        
+        html += '</div>';
         scheduleContainer.innerHTML = html;
+    }
+
+    function getActiveDaysFromSchedule() {
+        const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        return dayNames.filter(dayName => globalSchedule[dayName] && globalSchedule[dayName].active);
+    }
+    
+
+
+    function getDayName(dayIndex) {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        return days[dayIndex];
+    }
+
+    function getDayAbbreviation(dayName) {
+        const abbreviations = {
+            'monday': 'Mo',
+            'tuesday': 'Di', 
+            'wednesday': 'Mi',
+            'thursday': 'Do',
+            'friday': 'Fr',
+            'saturday': 'Sa',
+            'sunday': 'So'
+        };
+        return abbreviations[dayName];
+    }
+
+    function getWeekStart(date) {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday as first day
+        return new Date(d.setDate(diff));
+    }
+
+    function getWeekNumber(date) {
+        const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+        const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+        return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+    }
+
+    function getWeekRange(weekStart) {
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        
+        const startStr = weekStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        const endStr = weekEnd.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        
+        return `${startStr} - ${endStr}`;
     }
 
     function renderCompanions() {
