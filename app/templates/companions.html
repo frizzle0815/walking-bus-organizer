@@ -327,16 +327,22 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderCompanions() {
         companionsContainer.innerHTML = '';
         
-        companions.forEach(companion => {
+        // Sort companions by position, then by ID for stable ordering
+        const sortedCompanions = [...companions].sort((a, b) => {
+            if (a.position !== b.position) {
+                return a.position - b.position;
+            }
+            // If positions are equal, sort by ID for consistent order
+            return a.id - b.id;
+        });
+        
+        sortedCompanions.forEach(companion => {
             const companionCard = createCompanionCard(companion);
             companionsContainer.appendChild(companionCard);
         });
     }
 
     function createCompanionCard(companion) {
-        console.log('Creating companion card for:', companion);
-        console.log('Current globalSchedule:', globalSchedule);
-        
         const newCompanion = companionTemplate.cloneNode(true);
         newCompanion.classList.remove('d-none', 'companion-template');
         
@@ -371,18 +377,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
         days.forEach(day => {
             const checkbox = newCompanion.querySelector(`.${day}`);
-            const label = newCompanion.querySelector(`label[for="${day}-companion-{id}"]`);
+            // Find label by the template pattern and fix it
+            const label = newCompanion.querySelector(`label[for*="companion-{id}"]`) || 
+                         newCompanion.querySelector(`label[for="${day.substring(0,3)}-companion-{id}"]`);
             
-            if (checkbox && label) {
-                checkbox.id = `${day}-companion-${companion.id}`;
-                label.setAttribute('for', `${day}-companion-${companion.id}`);
+            if (checkbox) {
+                const correctId = `${day.substring(0,3)}-companion-${companion.id}`;
+                checkbox.id = correctId;
+                
+                if (label) {
+                    label.setAttribute('for', correctId);
+                }
                 
                 checkbox.checked = companion[day];
                 
                 checkbox.addEventListener('change', () => {
                     const updateData = {};
                     updateData[day] = checkbox.checked;
-                    console.log(`Updating companion ${companion.id} for ${day}:`, checkbox.checked);
                     updateCompanion(companion.id, updateData);
                 });
             }
@@ -411,19 +422,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateDaysCheckboxes(companionElement, companionId, isSubstitute) {
-        console.log(`updateDaysCheckboxes called for companion ${companionId}, isSubstitute=${isSubstitute}`);
-        console.log('globalSchedule at update time:', globalSchedule);
-        
         const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
         days.forEach(day => {
             const checkbox = companionElement.querySelector(`.${day}`);
-            // Find label by the checkbox's actual ID after it's been set
-            const checkboxId = checkbox ? checkbox.id : `${day}-companion-${companionId}`;
-            const label = companionElement.querySelector(`label[for="${checkboxId}"]`);
-            
-            console.log(`Processing day ${day}: checkbox found=${!!checkbox}, label found=${!!label}, checkboxId=${checkboxId}`);
             
             if (checkbox) {
+                const correctId = `${day.substring(0,3)}-companion-${companionId}`;
+                const label = companionElement.querySelector(`label[for="${correctId}"]`);
+                
                 const isScheduleActive = globalSchedule[day] && globalSchedule[day].active;
                 checkbox.disabled = !isScheduleActive || isSubstitute;
                 
@@ -435,10 +441,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         label.classList.remove('text-muted');
                     }
                 }
-                
-                console.log(`Updated ${day} checkbox for companion ${companionId}: scheduleActive=${isScheduleActive}, isSubstitute=${isSubstitute}, disabled=${checkbox.disabled}`);
-            } else {
-                console.log(`FAILED to find checkbox for ${day}`);
             }
         });
     }
@@ -459,11 +461,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const newCompanion = await response.json();
             companions.push(newCompanion);
             
-            const companionCard = createCompanionCard(newCompanion);
-            companionsContainer.appendChild(companionCard);
+            // Re-render all companions to maintain correct order
+            renderCompanions();
             
-            // Focus on name input
-            companionCard.querySelector('.companion-name').focus();
+            // Focus on name input of the new companion
+            const newCompanionCard = document.querySelector(`[data-companion-id="${newCompanion.id}"]`);
+            if (newCompanionCard) {
+                newCompanionCard.querySelector('.companion-name').focus();
+            }
             
         } catch (error) {
             console.error('Failed to create companion:', error);
@@ -472,16 +477,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function updateCompanion(companionId, data) {
         try {
-            console.log(`Sending update for companion ${companionId}:`, data);
-            
             const response = await fetchWithAuth(`/api/companions/${companionId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
             
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const result = await response.json();
-            console.log('Update response:', result);
             
             // Update local data
             const companion = companions.find(c => c.id === companionId);

@@ -3316,10 +3316,15 @@ def create_companion():
     walking_bus_id = get_current_walking_bus_id()
     data = request.get_json()
     
+    # Get the next position for this walking bus
+    max_position = db.session.query(db.func.max(Companion.position))\
+                             .filter_by(walking_bus_id=walking_bus_id).scalar() or 0
+    next_position = max_position + 1
+    
     companion = Companion(
         walking_bus_id=walking_bus_id,
         name=data.get('name', 'Neuer Begleiter'),
-        position=data.get('position', 0),
+        position=data.get('position', next_position),
         monday=data.get('monday', False),
         tuesday=data.get('tuesday', False),
         wednesday=data.get('wednesday', False),
