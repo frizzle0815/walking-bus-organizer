@@ -893,7 +893,11 @@ function createReasonMap(stateReason, holidayData, isWalkingBusDay, scheduleData
     }
 
     if (stateReason === REASON_TYPES.MANUAL_OVERRIDE) {
-        return `Heute findet kein Walking Bus statt.<br>${reason}`;
+        if (validatedWalkingBusDay) {
+            return `Heute findet der Walking Bus statt.<br>${reason}`;
+        } else {
+            return `Heute findet kein Walking Bus statt.<br>${reason}`;
+        }
     }
 
     console.log('[REASON] Creating reason map with:', {

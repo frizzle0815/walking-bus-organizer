@@ -165,6 +165,12 @@ def renew_auth_token(old_token, verified_payload):
     Returns:
         dict containing new token and cookie settings
     """
+    # First, get the old token record and invalidate it to free up the token_identifier
+    old_token_record = AuthToken.query.get(old_token)
+    if old_token_record:
+        old_token_record.invalidate("Renewed with new token")
+        db.session.commit()
+    
     # Create new token with extended expiration, keeping same token_identifier
     auth_result = create_auth_token(
         verified_payload['walking_bus_id'],
@@ -174,14 +180,11 @@ def renew_auth_token(old_token, verified_payload):
     )
     
     # Update token chain
-    old_token_record = AuthToken.query.get(old_token)
     new_token_record = AuthToken.query.get(auth_result['token'])
     
-    old_token_record.renewed_to = auth_result['token']
-    new_token_record.renewed_from = old_token
-    
-    # Invalidate old token
-    old_token_record.invalidate("Renewed with new token")
+    if old_token_record:
+        old_token_record.renewed_to = auth_result['token']
+        new_token_record.renewed_from = old_token
     
     db.session.commit()
     return auth_result
