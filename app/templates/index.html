@@ -716,6 +716,23 @@
         color: #ffc107;
     }
 
+    .week-container .calendar-day .companions-warning-icon {
+        position: absolute;
+        bottom: -2px;
+        right: -4px;
+        font-size: 1.0em;
+        z-index: 2;
+        background-color: #007bff;
+        color: white;
+        border-radius: 50%;
+        width: 0.7em;
+        height: 0.7em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid white;
+    }
+
     #calendarModal .calendar-day {
         display: inline-flex;
         width: 40px;
@@ -1110,6 +1127,9 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
     
     // Update companions display for the current date after the view is rendered
     updateCompanionsDisplay(dailyStatus);
+    
+    // Update companions warnings for the week overview
+    updateCompanionsWarnings();
 }
 
 
@@ -1129,13 +1149,14 @@ function updateCompanionsDisplay(dailyStatus) {
 
     // Use companions data from dailyStatus
     const companions = dailyStatus.companions || [];
-    displayCompanions(companions);
+    const minCompanions = dailyStatus.minCompanions || 2;
+    displayCompanions(companions, minCompanions);
 }
 
-function displayCompanions(companions) {
+function displayCompanions(companions, minCompanions = 2) {
     const companionsDisplay = document.getElementById('companions-display');
     
-    if (!companions || companions.length === 0) {
+    if (!companions || (companions.length === 0 && minCompanions === 0)) {
         hideCompanions();
         return;
     }
@@ -1153,6 +1174,7 @@ function displayCompanions(companions) {
     const companionsList = document.createElement('div');
     companionsList.className = 'companions-list';
     
+    // Add existing companions
     companions.forEach((companion, index) => {
         const companionSpan = document.createElement('span');
         companionSpan.className = 'companion-name';
@@ -1163,12 +1185,28 @@ function displayCompanions(companions) {
         
         companionSpan.textContent = companion.name;
         
-        if (index < companions.length - 1) {
+        if (index < companions.length - 1 || companions.length < minCompanions) {
             companionSpan.textContent += ', ';
         }
         
         companionsList.appendChild(companionSpan);
     });
+    
+    // Add placeholders for missing companions
+    const missingCount = Math.max(0, minCompanions - companions.length);
+    for (let i = 0; i < missingCount; i++) {
+        const placeholderSpan = document.createElement('span');
+        placeholderSpan.className = 'companion-name placeholder';
+        placeholderSpan.style.color = '#6c757d';
+        placeholderSpan.style.fontStyle = 'italic';
+        placeholderSpan.textContent = '(fehlt)';
+        
+        if (i < missingCount - 1) {
+            placeholderSpan.textContent += ', ';
+        }
+        
+        companionsList.appendChild(placeholderSpan);
+    }
     
     companionsInfo.appendChild(icon);
     companionsInfo.appendChild(companionsList);
@@ -1183,6 +1221,39 @@ function hideCompanions() {
     if (companionsDisplay) {
         companionsDisplay.classList.remove('has-companions');
         companionsDisplay.innerHTML = '';
+    }
+}
+
+async function updateCompanionsWarnings() {
+    // Get all week days and check each for companions warnings
+    const weekDays = document.querySelectorAll('.calendar-day[data-date]');
+    
+    for (const dayElement of weekDays) {
+        const date = dayElement.dataset.date;
+        if (!date) continue;
+        
+        // Remove existing warning icon
+        const existingWarning = dayElement.querySelector('.companions-warning-icon');
+        if (existingWarning) {
+            existingWarning.remove();
+        }
+        
+        try {
+            // Get daily status for this date to check companions warning
+            const response = await fetchWithAuth(`/api/daily-status?date=${date}`);
+            if (!response.ok) continue;
+            const dayStatus = await response.json();
+            
+            // Show warning icon if companions warning is active
+            if (dayStatus.companionsWarning) {
+                const warningIcon = document.createElement('i');
+                warningIcon.className = 'fas fa-user-tie companions-warning-icon';
+                warningIcon.title = `Zu wenig Begleiter (${dayStatus.companions.length}/${dayStatus.minCompanions})`;
+                dayElement.appendChild(warningIcon);
+            }
+        } catch (error) {
+            console.error('Failed to check companions warning for', date);
+        }
     }
 }
 
@@ -1406,6 +1477,9 @@ async function selectDay(dateStr) {
 
         // Update companions display for the selected day
         updateCompanionsDisplay(dailyStatus);
+        
+        // Update companions warnings for week overview
+        updateCompanionsWarnings();
 
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);

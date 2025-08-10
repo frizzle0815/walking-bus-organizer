@@ -1210,6 +1210,10 @@ def get_daily_status():
                 'is_manual': is_manual
             })
 
+    # Get walking bus settings
+    walking_bus = WalkingBus.query.filter_by(id=walking_bus_id).first()
+    min_companions = walking_bus.min_companions if walking_bus and walking_bus.min_companions is not None else 2
+
     response = jsonify({
         "currentDate": target_date.isoformat(),
         "isWalkingBusDay": is_active,
@@ -1221,6 +1225,8 @@ def get_daily_status():
         "participantStates": participant_states,
         "participantAttendance": participant_attendance if target_date == get_current_date() else {},
         "companions": scheduled_companions,
+        "minCompanions": min_companions,
+        "companionsWarning": len(scheduled_companions) < min_companions and is_active and reason_type == 'ACTIVE',
         "new_auth_token": auth_result['token'] if auth_result else None
     })
 
@@ -3639,4 +3645,41 @@ def get_companions_for_date(date_str):
         'weekday': target_date.strftime('%A'),
         'companions': scheduled_companions
     })
+
+
+@bp.route("/api/walking-bus-settings")
+@require_auth
+def get_walking_bus_settings():
+    """Get Walking Bus settings like min_companions"""
+    walking_bus_id = get_current_walking_bus_id()
+    walking_bus = WalkingBus.query.filter_by(id=walking_bus_id).first()
+    
+    if not walking_bus:
+        return jsonify({"error": "Walking Bus nicht gefunden"}), 404
+    
+    return jsonify({
+        'min_companions': walking_bus.min_companions if walking_bus.min_companions is not None else 2
+    })
+
+
+@bp.route("/api/walking-bus-settings", methods=["POST"])
+@require_auth
+def update_walking_bus_settings():
+    """Update Walking Bus settings like min_companions"""
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    walking_bus = WalkingBus.query.filter_by(id=walking_bus_id).first()
+    if not walking_bus:
+        return jsonify({"error": "Walking Bus nicht gefunden"}), 404
+    
+    if 'min_companions' in data:
+        min_companions = data['min_companions']
+        if not isinstance(min_companions, int) or min_companions < 1 or min_companions > 5:
+            return jsonify({"error": "min_companions muss zwischen 1 und 5 liegen"}), 400
+        walking_bus.min_companions = min_companions
+    
+    db.session.commit()
+    
+    return jsonify({"success": True})
 
