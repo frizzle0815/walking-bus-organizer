@@ -1226,7 +1226,7 @@ def get_daily_status():
         "participantAttendance": participant_attendance if target_date == get_current_date() else {},
         "companions": scheduled_companions,
         "minCompanions": min_companions,
-        "companionsWarning": len(scheduled_companions) < min_companions and is_active and reason_type == 'ACTIVE',
+        "companionsWarning": len(scheduled_companions) < min_companions and is_active and (reason_type == 'ACTIVE' or reason_type == 'MANUAL_OVERRIDE'),
         "new_auth_token": auth_result['token'] if auth_result else None
     })
 

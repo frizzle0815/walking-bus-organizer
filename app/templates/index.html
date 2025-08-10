@@ -1142,7 +1142,13 @@ function updateCompanionsDisplay(dailyStatus) {
 
     // Check if Walking Bus is actually taking place on this day
     const reasonType = dailyStatus.reason_type || dailyStatus.stateReason;
-    if (!dailyStatus.isWalkingBusDay || reasonType !== 'ACTIVE') {
+    // Walking Bus is active if:
+    // 1. Regular active day (ACTIVE)
+    // 2. Manual override that activates the bus (MANUAL_OVERRIDE + isWalkingBusDay = true)
+    const isWalkingBusActive = dailyStatus.isWalkingBusDay && 
+        (reasonType === 'ACTIVE' || reasonType === 'MANUAL_OVERRIDE');
+    
+    if (!isWalkingBusActive) {
         hideCompanions();
         return;
     }
@@ -2300,7 +2306,8 @@ function render_applyDayStatus(dayElement, dayData) {
     } else if (dayData.reason_type === 'HOLIDAY') {
         currentState = WALKING_BUS_STATES.HOLIDAY;
     } else if (dayData.reason_type === 'MANUAL_OVERRIDE') {
-        currentState = WALKING_BUS_STATES.OVERRIDE;
+        // Manual override can be activating (green) or deactivating (red)
+        currentState = dayData.is_active ? WALKING_BUS_STATES.SCHEDULED : WALKING_BUS_STATES.OVERRIDE;
     } else if (dayData.is_active) {
         currentState = WALKING_BUS_STATES.SCHEDULED;
     } else {
