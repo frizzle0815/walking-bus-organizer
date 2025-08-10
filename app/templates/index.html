@@ -463,6 +463,51 @@
         border-radius: 50%; /* Optional: round the icon */
     }
 
+    /* Companions display styles */
+    .companions-display {
+        background-color: var(--participants-bg);
+        border-radius: 0 0 8px 8px;
+        margin: 0;
+        padding: 0;
+        height: 0;
+        overflow: hidden;
+        transition: padding 0.2s ease, height 0.2s ease;
+    }
+
+    .companions-display.has-companions {
+        padding: 8px 12px;
+        height: auto;
+    }
+
+    .companions-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #495057;
+        font-size: 0.85rem;
+    }
+
+    .companions-icon {
+        color: #495057;
+        font-size: 0.9rem;
+    }
+
+    .companions-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .companion-name {
+        color: #495057;
+        font-weight: 500;
+    }
+
+    .companion-name.substitute {
+        color: #6c757d;
+        font-style: italic;
+    }
+
 
     /* Compact view */
     .compact-view .participants-list {
@@ -1062,6 +1107,83 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
         updateStationStats(station.id, dailyStatus); 
     });
     updateTotalStats(dailyStatus);
+    
+    // Update companions display for the current date after the view is rendered
+    updateCompanionsDisplay(dailyStatus);
+}
+
+
+// Function to update companions display based on dailyStatus
+function updateCompanionsDisplay(dailyStatus) {
+    if (!dailyStatus) {
+        hideCompanions();
+        return;
+    }
+
+    // Check if Walking Bus is actually taking place on this day
+    const reasonType = dailyStatus.reason_type || dailyStatus.stateReason;
+    if (!dailyStatus.isWalkingBusDay || reasonType !== 'ACTIVE') {
+        hideCompanions();
+        return;
+    }
+
+    // Use companions data from dailyStatus
+    const companions = dailyStatus.companions || [];
+    displayCompanions(companions);
+}
+
+function displayCompanions(companions) {
+    const companionsDisplay = document.getElementById('companions-display');
+    
+    if (!companions || companions.length === 0) {
+        hideCompanions();
+        return;
+    }
+
+    // Show the container
+    companionsDisplay.classList.add('has-companions');
+    
+    // Create companions info
+    const companionsInfo = document.createElement('div');
+    companionsInfo.className = 'companions-info';
+    
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-user-tie companions-icon';
+    
+    const companionsList = document.createElement('div');
+    companionsList.className = 'companions-list';
+    
+    companions.forEach((companion, index) => {
+        const companionSpan = document.createElement('span');
+        companionSpan.className = 'companion-name';
+        
+        if (companion.is_substitute) {
+            companionSpan.classList.add('substitute');
+        }
+        
+        companionSpan.textContent = companion.name;
+        
+        if (index < companions.length - 1) {
+            companionSpan.textContent += ', ';
+        }
+        
+        companionsList.appendChild(companionSpan);
+    });
+    
+    companionsInfo.appendChild(icon);
+    companionsInfo.appendChild(companionsList);
+    
+    // Clear and update display
+    companionsDisplay.innerHTML = '';
+    companionsDisplay.appendChild(companionsInfo);
+}
+
+function hideCompanions() {
+    const companionsDisplay = document.getElementById('companions-display');
+    if (companionsDisplay) {
+        companionsDisplay.classList.remove('has-companions');
+        companionsDisplay.innerHTML = '';
+    }
 }
 
 
@@ -1281,6 +1403,9 @@ async function selectDay(dateStr) {
         
         // Update total stats
         updateTotalStats();
+
+        // Update companions display for the selected day
+        updateCompanionsDisplay(dailyStatus);
 
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);
@@ -1874,6 +1999,12 @@ function render_summaryCard(dailyStatus, statsTotal) {
 
     card.appendChild(header);
     card.appendChild(weekContainer);
+    
+    // Add companions container after week container
+    const companionsContainer = document.createElement('div');
+    companionsContainer.classList.add('companions-display');
+    companionsContainer.id = 'companions-display';
+    card.appendChild(companionsContainer);
     
     return card;
 }

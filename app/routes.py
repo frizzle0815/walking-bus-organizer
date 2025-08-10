@@ -1180,6 +1180,36 @@ def get_daily_status():
         if target_date == get_current_date():
             participant_attendance[participant.id] = calendar_entry.attendance if calendar_entry else False
 
+    # Get companions for this date
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    scheduled_companions = []
+    
+    for companion in companions:
+        # Check if companion is normally scheduled for this day
+        # Springer are not automatically scheduled - only manually
+        is_normally_scheduled = getattr(companion, weekday, False) and not companion.is_substitute
+        
+        # Check for manual overrides
+        schedule_entry = CompanionSchedule.query.filter_by(
+            companion_id=companion.id,
+            date=target_date
+        ).first()
+        
+        is_scheduled = is_normally_scheduled
+        is_manual = False
+        
+        if schedule_entry:
+            is_scheduled = schedule_entry.is_scheduled
+            is_manual = schedule_entry.is_manual_override
+        
+        if is_scheduled:
+            scheduled_companions.append({
+                'id': companion.id,
+                'name': companion.name,
+                'is_substitute': companion.is_substitute,
+                'is_manual': is_manual
+            })
+
     response = jsonify({
         "currentDate": target_date.isoformat(),
         "isWalkingBusDay": is_active,
@@ -1190,6 +1220,7 @@ def get_daily_status():
         "schedule": schedule_data,
         "participantStates": participant_states,
         "participantAttendance": participant_attendance if target_date == get_current_date() else {},
+        "companions": scheduled_companions,
         "new_auth_token": auth_result['token'] if auth_result else None
     })
 
@@ -3549,4 +3580,63 @@ def update_companion_schedule():
     db.session.commit()
     
     return jsonify({"success": True})
+
+
+@bp.route("/api/companions/for-date/<date_str>")
+@require_auth
+def get_companions_for_date(date_str):
+    """Get companions scheduled for a specific date"""
+    from datetime import datetime
+    
+    walking_bus_id = get_current_walking_bus_id()
+    
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Ungültiges Datum"}), 400
+    
+    # Get weekday (Monday = 0, Sunday = 6)
+    weekday = target_date.weekday()
+    weekday_mapping = {
+        0: 'monday', 1: 'tuesday', 2: 'wednesday', 3: 'thursday',
+        4: 'friday', 5: 'saturday', 6: 'sunday'
+    }
+    weekday_attr = weekday_mapping[weekday]
+    
+    # Get all companions for this walking bus
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    scheduled_companions = []
+    
+    for companion in companions:
+        # Check if companion is normally scheduled for this day
+        # Springer are not automatically scheduled - only manually
+        is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
+        
+        # Check for manual overrides
+        schedule_entry = CompanionSchedule.query.filter_by(
+            companion_id=companion.id,
+            date=target_date
+        ).first()
+        
+        is_scheduled = is_normally_scheduled
+        is_manual = False
+        
+        if schedule_entry:
+            is_scheduled = schedule_entry.is_scheduled
+            is_manual = schedule_entry.is_manual_override
+        
+        if is_scheduled:
+            scheduled_companions.append({
+                'id': companion.id,
+                'name': companion.name,
+                'is_substitute': companion.is_substitute,
+                'is_manual': is_manual
+            })
+    
+    return jsonify({
+        'date': date_str,
+        'weekday': target_date.strftime('%A'),
+        'companions': scheduled_companions
+    })
 
