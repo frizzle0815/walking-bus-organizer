@@ -507,7 +507,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const response = await fetchWithAuth('/api/walking-bus-schedule');
             globalSchedule = await response.json();
-            console.log('Loaded walking bus schedule:', globalSchedule);
+    
         } catch (error) {
             console.error('Failed to load walking bus schedule:', error);
         }
@@ -525,68 +525,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadScheduleOverview() {
         try {
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const currentWeekStart = getWeekStart(today);
-            
-            // Calculate the end of 4 weeks from current week start (end of 4th week = Sunday)
-            const fourWeeksEnd = new Date(currentWeekStart);
-            fourWeeksEnd.setDate(fourWeeksEnd.getDate() + (4 * 7) - 1); // End of 4th week (Sunday)
-            
-            // Add a safety buffer to ensure we get the next month too
-            const safeEnd = new Date(fourWeeksEnd);
-            safeEnd.setDate(safeEnd.getDate() + 7); // Add one more week as buffer
-            
-            console.log('Debug: Lade Schedule-Daten von', currentWeekStart.toISOString().split('T')[0], 'bis', fourWeeksEnd.toISOString().split('T')[0]);
-            console.log('Debug: Mit Puffer bis', safeEnd.toISOString().split('T')[0]);
-            
-            // Debug: Datum-Problem in loadScheduleOverview
-            console.log('Debug: loadScheduleOverview now =', now);
-            console.log('Debug: loadScheduleOverview today =', today);
-            console.log('Debug: API wird aufgerufen für Jahr/Monat:', now.getFullYear(), '/', now.getMonth());
-            
-            // Determine which months we need to load for complete 4-week coverage + buffer
-            const startYear = currentWeekStart.getFullYear();
-            const startMonth = currentWeekStart.getMonth();
-            const endYear = safeEnd.getFullYear();
-            const endMonth = safeEnd.getMonth();
-            
-            // Build list of year/month combinations to load
-            const monthsToLoad = [];
-            let currentYear = startYear;
-            let currentMonth = startMonth;
-            
-            while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
-                monthsToLoad.push({ year: currentYear, month: currentMonth });
-                currentMonth++;
-                if (currentMonth > 11) {
-                    currentMonth = 0;
-                    currentYear++;
-                }
-            }
-            
-            console.log('Debug: Monate zum Laden:', monthsToLoad);
-            
-            // Load all required months for schedule data plus calendar data
-            const schedulePromises = monthsToLoad.map(({year, month}) => 
-                fetchWithAuth(`/api/companions/schedule/${year}/${month}`)
-            );
-            const calendarPromise = fetchWithAuth(`/api/calendar/months/${startYear}/${startMonth}/4`);
-            
-            const [calendarResponse, ...scheduleResponses] = await Promise.all([
-                calendarPromise,
-                ...schedulePromises
+            // Lade Kalenderdaten und Dienstplandaten für die nächsten 4 Wochen mit den neuen Routen
+            const [calendarResponse, scheduleResponse] = await Promise.all([
+                fetchWithAuth('/api/calendar/schedule-overview'),
+                fetchWithAuth('/api/companions/schedule/overview')
             ]);
             
             const calendarData = await calendarResponse.json();
-            const scheduleDataArrays = await Promise.all(scheduleResponses.map(r => r.json()));
+            const scheduleData = await scheduleResponse.json();
             
-            // Combine all months of schedule data
-            const scheduleData = scheduleDataArrays.flat();
-            
-            console.log('Debug: Schedule-Daten pro Monat:', scheduleDataArrays.map((data, i) => 
-                `Monat ${monthsToLoad[i].year}-${monthsToLoad[i].month + 1}: ${data.length} Tage`
-            ));
+
             
             renderScheduleOverview(scheduleData, calendarData);
         } catch (error) {
@@ -607,79 +555,40 @@ document.addEventListener('DOMContentLoaded', function() {
             scheduleMap[day.date] = day;
         });
 
-        // Filter für vollständige Wochen: Beginne mit der aktuellen Woche
+        // Filter für die nächsten 4 Wochen ab aktueller Woche
         const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Nur Datum, ohne Zeit
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const currentWeekStart = getWeekStart(today);
-        
-        // WICHTIG: Nutze Calendar-Daten als master source für alle Tage
-        // Schedule-API gibt nur Tage zurück, die bereits Zuweisungen haben!
+        const fourWeeksEnd = new Date(currentWeekStart);
+        fourWeeksEnd.setDate(fourWeeksEnd.getDate() + (4 * 7) - 1);
+                
+        // Nutze Calendar-Daten als master source für alle Tage
         const filteredData = calendarData.filter(day => {
             const dayDate = new Date(day.date);
             const dayName = getDayName(dayDate.getDay());
             const activeDays = getActiveDaysFromSchedule();
             
-            // Nur Tage ab aktueller Woche UND nur normalerweise aktive Wochentage
-            return dayDate >= currentWeekStart && activeDays.includes(dayName);
+            const inTimeRange = dayDate >= currentWeekStart && dayDate <= fourWeeksEnd;
+            const isActiveDay = activeDays.includes(dayName);
+            
+            // Nur Tage in den nächsten 4 Wochen UND nur normalerweise aktive Wochentage
+            return inTimeRange && isActiveDay;
         }).map(calendarDay => {
             // Ergänze Calendar-Daten mit Schedule-Daten falls vorhanden
             const scheduleDay = scheduleMap[calendarDay.date];
             
-            console.log(`Debug: Tag ${calendarDay.date}, is_active: ${calendarDay.is_active}, scheduleDay: ${scheduleDay ? 'vorhanden' : 'nicht vorhanden'}`);
-            
             return {
                 date: calendarDay.date,
                 companions: scheduleDay ? scheduleDay.companions : [],
-                is_active: calendarDay.is_active,
+                is_active: calendarDay.isActive,
                 reason: calendarDay.reason,
-                reason_type: calendarDay.reason_type
+                reason_type: calendarDay.reasonType,
+                // Zusätzliche Infos für inaktive Tage von scheduleDay
+                schedule_is_active: scheduleDay ? scheduleDay.isActive : true,
+                schedule_reason_info: scheduleDay ? scheduleDay.reasonInfo : null
             };
         });
         
-        console.log('Debug: Heute ist', today.toISOString().split('T')[0]);
-        console.log('Debug: Aktuelle Woche startet', currentWeekStart.toISOString().split('T')[0]);
-        
-        // Debug: Zeitzone und Datum-Details
-        const nowRaw = new Date();
-        console.log('Debug: nowRaw =', nowRaw);
-        console.log('Debug: nowRaw.toISOString() =', nowRaw.toISOString());
-        console.log('Debug: nowRaw.toLocaleDateString() =', nowRaw.toLocaleDateString());
-        console.log('Debug: Browser Zeitzone:', Intl.DateTimeFormat().resolvedOptions().timeZone);
-        console.log('Debug: now.getFullYear() =', nowRaw.getFullYear());
-        console.log('Debug: now.getMonth() =', nowRaw.getMonth());
-        console.log('Debug: now.getDate() =', nowRaw.getDate());
-        console.log('Debug: Gefilterte Daten:', filteredData.length, 'Tage');
-        console.log('Debug: Calendar Daten:', calendarData.length, 'Tage');
-        console.log('Debug: Schedule Daten original:', scheduleData.length, 'Tage');
-        
-        // Debug: Zeige Datumsbereich der Schedule-Daten
-        if (scheduleData.length > 0) {
-            const dates = scheduleData.map(d => d.date).sort();
-            console.log('Debug: Schedule Datumsbereich:', dates[0], 'bis', dates[dates.length-1]);
-            
-            // Debug: Zeige alle August-Tage in scheduleData
-            const augustDates = dates.filter(d => d.startsWith('2025-08')).sort();
-            console.log('Debug: August-Tage in scheduleData:', augustDates);
-        }
-        
-        // Debug: Zeige alle Daten für 29.08.
-        const aug29 = '2025-08-29';
-        const scheduleForAug29 = scheduleData.find(d => d.date === aug29);
-        const calendarForAug29 = calendarData.find(d => d.date === aug29);
-        const filteredForAug29 = filteredData.find(d => d.date === aug29);
-        console.log('Debug: 29.08. in scheduleData:', scheduleForAug29);
-        console.log('Debug: 29.08. in calendarData:', calendarForAug29);
-        console.log('Debug: 29.08. in filteredData:', filteredForAug29);
-        
-        // Debug: Zeige alle filteredData Daten rund um den 29.08.
-        const aug28 = filteredData.find(d => d.date === '2025-08-28');
-        const aug29filtered = filteredData.find(d => d.date === '2025-08-29');
-        const sep01 = filteredData.find(d => d.date === '2025-09-01');
-        console.log('Debug: 28.08. in filteredData:', aug28);
-        console.log('Debug: 29.08. in filteredData:', aug29filtered);
-        console.log('Debug: 01.09. in filteredData:', sep01);
-        
-
 
         // Group data by weeks
         const weekGroups = {};
@@ -705,22 +614,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 weekGroups[weekKey].days[dayName] = day;
             }
         });
-
-        // Alle Tage sind bereits in filteredData enthalten, keine weitere Ergänzung nötig
-        console.log('Debug: Alle Tage bereits gefiltert und ergänzt');
-        
-        // Debug: Prüfe ob 29.08. in weekGroups ist
-        Object.entries(weekGroups).forEach(([weekKey, week]) => {
-            if (week.days.friday && week.days.friday.date === aug29) {
-                console.log('Debug: 29.08. gefunden in Woche', weekKey, ':', week.days.friday);
-            }
-        });
-        
-        // Debug: Prüfe welcher Wochentag der 29.08. ist
-        const aug29Date = new Date('2025-08-29');
-        const aug29DayName = getDayName(aug29Date.getDay());
-        console.log('Debug: 29.08. ist ein', aug29DayName);
-        console.log('Debug: Aktive Tage:', getActiveDaysFromSchedule());
 
         // Sort weeks chronologically and group by month
         const sortedWeeks = Object.values(weekGroups).sort((a, b) => a.weekStart - b.weekStart);
@@ -760,10 +653,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 activeDays.forEach(dayName => {
                     const dayData = week.days[dayName];
                     
-                    // Debug für 29.08.
-                    if (dayData && dayData.date === '2025-08-29') {
-                        console.log('Debug: Rendere 29.08.:', dayData);
-                    }
                     
                     // Add CSS classes for cancelled days
                     const cellClasses = ['day-cell'];
@@ -779,7 +668,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // Add day-specific CSS classes
                         const cellClasses = [];
-                        const isActive = dayData.is_active !== false;
+                        const isActive = dayData.is_active !== false && dayData.schedule_is_active !== false;
                         
                         if (!isActive) {
                             cellClasses.push('day-inactive');
@@ -828,7 +717,32 @@ document.addEventListener('DOMContentLoaded', function() {
                             html += dayContent;
                         } else {
                             // Walking bus is not active - show reason
-                            html += `<div class="day-status">${dayData.reason || 'Kein Walking Bus'}</div>`;
+                            let reason = 'Kein Walking Bus';
+                            
+                            // Prüfe verschiedene Reason-Quellen in Prioritätsreihenfolge
+                            if (dayData.schedule_reason_info) {
+                                if (typeof dayData.schedule_reason_info === 'string') {
+                                    reason = dayData.schedule_reason_info;
+                                } else if (dayData.schedule_reason_info.reason) {
+                                    const reasonObj = dayData.schedule_reason_info.reason;
+                                    if (typeof reasonObj === 'string') {
+                                        reason = reasonObj;
+                                    } else if (reasonObj.short_reason) {
+                                        reason = reasonObj.short_reason;
+                                    } else if (reasonObj.full_reason) {
+                                        reason = reasonObj.full_reason;
+                                    }
+                                }
+                            } else if (dayData.reason) {
+                                if (typeof dayData.reason === 'string') {
+                                    reason = dayData.reason;
+                                } else if (dayData.reason.short_reason) {
+                                    reason = dayData.reason.short_reason;
+                                } else if (dayData.reason.full_reason) {
+                                    reason = dayData.reason.full_reason;
+                                }
+                            }
+                            html += `<div class="day-status">${reason}</div>`;
                         }
                     } else {
                         html += '<div class="no-data">-</div>';

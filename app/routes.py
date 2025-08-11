@@ -3086,6 +3086,62 @@ def update_holiday_cache():
     service.update_holiday_cache()
 
 
+@bp.route('/api/calendar/schedule-overview')
+@require_auth
+def get_schedule_overview():
+    """Lädt Kalenderdaten für die nächsten 4 Wochen ab heute"""
+    walking_bus_id = get_current_walking_bus_id()
+    
+    today = datetime.now().date()
+    
+    # Berechne Wochenstart (Montag) der aktuellen Woche
+    days_since_monday = today.weekday()
+    week_start = today - timedelta(days=days_since_monday)
+    
+    # Ende der 4. Woche (Sonntag)
+    week_end = week_start + timedelta(days=27)  # 4 Wochen = 28 Tage, -1 für Ende
+    
+    calendar_data = []
+    current_date = week_start
+    
+    while current_date <= week_end:
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        daily_note = DailyNote.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        # Map reason types to display text - keeping the original mapping
+        display_reason = {
+            "NO_SCHEDULE": "Keine Planung",
+            "INACTIVE_WEEKDAY": "Kein Bus",
+            "WEEKEND": "Wochenende",
+            "HOLIDAY": reason,
+            "VACATION_BREAK": reason,
+            "WEATHER": reason,
+            "CUSTOM_NOTE": reason,
+            "NORMAL": None
+        }.get(reason_type, reason)
+        
+        calendar_data.append({
+            'date': current_date.isoformat(),
+            'isActive': is_active,
+            'reason': display_reason,
+            'reasonType': reason_type,
+            'hasNote': daily_note is not None,
+            'noteText': daily_note.note if daily_note else None,
+            'isToday': current_date == today,
+            'isPast': current_date < today
+        })
+        
+        current_date += timedelta(days=1)
+    
+    return jsonify(calendar_data)
+
 @bp.route('/api/calendar/months/<int:year>/<int:month>/<int:count>')
 @require_auth
 def get_calendar_months(year, month, count):
@@ -3490,16 +3546,19 @@ def delete_companion(companion_id):
 @bp.route("/api/companions/schedule/<int:year>/<int:month>")
 @require_auth
 def get_companion_schedule(year, month):
-    """Get companion schedule for 4 weeks starting from given month"""
+    """Get companion schedule for specified month"""
     from datetime import date, timedelta
     
     walking_bus_id = get_current_walking_bus_id()
     
-    # Calculate start date (beginning of specified month)
-    start_date = date(year, month + 1, 1)  # month is 0-indexed from frontend
+    # Calculate start and end date for the entire month
+    start_date = date(year, month, 1)  # month is 1-indexed from frontend
     
-    # Calculate end date (4 weeks later)
-    end_date = start_date + timedelta(weeks=4)
+    # Calculate end date (end of month)
+    if month == 12:
+        end_date = date(year + 1, 1, 1)
+    else:
+        end_date = date(year, month + 1, 1)
     
     # Get schedule and walking bus schedule
     schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
@@ -3508,7 +3567,7 @@ def get_companion_schedule(year, month):
     
     companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
     
-    # Generate schedule data for 4 weeks
+    # Generate schedule data for the entire month
     schedule_data = []
     current_date = start_date
     
@@ -3553,6 +3612,105 @@ def get_companion_schedule(year, month):
                 'weekday': current_date.strftime('%A'),
                 'companions': scheduled_companions
             })
+        
+        current_date += timedelta(days=1)
+    
+    return jsonify(schedule_data)
+
+
+@bp.route("/api/companions/schedule/overview")
+@require_auth
+def get_companion_schedule_overview():
+    """Get companion schedule for the next 4 weeks"""
+    from datetime import date, timedelta
+    
+    walking_bus_id = get_current_walking_bus_id()
+    today = date.today()
+    
+    # Berechne Wochenstart (Montag) der aktuellen Woche
+    days_since_monday = today.weekday()
+    week_start = today - timedelta(days=days_since_monday)
+    
+    # Ende der 4. Woche (Sonntag)
+    week_end = week_start + timedelta(days=27)  # 4 Wochen = 28 Tage, -1 für Ende
+    
+    # Get schedule and walking bus schedule
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    if not schedule:
+        return jsonify({"error": "Keine Walking Bus Planung gefunden"}), 404
+    
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    # Generate schedule data for the 4 weeks
+    schedule_data = []
+    current_date = week_start
+    
+    while current_date <= week_end:
+        # Check if walking bus is active on this day
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        
+        scheduled_companions = []
+        reason_info = None
+        
+        if is_active:
+            weekday = current_date.weekday()
+            weekday_attr = WEEKDAY_MAPPING[weekday]
+            
+            # Get companions scheduled for this weekday
+            for companion in companions:
+                # Check if companion is normally scheduled for this day
+                # Springer are not automatically scheduled - only manually
+                is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
+                
+                # Check for manual overrides
+                schedule_entry = CompanionSchedule.query.filter_by(
+                    companion_id=companion.id,
+                    date=current_date
+                ).first()
+                
+                is_scheduled = is_normally_scheduled
+                is_manual = False
+                
+                if schedule_entry:
+                    is_scheduled = schedule_entry.is_scheduled
+                    is_manual = schedule_entry.is_manual_override
+                
+                if is_scheduled:
+                    scheduled_companions.append({
+                        'id': companion.id,
+                        'name': companion.name,
+                        'is_substitute': companion.is_substitute,
+                        'is_manual': is_manual
+                    })
+        else:
+            # For inactive days, show the reason
+            display_reason = {
+                "NO_SCHEDULE": "Keine Planung",
+                "INACTIVE_WEEKDAY": "Kein Bus",
+                "WEEKEND": "Wochenende",
+                "HOLIDAY": reason,
+                "VACATION_BREAK": reason,
+                "WEATHER": reason,
+                "CUSTOM_NOTE": reason,
+                "NORMAL": None
+            }.get(reason_type, reason)
+            
+            reason_info = {
+                'reason': display_reason,
+                'reasonType': reason_type
+            }
+        
+        schedule_data.append({
+            'date': current_date.isoformat(),
+            'weekday': current_date.strftime('%A'),
+            'companions': scheduled_companions,
+            'isActive': is_active,
+            'reasonInfo': reason_info
+        })
         
         current_date += timedelta(days=1)
     
