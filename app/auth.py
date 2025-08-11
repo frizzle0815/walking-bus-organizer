@@ -83,8 +83,8 @@ def get_consistent_hash(text):
     return sha256(str(text).encode()).hexdigest()
 
 
-def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None, token_identifier=None):
-    token_identifier = token_identifier or secrets.token_hex(32)
+def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None):
+    token_identifier = secrets.token_hex(32)
     current_time = get_current_time()
     exp_time = current_time + timedelta(days=60)
     token_payload = {
@@ -165,26 +165,22 @@ def renew_auth_token(old_token, verified_payload):
     Returns:
         dict containing new token and cookie settings
     """
-    # First, get the old token record and invalidate it to free up the token_identifier
-    old_token_record = AuthToken.query.get(old_token)
-    if old_token_record:
-        old_token_record.invalidate("Renewed with new token")
-        db.session.commit()
-    
-    # Create new token with extended expiration, keeping same token_identifier
+    # Create new token with extended expiration
     auth_result = create_auth_token(
         verified_payload['walking_bus_id'],
         verified_payload['walking_bus_name'],
-        verified_payload['bus_password_hash'],
-        token_identifier=verified_payload['token_identifier']
+        verified_payload['bus_password_hash']
     )
     
     # Update token chain
+    old_token_record = AuthToken.query.get(old_token)
     new_token_record = AuthToken.query.get(auth_result['token'])
     
-    if old_token_record:
-        old_token_record.renewed_to = auth_result['token']
-        new_token_record.renewed_from = old_token
+    old_token_record.renewed_to = auth_result['token']
+    new_token_record.renewed_from = old_token
+    
+    # Invalidate old token
+    old_token_record.invalidate("Renewed with new token")
     
     db.session.commit()
     return auth_result
@@ -467,6 +463,17 @@ def cleanup_expired_tokens():
     db.session.commit()
 
 
+# Permanent Token 
+def cleanup_old_tokens():
+    """Remove inactive tokens older than one month"""
+    month_ago = datetime.now() - timedelta(days=30)
+    AuthToken.query.filter(
+        AuthToken.is_active == False,
+        AuthToken.invalidated_at < month_ago
+    ).delete()
+    db.session.commit()
+
+
 def cleanup_expired_auth_tokens():
     """Mark expired auth tokens as inactive"""
     now = datetime.now()
@@ -481,17 +488,6 @@ def cleanup_expired_auth_tokens():
         
     db.session.commit()
     return len(expired_tokens)
-
-
-# Permanent Token 
-def cleanup_old_tokens():
-    """Remove inactive tokens older than one month"""
-    month_ago = datetime.now() - timedelta(days=30)
-    AuthToken.query.filter(
-        AuthToken.is_active == False,
-        AuthToken.invalidated_at < month_ago
-    ).delete()
-    db.session.commit()
 
 
 def generate_pwa_temp_token(auth_token):

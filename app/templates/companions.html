@@ -25,21 +25,21 @@
         </div>
     </div>
 
-    <!-- Mindestanzahl Begleiter -->
+
+
+    <!-- Begleiter-Verwaltung -->
     <div class="card mb-4">
-        <div class="card-header bg-info text-white">
+        <div class="card-header bg-secondary text-white">
             <h5 class="mb-0">
-                <i class="fas fa-cog me-2"></i>
-                Einstellungen
+                <i class="fas fa-users me-2"></i>
+                Begleiter-Verwaltung
             </h5>
         </div>
         <div class="card-body">
-            <div class="row align-items-center">
+            <!-- Mindestanzahl -->
+            <div class="row align-items-center mb-3">
                 <div class="col-md-6">
-                    <label for="minCompanions" class="form-label">
-                        <i class="fas fa-user-tie me-2"></i>
-                        Mindestanzahl Begleiter pro Tag:
-                    </label>
+                    <label for="minCompanions" class="form-label">Mindestanzahl</label>
                 </div>
                 <div class="col-md-6">
                     <select id="minCompanions" class="form-select">
@@ -51,21 +51,7 @@
                     </select>
                 </div>
             </div>
-            <div class="text-muted mt-2">
-                <small>Diese Einstellung gilt für alle Walking Bus Tage. Bei weniger zugeteilten Begleitern werden Warnungen angezeigt.</small>
-            </div>
-        </div>
-    </div>
-
-    <!-- Begleiter-Verwaltung -->
-    <div class="card mb-4">
-        <div class="card-header bg-secondary text-white">
-            <h5 class="mb-0">
-                <i class="fas fa-users me-2"></i>
-                Begleiter-Verwaltung
-            </h5>
-        </div>
-        <div class="card-body">
+            
             <!-- Add Companion Button -->
             <div class="d-grid mb-3">
                 <button id="addCompanionBtn" class="btn btn-primary btn-lg">
@@ -152,8 +138,6 @@
 
 <style>
 .schedule-overview {
-    max-height: 400px;
-    overflow-y: auto;
     overflow-x: auto;
 }
 
@@ -280,16 +264,20 @@
 .companion-badge {
     background-color: #0d6efd;
     color: white;
-    padding: 0.2rem 0.4rem;
-    padding-right: 1.4rem;
+    padding: 0.3rem;
     border-radius: 0.25rem;
     margin: 0.1rem 0;
-    display: block;
-    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
     position: relative;
-    text-align: left;
     width: 100%;
     max-width: 120px;
+    height: auto;
+    min-height: 20px;
+    line-height: 1.2;
+    box-sizing: border-box;
 }
 
 .companion-name {
@@ -334,13 +322,18 @@
     padding: 0.3rem;
     border-radius: 0.25rem;
     margin: 0.1rem 0;
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 0.7rem;
     cursor: pointer;
     transition: all 0.2s;
     width: 100%;
-    text-align: center;
     max-width: 120px;
+    height: auto;
+    min-height: 20px;
+    line-height: 1.2;
+    box-sizing: border-box;
 }
 
 .add-companion-btn:hover {
@@ -386,9 +379,6 @@
 
 /* Mobile Optimizations */
 @media (max-width: 768px) {
-    .schedule-overview {
-        max-height: 300px;
-    }
     
     .month-name {
         font-size: 0.8rem;
@@ -442,9 +432,6 @@
 }
 
 @media (max-width: 480px) {
-    .schedule-overview {
-        max-height: 250px;
-    }
     
     .month-name {
         font-size: 0.75rem;
@@ -813,25 +800,32 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </span>
                             `).join('');
                             
-                            html += `<div class="day-companions">${companionsHtml}</div>`;
-                            
                             // Calculate missing companions and add buttons
                             const currentCompanions = dayData.companions.length;
                             const missingCompanions = Math.max(0, minCompanions - currentCompanions);
                             
-                            // Add normal add button
-                            html += `<span class="add-companion-btn" onclick="showAddCompanionModal('${dayData.date}')" 
-                                          title="Begleiter hinzufügen">
-                                        <i class="fas fa-plus"></i>
-                                     </span>`;
+                            // Build companions and buttons in correct order
+                            let dayContent = '<div class="day-companions">';
                             
-                            // Add warning buttons for missing companions
+                            // 1. First add existing companions
+                            dayContent += companionsHtml;
+                            
+                            // 2. Then add warning buttons for missing companions (red +)
                             for (let i = 0; i < missingCompanions; i++) {
-                                html += `<span class="add-companion-btn warning" onclick="showAddCompanionModal('${dayData.date}')" 
+                                dayContent += `<span class="add-companion-btn warning" onclick="showAddCompanionModal('${dayData.date}')" 
                                               title="Begleiter fehlt (${currentCompanions + i + 1}/${minCompanions})">
                                             <i class="fas fa-plus"></i>
                                          </span>`;
                             }
+                            
+                            // 3. Finally add normal add button (grey +)
+                            dayContent += `<span class="add-companion-btn" onclick="showAddCompanionModal('${dayData.date}')" 
+                                          title="Begleiter hinzufügen">
+                                        <i class="fas fa-plus"></i>
+                                     </span>`;
+                            
+                            dayContent += '</div>';
+                            html += dayContent;
                         } else {
                             // Walking bus is not active - show reason
                             html += `<div class="day-status">${dayData.reason || 'Kein Walking Bus'}</div>`;

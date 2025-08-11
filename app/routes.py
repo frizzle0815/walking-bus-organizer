@@ -2086,6 +2086,42 @@ def get_week_overview():
                         total_confirmed += 1
                 elif getattr(participant, weekday, True):
                     total_confirmed += 1
+
+        # Get companions data for this date
+        companions_count = 0
+        min_companions = 2  # Default
+        companions_warning = False
+        
+        if is_active:
+            # Get walking bus config for min companions
+            walking_bus = WalkingBus.query.get(walking_bus_id)
+            if walking_bus:
+                min_companions = walking_bus.min_companions or 2
+            
+            # Get companions scheduled for this date
+            companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+            
+            # Check companion schedules
+            companion_schedule_entries = CompanionSchedule.query.filter_by(
+                date=current_date,
+                walking_bus_id=walking_bus_id
+            ).all()
+            
+            schedule_lookup = {entry.companion_id: entry.is_scheduled for entry in companion_schedule_entries}
+            
+            for companion in companions:
+                # Check if this companion is scheduled for this weekday
+                if companion.id in schedule_lookup:
+                    # Use explicit schedule entry
+                    if schedule_lookup[companion.id]:
+                        companions_count += 1
+                else:
+                    # Use default weekday schedule
+                    is_normally_scheduled = getattr(companion, weekday, False) and not companion.is_substitute
+                    if is_normally_scheduled:
+                        companions_count += 1
+            
+            companions_warning = companions_count < min_companions
         
         week_data.append({
             'date': current_date.isoformat(),
@@ -2096,7 +2132,10 @@ def get_week_overview():
             'total_confirmed': total_confirmed,
             'is_today': current_date == today,
             'has_override': override is not None,
-            'has_note': note is not None and note.note.strip() != ''
+            'has_note': note is not None and note.note.strip() != '',
+            'companions_count': companions_count,
+            'min_companions': min_companions,
+            'companions_warning': companions_warning
         })
     
     return jsonify(week_data)

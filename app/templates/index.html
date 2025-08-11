@@ -718,19 +718,23 @@
 
     .week-container .calendar-day .companions-warning-icon {
         position: absolute;
-        bottom: -2px;
-        right: -4px;
-        font-size: 1.0em;
+        bottom: -7px;
+        right: -7px;
+        font-size: 0.7em;
         z-index: 2;
+        /* Create circular blue background */
         background-color: #007bff;
-        color: white;
         border-radius: 50%;
-        width: 0.7em;
-        height: 0.7em;
+        /* Ensure icon stays visible */
         display: flex;
         align-items: center;
         justify-content: center;
-        border: 1px solid white;
+        /* Keep existing styles */
+        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.2));
+        width: 1.4em;  /* Match icon width */
+        height: 1.4em; /* Match icon height */
+        line-height: 1.4; /* Ensure vertical centering */
+        color: black;
     }
 
     #calendarModal .calendar-day {
@@ -1132,8 +1136,7 @@ async function renderFullView(stations, dailyStatus, weekData, targetContainer =
     // Update companions display for the current date after the view is rendered
     updateCompanionsDisplay(dailyStatus);
     
-    // Update companions warnings for the week overview
-    updateCompanionsWarnings();
+
 }
 
 
@@ -1206,10 +1209,14 @@ function displayCompanions(companions, minCompanions = 2) {
     const missingCount = Math.max(0, minCompanions - companions.length);
     for (let i = 0; i < missingCount; i++) {
         const placeholderSpan = document.createElement('span');
-        placeholderSpan.className = 'companion-name placeholder';
+        placeholderSpan.className = 'companion-name companion-placeholder';
         placeholderSpan.style.color = '#6c757d';
-        placeholderSpan.style.fontStyle = 'italic';
-        placeholderSpan.textContent = '(fehlt)';
+        placeholderSpan.style.fontStyle = 'normal';
+        placeholderSpan.style.cursor = 'default';
+        placeholderSpan.style.background = 'none';
+        placeholderSpan.style.border = 'none';
+        placeholderSpan.style.boxShadow = 'none';
+        placeholderSpan.textContent = '[ ??? ]';
         
         if (i < missingCount - 1) {
             placeholderSpan.textContent += ', ';
@@ -1233,40 +1240,6 @@ function hideCompanions() {
         companionsDisplay.innerHTML = '';
     }
 }
-
-async function updateCompanionsWarnings() {
-    // Get all week days and check each for companions warnings
-    const weekDays = document.querySelectorAll('.calendar-day[data-date]');
-    
-    for (const dayElement of weekDays) {
-        const date = dayElement.dataset.date;
-        if (!date) continue;
-        
-        // Remove existing warning icon
-        const existingWarning = dayElement.querySelector('.companions-warning-icon');
-        if (existingWarning) {
-            existingWarning.remove();
-        }
-        
-        try {
-            // Get daily status for this date to check companions warning
-            const response = await fetchWithAuth(`/api/daily-status?date=${date}`);
-            if (!response.ok) continue;
-            const dayStatus = await response.json();
-            
-            // Show warning icon if companions warning is active
-            if (dayStatus.companionsWarning) {
-                const warningIcon = document.createElement('i');
-                warningIcon.className = 'fas fa-user-tie companions-warning-icon';
-                warningIcon.title = `Zu wenig Begleiter (${dayStatus.companions.length}/${dayStatus.minCompanions})`;
-                dayElement.appendChild(warningIcon);
-            }
-        } catch (error) {
-            console.error('Failed to check companions warning for', date);
-        }
-    }
-}
-
 
 // Berechnung des Status
 function calculateParticipantStatusState(participantId, dailyStatus) {
@@ -1488,8 +1461,7 @@ async function selectDay(dateStr) {
         // Update companions display for the selected day
         updateCompanionsDisplay(dailyStatus);
         
-        // Update companions warnings for week overview
-        updateCompanionsWarnings();
+
 
     } catch (error) {
         console.error('[SELECT_DAY] Error:', error);
@@ -1894,72 +1866,6 @@ async function toggleParticipation(participantId, button) {
 }
 
 
-
-
-async function ALT_toggleParticipation(participantId, button) {
-    if (button.querySelector('.fa-spinner')) return;
-    
-    console.log('[TOGGLE] Starting toggle for participant:', participantId);
-
-    const participantItem = document.querySelector(`[data-participant-id="${participantId}"]`);
-    const selectedDate = document.querySelector('.week-container .selected-day')?.querySelector('.calendar-day')?.dataset.date;
-    
-    // Store current state for potential rollback
-    const currentState = {
-        status: participantItem.classList.contains('participant-status-active'),
-        buttonContent: button.innerHTML,
-        buttonClasses: [...button.classList]
-    };
-
-    // Show loading state
-    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    const originalButtonContent = wasActive ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
-
-    try {
-        const response = await axios.patch(`/api/participation/${participantId}`, {
-            date: selectedDate
-        }, {
-            timeout: 4000
-        });
-
-        if (response.data && response.status === 200) {
-            // Get updated daily status
-            const dailyStatusResponse = await axios.get('/api/daily-status', {
-                params: { date: selectedDate }
-            });
-            
-            // Update UI using our new status functions
-            updateAllParticipantStates(dailyStatusResponse.data);
-            
-            // Trigger SSE update for other clients
-            await axios.post('/api/trigger-update', { date: selectedDate });
-            
-            // Update week overview
-            await render_WeekOverview(selectedDate);
-        }
-    } catch (error) {
-        console.error('[TOGGLE] Error:', error);
-        
-        // Restore original button content
-        button.innerHTML = originalButtonContent;
-        button.className = `btn btn-sm rounded-pill status-button ${wasActive ? 'btn-outline-success' : 'btn-outline-danger'}`;
-        
-        // Revert visual state
-        participantItem.classList.remove('participant-status-active', 'participant-status-inactive');
-        participantItem.classList.add(wasActive ? 'participant-status-active' : 'participant-status-inactive');
-        
-        // Show error indicators
-        const warningIcon = document.createElement('i');
-        warningIcon.classList.add('fas', 'fa-exclamation-triangle', 'warning-icon');
-        warningIcon.title = 'Änderung fehlgeschlagen. Bitte erneut versuchen.';
-        button.parentElement.insertBefore(warningIcon, button.parentElement.firstChild);
-
-        showErrorMessage('Änderung konnte nicht gespeichert werden');
-        setTimeout(() => warningIcon.remove(), 5000);
-    }
-}
-
-
 async function animateStatusChange(element, newStatus) {
     return new Promise(resolve => {
         const animationClass = newStatus ? 'inactive-to-active' : 'active-to-inactive';
@@ -2341,6 +2247,14 @@ function render_addDayIndicators(dayElement, dayData) {
         noteIcon.className = 'fa-solid fa-circle-info note-icon';
         dayElement.appendChild(noteIcon);
     }
+    
+    // Add companions warning icon if not enough companions
+    if (dayData.companions_warning) {
+        const warningIcon = document.createElement('i');
+        warningIcon.className = 'fas fa-user-tie companions-warning-icon';
+        warningIcon.title = `Zu wenig Begleiter (${dayData.companions_count}/${dayData.min_companions})`;
+        dayElement.appendChild(warningIcon);
+    }
 }
 
 function render_getDayLabel(dateStr) {
@@ -2359,51 +2273,6 @@ function render_handleDayClick(event) {
     selectDay(dateStr);
 }
 
-
-
-    async function ALT_renderStations(stations, isWalkingBusDay, dailyStatus) {
-    console.log('[RENDER] Starting with daily status:', dailyStatus);
-    const stationsContainer = document.getElementById('stations');
-    stationsContainer.innerHTML = '';
-
-    // Create and append station cards
-    stations.forEach(station => {
-        const stationCard = document.createElement('div');
-        stationCard.classList.add('station-card');
-        stationCard.dataset.stationId = station.id;
-
-        // Create participants list
-        const participantsList = document.createElement('ul');
-        participantsList.classList.add('list-group', 'list-group-flush', 'participants-list');
-
-        station.participants.forEach(participant => {
-            // Use participantStates for status
-            const status = dailyStatus.participantStates[participant.id];
-            console.log(`[RENDER] Participant ${participant.id} status:`, status);
-            
-            const participantElement = createParticipantElement(
-                participant, 
-                status, 
-                dailyStatus
-            );
-            participantsList.appendChild(participantElement);
-        });
-
-        stationCard.appendChild(participantsList);
-        stationsContainer.appendChild(stationCard);
-    });
-}
-
-// 2. Update createParticipantElement function
-function ALT_createParticipantElement(participant, status, dailyStatus) {
-    const element = document.createElement('li');
-    element.dataset.participantId = participant.id;
-    
-    const state = calculateParticipantStatusState(participant.id, dailyStatus);
-    updateParticipantStatusUI(element, state);
-    
-    return element;
-}
 
 
 function formatServerDate(date) {
@@ -2798,48 +2667,6 @@ function calendar_handleToggleError(dayDiv, wasGreen, originalContent) {
     }, 5000);
 }
 
-
-async function ALT_renderWeekOverview(selectedDate = null) {
-        const response = await axios.get('/api/week-overview');
-        const weekData = response.data;
-        
-        const weekOverview = document.createElement('div');
-        weekOverview.className = 'week d-flex justify-content-between';
-            
-        // Ensure we have a valid selectedDate
-        if (!selectedDate) {
-            selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date 
-                || new Date().toISOString().split('T')[0];
-        }
-        
-        weekOverview.innerHTML = weekData.map(day => `
-            <div class="calendar-day-wrapper ${day.date === selectedDate ? 'selected-day' : ''}">
-                <div class="calendar-day ${getWeekDayClass(day)}"
-                     data-date="${day.date}">
-                    ${(day.has_override || day.reason_type === 'HOLIDAY') ? 
-                        '<i class="fa-solid fa-triangle-exclamation override-icon"></i>' : ''}
-                    ${day.has_note ? '<i class="fa-solid fa-circle-info note-icon"></i>' : ''}
-                    <div class="day-label">${getDayLabel(day.date)}</div>
-                </div>
-            </div>
-        `).join('');
-
-        
-        // Add click handler to the wrapper instead of the day
-        weekOverview.addEventListener('click', (e) => {
-            const wrapperElement = e.target.closest('.calendar-day-wrapper');
-            if (wrapperElement && !isSelectionInProgress) {
-                const dateStr = wrapperElement.querySelector('.calendar-day').dataset.date;
-                selectDay(dateStr);
-            }
-        });
-        
-        const weekContainer = document.querySelector('.week-container');
-        if (weekContainer) {
-            weekContainer.innerHTML = '';
-            weekContainer.appendChild(weekOverview);
-        }
-    }
 
 function getWeekDayClass(day) {
     const classes = [];
@@ -3285,249 +3112,6 @@ async function updateWeatherDisplay(date) {
 }
 
 
-////////////////////////////////////////////////////////////////////////////////
-
-
-
-    function ALT_updateWeekOverviewNumbers(weekData, selectedDate) {
-        weekData.forEach(dayData => {
-            const dayElement = document.querySelector(`.calendar-day[data-date="${dayData.date}"]`);
-            if (dayElement) {
-                // Update total confirmed number
-                const dayNumber = dayElement.querySelector('.day-number');
-                if (dayNumber) {
-                    dayNumber.textContent = dayData.total_confirmed > 0 ? 
-                        dayData.total_confirmed : '-';
-                }
-                
-                // Update day status classes if needed
-                updateDayStatusClasses(dayElement, dayData);
-            }
-        });
-    }
-
-    function ALT_updateDayStatusClasses(dayElement, dayData) {
-        dayElement.classList.remove('day-green', 'day-red', 'day-gray');
-        
-        if (dayData.reason_type === 'TIME_PASSED') {
-            dayElement.classList.add('day-gray');
-        } else if (!dayData.is_active && dayData.reason_type === 'MANUAL_OVERRIDE') {
-            dayElement.classList.add('day-red');
-        } else if (!dayData.is_active) {
-            dayElement.classList.add('day-gray');
-        } else {
-            dayElement.classList.add('day-green');
-        }
-    }
-
-
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    let isReconnecting = false;
-
-    // Modify initializeSSE to handle mobile focus better
-    async function ALT_initializeSSE() {
-        console.log('Starting SSE connection...');
-        
-        if (globalEventSource) {
-            globalEventSource.close();
-        }
-        
-        let connectionAlertTimeout;
-        const alertDelay = 10000;
-        
-        try {
-            // First verify authentication using fetchWithAuth
-            const authCheck = await fetchWithAuth('/stream');
-            if (!authCheck.ok) {
-                throw new Error('Authentication check failed');
-            }
-            
-            // Create SSE connection after successful auth check
-            globalEventSource = new EventSource('/stream');
-            
-            // Handle retry events from server
-            globalEventSource.addEventListener('retry', function(e) {
-                console.log('Server waiting for authentication...', e.data);
-                updateConnectionStatus('connecting');
-            });
-            
-            // Handle unauthorized events
-            globalEventSource.addEventListener('unauthorized', function(e) {
-                console.log('Authentication failed after retries');
-                window.location.href = '/login';
-            });
-            
-            globalEventSource.onmessage = function(event) {
-                (async () => {
-                    console.log('Received SSE update:', event.data);
-                    const data = JSON.parse(event.data);
-
-                    // Get today's date in YYYY-MM-DD format
-                    const today = new Date().toISOString().split('T')[0];
-                    
-                    // Find today's status from week_overview
-                    const todayStatus = data.week_overview.find(day => day.date === today);
-                    
-                    // Set global status with data from week_overview
-                    globalDailyStatus = {
-                        reason_type: todayStatus?.reason_type,
-                        reason: todayStatus?.reason,
-                        isWalkingBusDay: todayStatus?.is_active
-                    };
-
-                    // Update time display
-                    if (data.time) {
-                        document.getElementById('current-time').textContent = data.time;
-                    }
-
-                    // Update time icons
-                    if (data.dailyStatus) {
-                        updateTimeIcons(data.dailyStatus);
-                    }
-
-                    // Get currently selected date
-                    const selectedDate = document.querySelector('.selected-day .calendar-day')?.dataset.date;
-                    
-                    // 1. Update week overview immediately
-                    if (data.week_overview) {
-                        updateWeekOverviewNumbers(data.week_overview, selectedDate);
-                    }
-                    
-                    // 2. Update visible content immediately if it matches current view
-                    if (selectedDate === data.date) {
-                        const db = await dbPromise;
-                        const previousStates = await getPreviousStates(db);
-                        await loadStations(previousStates, selectedDate);
-                    }
-
-                    // 3. Cache all data in background for all dates
-                    try {
-                        const db = await dbPromise;
-                        await updateCache(db, data.stations, data.dailyStatus, data.date);
-                        
-                        // Optional: Fetch and cache data for next few days
-                        const nextDays = [1, 2, 3, 4, 5];
-                        for (const dayOffset of nextDays) {
-                            const futureDate = new Date(data.date);
-                            futureDate.setDate(futureDate.getDate() + dayOffset);
-                            const futureDateStr = futureDate.toISOString().split('T')[0];
-                            
-                            const response = await axios.get('/api/stations', {
-                                params: { date: futureDateStr, admin: 0 }
-                            });
-                            
-                            await updateCache(db, response.data.stations, response.data.dailyStatus, futureDateStr);
-                        }
-                    } catch (error) {
-                        console.error('Background caching error:', error);
-                        // Non-critical error, don't interrupt user experience
-                    }
-
-                    // Update connection status
-                    updateConnectionStatus('connected');
-                    reconnectAttempts = 0;
-                    isReconnecting = false;
-                    if (connectionAlertTimeout) {
-                        clearTimeout(connectionAlertTimeout);
-                        connectionAlertTimeout = null;
-                    }
-                    
-                })();
-            };
-
-            globalEventSource.addEventListener('error', (event) => {
-                console.error('SSE connection error:', event);
-                updateConnectionStatus('disconnected');
-                
-                if (!isReconnecting && reconnectAttempts < maxReconnectAttempts) {
-                    isReconnecting = true;
-                    reconnectAttempts++;
-                    
-                    setTimeout(async () => {
-                        console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                        isReconnecting = false;
-                        globalEventSource.close();
-                        
-                        // Verify auth before reconnecting
-                        const authCheck = await fetchWithAuth('/stream');
-                        if (!authCheck.ok) {
-                            window.location.href = '/login';
-                            return;
-                        }
-                        initializeSSE();
-                    }, 5000 * reconnectAttempts);
-                } else if (reconnectAttempts >= maxReconnectAttempts) {
-                    const connectionAlert = document.getElementById('connection-alert');
-                    connectionAlert.innerHTML = `
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        Die Verbindung zum Server wurde unterbrochen.
-                    `;
-                    connectionAlert.classList.remove('d-none');
-                    globalEventSource.close();
-                }
-            });
-
-            // Mobile-specific event listeners
-            document.addEventListener('focus', handlePageFocus);
-            document.addEventListener('resume', handlePageFocus);
-            
-            function handlePageFocus() {
-                if (!isReconnecting) {
-                    loadStations();
-                }
-                if (connectionAlertTimeout) {
-                    clearTimeout(connectionAlertTimeout);
-                    connectionAlertTimeout = null;
-                }
-            }
-        } catch (error) {
-            console.error('SSE initialization failed:', error);
-            updateConnectionStatus('disconnected');
-            if (error.message === 'Authentication check failed') {
-                window.location.href = '/login';
-            }
-        }
-
-        return globalEventSource;
-    }
-
-
-
-    function ALT_updateConnectionStatus(status) {
-        const connectionAlert = document.getElementById('connection-alert');
-        const connectionIndicator = document.querySelector('.connection-indicator');
-        
-        // Only update alert if element exists and page is visible
-        if (connectionAlert && !document.hidden) {
-            connectionAlert.classList.toggle('d-none', status === 'connected');
-        }
-        
-        // Only update indicator if element exists
-        if (connectionIndicator) {
-            connectionIndicator.classList.remove('connected', 'disconnected');
-            connectionIndicator.classList.add(status === 'connected' ? 'connected' : 'disconnected');
-        }
-    }
-
-    // Helper function to get previous states
-    async function getPreviousStates(db) {
-        return new Promise((resolve) => {
-            const transaction = db.transaction(['participantStates'], 'readonly');
-            const store = transaction.objectStore('participantStates');
-            const request = store.getAll();
-            
-            request.onsuccess = () => {
-                const states = {};
-                request.result.forEach(item => {
-                    states[item.id] = item;
-                });
-                resolve(states);
-            };
-            
-            request.onerror = () => resolve({});
-        });
-    }
 </script>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
