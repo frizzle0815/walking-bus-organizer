@@ -83,8 +83,8 @@ def get_consistent_hash(text):
     return sha256(str(text).encode()).hexdigest()
 
 
-def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None):
-    token_identifier = secrets.token_hex(32)
+def create_auth_token(walking_bus_id, walking_bus_name, bus_password_hash, client_info=None, existing_token_identifier=None):
+    token_identifier = existing_token_identifier or secrets.token_hex(32)
     current_time = get_current_time()
     exp_time = current_time + timedelta(days=60)
     token_payload = {
@@ -165,15 +165,19 @@ def renew_auth_token(old_token, verified_payload):
     Returns:
         dict containing new token and cookie settings
     """
-    # Create new token with extended expiration
+    # Get old token record to preserve client_info
+    old_token_record = AuthToken.query.get(old_token)
+    
+    # Create new token with extended expiration and same token_identifier
     auth_result = create_auth_token(
         verified_payload['walking_bus_id'],
         verified_payload['walking_bus_name'],
-        verified_payload['bus_password_hash']
+        verified_payload['bus_password_hash'],
+        client_info=old_token_record.client_info if old_token_record else None,
+        existing_token_identifier=verified_payload['token_identifier']
     )
     
     # Update token chain
-    old_token_record = AuthToken.query.get(old_token)
     new_token_record = AuthToken.query.get(auth_result['token'])
     
     old_token_record.renewed_to = auth_result['token']
@@ -466,7 +470,7 @@ def cleanup_expired_tokens():
 # Permanent Token 
 def cleanup_old_tokens():
     """Remove inactive tokens older than one month"""
-    month_ago = datetime.now() - timedelta(days=30)
+    month_ago = datetime.now() - timedelta(days=90)
     AuthToken.query.filter(
         AuthToken.is_active == False,
         AuthToken.invalidated_at < month_ago

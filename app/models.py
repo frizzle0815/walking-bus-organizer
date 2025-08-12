@@ -146,7 +146,7 @@ class AuthToken(db.Model):
     renewed_to = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=True)
     invalidated_at = db.Column(db.DateTime, default=None, onupdate=get_current_time)
     invalidation_reason = db.Column(db.String(100))
-    token_identifier = db.Column(db.String(64), unique=True, nullable=False)
+    token_identifier = db.Column(db.String(64), nullable=False)
     is_pwa_installed = db.Column(db.Boolean, default=False)
     pwa_status_updated_at = db.Column(db.DateTime, default=None)
     
@@ -192,7 +192,7 @@ class WeatherCalculation(db.Model):
 
 class PushSubscription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    token_identifier = db.Column(db.String(64), db.ForeignKey('auth_tokens.token_identifier'), nullable=False)
+    token_identifier = db.Column(db.String(64), nullable=False)
     endpoint = db.Column(db.String(500), nullable=False)
     p256dh = db.Column(db.String(200), nullable=False)
     auth = db.Column(db.String(100), nullable=False)
@@ -205,8 +205,15 @@ class PushSubscription(db.Model):
     last_error_code = db.Column(db.Integer, nullable=True)
     
     # Relationships
-    auth_token = db.relationship('AuthToken', backref=db.backref('push_subscriptions', lazy=True))
     walking_bus = db.relationship('WalkingBus', backref=db.backref('push_subscriptions', lazy=True))
+    
+    def get_current_auth_token(self):
+        """Get the current active AuthToken for this subscription's token_identifier"""
+        return AuthToken.query.filter_by(
+            token_identifier=self.token_identifier,
+            walking_bus_id=self.walking_bus_id,
+            is_active=True
+        ).first()
 
     __table_args__ = (
         db.UniqueConstraint('token_identifier', 'endpoint', name='uq_subscription_token_endpoint'),

@@ -30,7 +30,7 @@ from .auth import (
     temp_login, get_active_temp_tokens, create_auth_token,
     renew_auth_token, generate_pwa_temp_token,
     check_and_renew_token, cleanup_expired_tokens,
-    cleanup_expired_auth_tokens
+    cleanup_expired_auth_tokens, cleanup_old_tokens
 )
 import jwt
 import json
@@ -191,8 +191,9 @@ def subscription_overview():
 
         for log in logs:
             # Set platform info
-            if log.subscription and log.subscription.auth_token:
-                client_info = log.subscription.auth_token.client_info
+            if log.subscription:
+                current_token = log.subscription.get_current_auth_token()
+                client_info = current_token.client_info if current_token else 'Unknown'
                 log.platform = get_platform(client_info)
                 log.historical_endpoint = log.subscription.endpoint
                 log.historical_client_info = get_platform(client_info)
@@ -437,9 +438,11 @@ def cleanup_tokens():
     try:
         cleanup_expired_tokens()
         cleaned_auth_tokens = cleanup_expired_auth_tokens()
+        cleanup_old_tokens()
         return jsonify({
             "success": True,
-            "cleaned_auth_tokens": cleaned_auth_tokens
+            "cleaned_auth_tokens": cleaned_auth_tokens,
+            "message": "Expired and old inactive tokens cleaned up"
         })
     except Exception as e:
         current_app.logger.error(f"Error during token cleanup: {str(e)}")
