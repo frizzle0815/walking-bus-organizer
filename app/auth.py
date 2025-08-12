@@ -470,7 +470,7 @@ def cleanup_expired_tokens():
 # Permanent Token 
 def cleanup_old_tokens():
     """Remove inactive tokens older than one month"""
-    month_ago = datetime.now() - timedelta(days=60)
+    month_ago = datetime.now() - timedelta(days=90)
     AuthToken.query.filter(
         AuthToken.is_active == False,
         AuthToken.invalidated_at < month_ago
