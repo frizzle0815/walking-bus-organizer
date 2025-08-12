@@ -720,17 +720,19 @@ document.addEventListener('DOMContentLoaded', function() {
                             
                             // 2. Then add warning buttons for missing companions (red +)
                             for (let i = 0; i < missingCompanions; i++) {
-                                dayContent += `<span class="add-companion-btn warning" onclick="showAddCompanionModal('${dayData.date}')" 
-                                              title="Begleiter fehlt (${currentCompanions + i + 1}/${minCompanions})">
-                                            <i class="fas fa-plus"></i>
-                                         </span>`;
+                                dayContent += `<span class="add-companion-btn warning" 
+                                    onclick='showAddCompanionModal("${dayData.date}", ${JSON.stringify(dayData.companions)})' 
+                                    title="Begleiter fehlt (${currentCompanions + i + 1}/${minCompanions})">
+                                    <i class="fas fa-plus"></i>
+                                </span>`;
                             }
                             
                             // 3. Finally add normal add button (grey +)
-                            dayContent += `<span class="add-companion-btn" onclick="showAddCompanionModal('${dayData.date}')" 
-                                          title="Begleiter hinzufügen">
-                                        <i class="fas fa-plus"></i>
-                                     </span>`;
+                            dayContent += `<span class="add-companion-btn" 
+                                onclick='showAddCompanionModal("${dayData.date}", ${JSON.stringify(dayData.companions)})' 
+                                title="Begleiter hinzufügen">
+                                <i class="fas fa-plus"></i>
+                            </span>`;
                             
                             dayContent += '</div>';
                             html += dayContent;
@@ -1042,20 +1044,26 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Global functions for onclick handlers
-    window.showAddCompanionModal = function(date) {
+    window.showAddCompanionModal = function(date, currentCompanions) {
         selectedDate = date;
-        
-        // Populate companion select
+
+        // IDs der schon eingeteilten Begleiter
+        const assignedIds = currentCompanions ? currentCompanions.map(c => c.id) : [];
+
+        // Dropdown leeren
         const companionSelect = document.getElementById('companionSelect');
         companionSelect.innerHTML = '<option value="">Begleiter auswählen...</option>';
-        
-        companions.forEach(companion => {
-            const option = document.createElement('option');
-            option.value = companion.id;
-            option.textContent = companion.name + (companion.is_substitute ? ' (Springer)' : '');
-            companionSelect.appendChild(option);
-        });
-        
+
+        // Nur freie Begleiter anzeigen
+        companions
+            .filter(companion => !assignedIds.includes(companion.id))
+            .forEach(companion => {
+                const option = document.createElement('option');
+                option.value = companion.id;
+                option.textContent = companion.name + (companion.is_substitute ? ' (Springer)' : '');
+                companionSelect.appendChild(option);
+            });
+
         addCompanionModal.show();
     };
 
