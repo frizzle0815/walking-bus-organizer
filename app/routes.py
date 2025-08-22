@@ -13,7 +13,8 @@ from .models import (
     DailyNote, TempToken, AuthToken,
     Weather, WeatherCalculation,
     PushSubscription, SchedulerJob,
-    PushNotificationLog
+    PushNotificationLog, Companion,
+    CompanionSchedule
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -29,7 +30,7 @@ from .auth import (
     temp_login, get_active_temp_tokens, create_auth_token,
     renew_auth_token, generate_pwa_temp_token,
     check_and_renew_token, cleanup_expired_tokens,
-    cleanup_expired_auth_tokens
+    cleanup_expired_auth_tokens, cleanup_old_tokens
 )
 import jwt
 import json
@@ -58,6 +59,11 @@ def index():
 @bp.route("/admin")
 def admin():
     return render_template("admin.html")
+
+
+@bp.route("/companions")
+def companions():
+    return render_template("companions.html")
 
 
 @bp.route("/calendar")
@@ -185,8 +191,9 @@ def subscription_overview():
 
         for log in logs:
             # Set platform info
-            if log.subscription and log.subscription.auth_token:
-                client_info = log.subscription.auth_token.client_info
+            if log.subscription:
+                current_token = log.subscription.get_current_auth_token()
+                client_info = current_token.client_info if current_token else 'Unknown'
                 log.platform = get_platform(client_info)
                 log.historical_endpoint = log.subscription.endpoint
                 log.historical_client_info = get_platform(client_info)
@@ -431,9 +438,11 @@ def cleanup_tokens():
     try:
         cleanup_expired_tokens()
         cleaned_auth_tokens = cleanup_expired_auth_tokens()
+        cleanup_old_tokens()
         return jsonify({
             "success": True,
-            "cleaned_auth_tokens": cleaned_auth_tokens
+            "cleaned_auth_tokens": cleaned_auth_tokens,
+            "message": "Expired and old inactive tokens cleaned up"
         })
     except Exception as e:
         current_app.logger.error(f"Error during token cleanup: {str(e)}")
@@ -1174,6 +1183,40 @@ def get_daily_status():
         if target_date == get_current_date():
             participant_attendance[participant.id] = calendar_entry.attendance if calendar_entry else False
 
+    # Get companions for this date
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    scheduled_companions = []
+    
+    for companion in companions:
+        # Check if companion is normally scheduled for this day
+        # Springer are not automatically scheduled - only manually
+        is_normally_scheduled = getattr(companion, weekday, False) and not companion.is_substitute
+        
+        # Check for manual overrides
+        schedule_entry = CompanionSchedule.query.filter_by(
+            companion_id=companion.id,
+            date=target_date
+        ).first()
+        
+        is_scheduled = is_normally_scheduled
+        is_manual = False
+        
+        if schedule_entry:
+            is_scheduled = schedule_entry.is_scheduled
+            is_manual = schedule_entry.is_manual_override
+        
+        if is_scheduled:
+            scheduled_companions.append({
+                'id': companion.id,
+                'name': companion.name,
+                'is_substitute': companion.is_substitute,
+                'is_manual': is_manual
+            })
+
+    # Get walking bus settings
+    walking_bus = WalkingBus.query.filter_by(id=walking_bus_id).first()
+    min_companions = walking_bus.min_companions if walking_bus and walking_bus.min_companions is not None else 2
+
     response = jsonify({
         "currentDate": target_date.isoformat(),
         "isWalkingBusDay": is_active,
@@ -1184,6 +1227,9 @@ def get_daily_status():
         "schedule": schedule_data,
         "participantStates": participant_states,
         "participantAttendance": participant_attendance if target_date == get_current_date() else {},
+        "companions": scheduled_companions,
+        "minCompanions": min_companions,
+        "companionsWarning": len(scheduled_companions) < min_companions and is_active and (reason_type == 'ACTIVE' or reason_type == 'MANUAL_OVERRIDE'),
         "new_auth_token": auth_result['token'] if auth_result else None
     })
 
@@ -2043,6 +2089,42 @@ def get_week_overview():
                         total_confirmed += 1
                 elif getattr(participant, weekday, True):
                     total_confirmed += 1
+
+        # Get companions data for this date
+        companions_count = 0
+        min_companions = 2  # Default
+        companions_warning = False
+        
+        if is_active:
+            # Get walking bus config for min companions
+            walking_bus = WalkingBus.query.get(walking_bus_id)
+            if walking_bus:
+                min_companions = walking_bus.min_companions or 2
+            
+            # Get companions scheduled for this date
+            companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+            
+            # Check companion schedules
+            companion_schedule_entries = CompanionSchedule.query.filter_by(
+                date=current_date,
+                walking_bus_id=walking_bus_id
+            ).all()
+            
+            schedule_lookup = {entry.companion_id: entry.is_scheduled for entry in companion_schedule_entries}
+            
+            for companion in companions:
+                # Check if this companion is scheduled for this weekday
+                if companion.id in schedule_lookup:
+                    # Use explicit schedule entry
+                    if schedule_lookup[companion.id]:
+                        companions_count += 1
+                else:
+                    # Use default weekday schedule
+                    is_normally_scheduled = getattr(companion, weekday, False) and not companion.is_substitute
+                    if is_normally_scheduled:
+                        companions_count += 1
+            
+            companions_warning = companions_count < min_companions
         
         week_data.append({
             'date': current_date.isoformat(),
@@ -2053,7 +2135,10 @@ def get_week_overview():
             'total_confirmed': total_confirmed,
             'is_today': current_date == today,
             'has_override': override is not None,
-            'has_note': note is not None and note.note.strip() != ''
+            'has_note': note is not None and note.note.strip() != '',
+            'companions_count': companions_count,
+            'min_companions': min_companions,
+            'companions_warning': companions_warning
         })
     
     return jsonify(week_data)
@@ -3004,6 +3089,62 @@ def update_holiday_cache():
     service.update_holiday_cache()
 
 
+@bp.route('/api/calendar/schedule-overview')
+@require_auth
+def get_schedule_overview():
+    """Lädt Kalenderdaten für die nächsten 4 Wochen ab heute"""
+    walking_bus_id = get_current_walking_bus_id()
+    
+    today = datetime.now().date()
+    
+    # Berechne Wochenstart (Montag) der aktuellen Woche
+    days_since_monday = today.weekday()
+    week_start = today - timedelta(days=days_since_monday)
+    
+    # Ende der 4. Woche (Sonntag)
+    week_end = week_start + timedelta(days=27)  # 4 Wochen = 28 Tage, -1 für Ende
+    
+    calendar_data = []
+    current_date = week_start
+    
+    while current_date <= week_end:
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        daily_note = DailyNote.query.filter_by(
+            date=current_date,
+            walking_bus_id=walking_bus_id
+        ).first()
+        
+        # Map reason types to display text - keeping the original mapping
+        display_reason = {
+            "NO_SCHEDULE": "Keine Planung",
+            "INACTIVE_WEEKDAY": "Kein Bus",
+            "WEEKEND": "Wochenende",
+            "HOLIDAY": reason,
+            "VACATION_BREAK": reason,
+            "WEATHER": reason,
+            "CUSTOM_NOTE": reason,
+            "NORMAL": None
+        }.get(reason_type, reason)
+        
+        calendar_data.append({
+            'date': current_date.isoformat(),
+            'isActive': is_active,
+            'reason': display_reason,
+            'reasonType': reason_type,
+            'hasNote': daily_note is not None,
+            'noteText': daily_note.note if daily_note else None,
+            'isToday': current_date == today,
+            'isPast': current_date < today
+        })
+        
+        current_date += timedelta(days=1)
+    
+    return jsonify(calendar_data)
+
 @bp.route('/api/calendar/months/<int:year>/<int:month>/<int:count>')
 @require_auth
 def get_calendar_months(year, month, count):
@@ -3274,4 +3415,471 @@ def logout():
     })
     
     return response
+
+
+# ========================================
+# COMPANION API ROUTES
+# ========================================
+
+@bp.route("/api/companions")
+@require_auth
+def get_companions():
+    """Get all companions for the current walking bus"""
+    walking_bus_id = get_current_walking_bus_id()
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id)\
+                               .order_by(Companion.position).all()
+    
+    return jsonify([{
+        'id': c.id,
+        'name': c.name,
+        'position': c.position,
+        'monday': c.monday,
+        'tuesday': c.tuesday,
+        'wednesday': c.wednesday,
+        'thursday': c.thursday,
+        'friday': c.friday,
+        'saturday': c.saturday,
+        'sunday': c.sunday,
+        'is_substitute': c.is_substitute
+    } for c in companions])
+
+
+@bp.route("/api/companions", methods=["POST"])
+@require_auth
+def create_companion():
+    """Create a new companion"""
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    # Get the next position for this walking bus
+    max_position = db.session.query(db.func.max(Companion.position))\
+                             .filter_by(walking_bus_id=walking_bus_id).scalar() or 0
+    next_position = max_position + 1
+    
+    companion = Companion(
+        walking_bus_id=walking_bus_id,
+        name=data.get('name', 'Neuer Begleiter'),
+        position=data.get('position', next_position),
+        monday=data.get('monday', False),
+        tuesday=data.get('tuesday', False),
+        wednesday=data.get('wednesday', False),
+        thursday=data.get('thursday', False),
+        friday=data.get('friday', False),
+        saturday=data.get('saturday', False),
+        sunday=data.get('sunday', False),
+        is_substitute=data.get('is_substitute', False)
+    )
+    
+    db.session.add(companion)
+    db.session.commit()
+    
+    return jsonify({
+        'id': companion.id,
+        'name': companion.name,
+        'position': companion.position,
+        'monday': companion.monday,
+        'tuesday': companion.tuesday,
+        'wednesday': companion.wednesday,
+        'thursday': companion.thursday,
+        'friday': companion.friday,
+        'saturday': companion.saturday,
+        'sunday': companion.sunday,
+        'is_substitute': companion.is_substitute
+    })
+
+
+@bp.route("/api/companions/<int:companion_id>", methods=["PUT"])
+@require_auth
+def update_companion(companion_id):
+    """Update a companion"""
+    walking_bus_id = get_current_walking_bus_id()
+    companion = Companion.query.filter_by(id=companion_id, walking_bus_id=walking_bus_id).first()
+    
+    if not companion:
+        return jsonify({"error": "Begleiter nicht gefunden"}), 404
+    
+    data = request.get_json()
+    
+    companion.name = data.get('name', companion.name)
+    companion.monday = data.get('monday', companion.monday)
+    companion.tuesday = data.get('tuesday', companion.tuesday)
+    companion.wednesday = data.get('wednesday', companion.wednesday)
+    companion.thursday = data.get('thursday', companion.thursday)
+    companion.friday = data.get('friday', companion.friday)
+    companion.saturday = data.get('saturday', companion.saturday)
+    companion.sunday = data.get('sunday', companion.sunday)
+    companion.is_substitute = data.get('is_substitute', companion.is_substitute)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'id': companion.id,
+        'name': companion.name,
+        'position': companion.position,
+        'monday': companion.monday,
+        'tuesday': companion.tuesday,
+        'wednesday': companion.wednesday,
+        'thursday': companion.thursday,
+        'friday': companion.friday,
+        'saturday': companion.saturday,
+        'sunday': companion.sunday,
+        'is_substitute': companion.is_substitute
+    })
+
+
+@bp.route("/api/companions/<int:companion_id>", methods=["DELETE"])
+@require_auth
+def delete_companion(companion_id):
+    """Delete a companion"""
+    walking_bus_id = get_current_walking_bus_id()
+    companion = Companion.query.filter_by(id=companion_id, walking_bus_id=walking_bus_id).first()
+    
+    if not companion:
+        return jsonify({"error": "Begleiter nicht gefunden"}), 404
+    
+    # Delete associated schedules
+    CompanionSchedule.query.filter_by(companion_id=companion_id).delete()
+    
+    db.session.delete(companion)
+    db.session.commit()
+    
+    return jsonify({"success": True})
+
+
+@bp.route("/api/companions/schedule/<int:year>/<int:month>")
+@require_auth
+def get_companion_schedule(year, month):
+    """Get companion schedule for specified month"""
+    from datetime import date, timedelta
+    
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Calculate start and end date for the entire month
+    start_date = date(year, month, 1)  # month is 1-indexed from frontend
+    
+    # Calculate end date (end of month)
+    if month == 12:
+        end_date = date(year + 1, 1, 1)
+    else:
+        end_date = date(year, month + 1, 1)
+    
+    # Get schedule and walking bus schedule
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    if not schedule:
+        return jsonify({"error": "Keine Walking Bus Planung gefunden"}), 404
+    
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    # Generate schedule data for the entire month
+    schedule_data = []
+    current_date = start_date
+    
+    while current_date < end_date:
+        # Check if walking bus is active on this day
+        is_active = check_walking_bus_day(current_date, walking_bus_id=walking_bus_id)
+        
+        if is_active:
+            weekday = current_date.weekday()
+            weekday_attr = WEEKDAY_MAPPING[weekday]
+            
+            # Get companions scheduled for this weekday
+            scheduled_companions = []
+            for companion in companions:
+                # Check if companion is normally scheduled for this day
+                # Springer are not automatically scheduled - only manually
+                is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
+                
+                # Check for manual overrides
+                schedule_entry = CompanionSchedule.query.filter_by(
+                    companion_id=companion.id,
+                    date=current_date
+                ).first()
+                
+                is_scheduled = is_normally_scheduled
+                is_manual = False
+                
+                if schedule_entry:
+                    is_scheduled = schedule_entry.is_scheduled
+                    is_manual = schedule_entry.is_manual_override
+                
+                if is_scheduled:
+                    scheduled_companions.append({
+                        'id': companion.id,
+                        'name': companion.name,
+                        'is_substitute': companion.is_substitute,
+                        'is_manual': is_manual
+                    })
+            
+            schedule_data.append({
+                'date': current_date.isoformat(),
+                'weekday': current_date.strftime('%A'),
+                'companions': scheduled_companions
+            })
+        
+        current_date += timedelta(days=1)
+    
+    return jsonify(schedule_data)
+
+
+@bp.route("/api/companions/schedule/overview")
+@require_auth
+def get_companion_schedule_overview():
+    """Get companion schedule for the next 4 weeks"""
+    from datetime import date, timedelta
+    
+    walking_bus_id = get_current_walking_bus_id()
+    today = date.today()
+    
+    # Berechne Wochenstart (Montag) der aktuellen Woche
+    days_since_monday = today.weekday()
+    week_start = today - timedelta(days=days_since_monday)
+    
+    # Ende der 4. Woche (Sonntag)
+    week_end = week_start + timedelta(days=27)  # 4 Wochen = 28 Tage, -1 für Ende
+    
+    # Get schedule and walking bus schedule
+    schedule = WalkingBusSchedule.query.filter_by(walking_bus_id=walking_bus_id).first()
+    if not schedule:
+        return jsonify({"error": "Keine Walking Bus Planung gefunden"}), 404
+    
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    # Generate schedule data for the 4 weeks
+    schedule_data = []
+    current_date = week_start
+    
+    while current_date <= week_end:
+        # Check if walking bus is active on this day
+        is_active, reason, reason_type = check_walking_bus_day(
+            current_date, 
+            include_reason=True,
+            walking_bus_id=walking_bus_id
+        )
+        
+        scheduled_companions = []
+        reason_info = None
+        
+        if is_active:
+            weekday = current_date.weekday()
+            weekday_attr = WEEKDAY_MAPPING[weekday]
+            
+            # Get companions scheduled for this weekday
+            for companion in companions:
+                # Check if companion is normally scheduled for this day
+                # Springer are not automatically scheduled - only manually
+                is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
+                
+                # Check for manual overrides
+                schedule_entry = CompanionSchedule.query.filter_by(
+                    companion_id=companion.id,
+                    date=current_date
+                ).first()
+                
+                is_scheduled = is_normally_scheduled
+                is_manual = False
+                
+                if schedule_entry:
+                    is_scheduled = schedule_entry.is_scheduled
+                    is_manual = schedule_entry.is_manual_override
+                
+                if is_scheduled:
+                    scheduled_companions.append({
+                        'id': companion.id,
+                        'name': companion.name,
+                        'is_substitute': companion.is_substitute,
+                        'is_manual': is_manual
+                    })
+        else:
+            # For inactive days, show the reason
+            display_reason = {
+                "NO_SCHEDULE": "Keine Planung",
+                "INACTIVE_WEEKDAY": "Kein Bus",
+                "WEEKEND": "Wochenende",
+                "HOLIDAY": reason,
+                "VACATION_BREAK": reason,
+                "WEATHER": reason,
+                "CUSTOM_NOTE": reason,
+                "NORMAL": None
+            }.get(reason_type, reason)
+            
+            reason_info = {
+                'reason': display_reason,
+                'reasonType': reason_type
+            }
+        
+        schedule_data.append({
+            'date': current_date.isoformat(),
+            'weekday': current_date.strftime('%A'),
+            'companions': scheduled_companions,
+            'isActive': is_active,
+            'reasonInfo': reason_info
+        })
+        
+        current_date += timedelta(days=1)
+    
+    return jsonify(schedule_data)
+
+
+@bp.route("/api/companions/schedule", methods=["POST"])
+@require_auth
+def update_companion_schedule():
+    """Add or remove companion from a specific date"""
+    from datetime import datetime
+    
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    companion_id = data.get('companion_id')
+    date_str = data.get('date')
+    action = data.get('action')  # 'add' or 'remove'
+    
+    if not all([companion_id, date_str, action]):
+        return jsonify({"error": "Fehlende Parameter"}), 400
+    
+    try:
+        schedule_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Ungültiges Datum"}), 400
+    
+    # Check if companion exists and belongs to current walking bus
+    companion = Companion.query.filter_by(id=companion_id, walking_bus_id=walking_bus_id).first()
+    if not companion:
+        return jsonify({"error": "Begleiter nicht gefunden"}), 404
+    
+    # Find or create schedule entry
+    schedule_entry = CompanionSchedule.query.filter_by(
+        companion_id=companion_id,
+        date=schedule_date
+    ).first()
+    
+    if action == 'add':
+        if schedule_entry:
+            schedule_entry.is_scheduled = True
+            schedule_entry.is_manual_override = True
+        else:
+            schedule_entry = CompanionSchedule(
+                walking_bus_id=walking_bus_id,
+                companion_id=companion_id,
+                date=schedule_date,
+                is_scheduled=True,
+                is_manual_override=True
+            )
+            db.session.add(schedule_entry)
+    
+    elif action == 'remove':
+        if schedule_entry:
+            schedule_entry.is_scheduled = False
+            schedule_entry.is_manual_override = True
+        else:
+            schedule_entry = CompanionSchedule(
+                walking_bus_id=walking_bus_id,
+                companion_id=companion_id,
+                date=schedule_date,
+                is_scheduled=False,
+                is_manual_override=True
+            )
+            db.session.add(schedule_entry)
+    
+    else:
+        return jsonify({"error": "Ungültige Aktion"}), 400
+    
+    db.session.commit()
+    
+    return jsonify({"success": True})
+
+
+@bp.route("/api/companions/for-date/<date_str>")
+@require_auth
+def get_companions_for_date(date_str):
+    """Get companions scheduled for a specific date"""
+    from datetime import datetime
+    
+    walking_bus_id = get_current_walking_bus_id()
+    
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Ungültiges Datum"}), 400
+    
+    # Get weekday (Monday = 0, Sunday = 6)
+    weekday = target_date.weekday()
+    weekday_mapping = {
+        0: 'monday', 1: 'tuesday', 2: 'wednesday', 3: 'thursday',
+        4: 'friday', 5: 'saturday', 6: 'sunday'
+    }
+    weekday_attr = weekday_mapping[weekday]
+    
+    # Get all companions for this walking bus
+    companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
+    
+    scheduled_companions = []
+    
+    for companion in companions:
+        # Check if companion is normally scheduled for this day
+        # Springer are not automatically scheduled - only manually
+        is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
+        
+        # Check for manual overrides
+        schedule_entry = CompanionSchedule.query.filter_by(
+            companion_id=companion.id,
+            date=target_date
+        ).first()
+        
+        is_scheduled = is_normally_scheduled
+        is_manual = False
+        
+        if schedule_entry:
+            is_scheduled = schedule_entry.is_scheduled
+            is_manual = schedule_entry.is_manual_override
+        
+        if is_scheduled:
+            scheduled_companions.append({
+                'id': companion.id,
+                'name': companion.name,
+                'is_substitute': companion.is_substitute,
+                'is_manual': is_manual
+            })
+    
+    return jsonify({
+        'date': date_str,
+        'weekday': target_date.strftime('%A'),
+        'companions': scheduled_companions
+    })
+
+
+@bp.route("/api/walking-bus-settings")
+@require_auth
+def get_walking_bus_settings():
+    """Get Walking Bus settings like min_companions"""
+    walking_bus_id = get_current_walking_bus_id()
+    walking_bus = WalkingBus.query.filter_by(id=walking_bus_id).first()
+    
+    if not walking_bus:
+        return jsonify({"error": "Walking Bus nicht gefunden"}), 404
+    
+    return jsonify({
+        'min_companions': walking_bus.min_companions if walking_bus.min_companions is not None else 2
+    })
+
+
+@bp.route("/api/walking-bus-settings", methods=["POST"])
+@require_auth
+def update_walking_bus_settings():
+    """Update Walking Bus settings like min_companions"""
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    walking_bus = WalkingBus.query.filter_by(id=walking_bus_id).first()
+    if not walking_bus:
+        return jsonify({"error": "Walking Bus nicht gefunden"}), 404
+    
+    if 'min_companions' in data:
+        min_companions = data['min_companions']
+        if not isinstance(min_companions, int) or min_companions < 1 or min_companions > 5:
+            return jsonify({"error": "min_companions muss zwischen 1 und 5 liegen"}), 400
+        walking_bus.min_companions = min_companions
+    
+    db.session.commit()
+    
+    return jsonify({"success": True})
 

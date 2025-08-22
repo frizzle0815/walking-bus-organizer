@@ -1,0 +1,1145 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+<div class="container-fluid px-2">
+    <h1 class="h3 text-center my-3">Begleiter-Verwaltung</h1>
+
+    <!-- Dienstplan für die nächsten 4 Wochen -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-calendar-alt me-2"></i>
+                Dienstplan - Nächste 4 Wochen
+            </h5>
+        </div>
+        <div class="card-body">
+            <div id="scheduleContainer" class="schedule-overview">
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Lade Dienstplan...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- Begleiter-Verwaltung -->
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-users me-2"></i>
+                Begleiter-Verwaltung
+            </h5>
+        </div>
+        <div class="card-body">
+            <!-- Mindestanzahl -->
+            <div class="row align-items-center mb-3">
+                <div class="col-md-6">
+                    <label for="minCompanions" class="form-label">Mindestanzahl</label>
+                </div>
+                <div class="col-md-6">
+                    <select id="minCompanions" class="form-select">
+                        <option value="1">1 Begleiter</option>
+                        <option value="2">2 Begleiter</option>
+                        <option value="3">3 Begleiter</option>
+                        <option value="4">4 Begleiter</option>
+                        <option value="5">5 Begleiter</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Add Companion Button -->
+            <div class="d-grid mb-3">
+                <button id="addCompanionBtn" class="btn btn-primary btn-lg">
+                    <i class="fas fa-plus"></i> Neuer Begleiter
+                </button>
+            </div>
+
+            <!-- Companions Container -->
+            <div id="companionsContainer">
+                <!-- Companion cards will be inserted here -->
+            </div>
+
+            <!-- Companion Template -->
+            <div class="companion-template d-none">
+                <div class="card mb-3 companion-card">
+                    <div class="card-header d-flex align-items-center bg-light py-2">
+                        <input type="text" class="form-control companion-name me-2" placeholder="Name des Begleiters">
+                        <div class="form-check me-2">
+                            <input type="checkbox" class="form-check-input is-substitute" id="substitute-{id}">
+                            <label class="form-check-label" for="substitute-{id}">Springer</label>
+                        </div>
+                        <button class="btn btn-danger btn-sm delete-companion">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="days-container">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input monday" id="mon-companion-{id}">
+                                <label class="form-check-label" for="mon-companion-{id}">Mo</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input tuesday" id="tue-companion-{id}">
+                                <label class="form-check-label" for="tue-companion-{id}">Di</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input wednesday" id="wed-companion-{id}">
+                                <label class="form-check-label" for="wed-companion-{id}">Mi</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input thursday" id="thu-companion-{id}">
+                                <label class="form-check-label" for="thu-companion-{id}">Do</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input friday" id="fri-companion-{id}">
+                                <label class="form-check-label" for="fri-companion-{id}">Fr</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input saturday" id="sat-companion-{id}">
+                                <label class="form-check-label" for="sat-companion-{id}">Sa</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input sunday" id="sun-companion-{id}">
+                                <label class="form-check-label" for="sun-companion-{id}">So</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Companion Modal -->
+<div class="modal fade" id="addCompanionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Begleiter hinzufügen</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <select id="companionSelect" class="form-select">
+                    <option value="">Begleiter auswählen...</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="button" class="btn btn-primary" id="confirmAddCompanion">Hinzufügen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.schedule-overview {
+    overflow-x: auto;
+}
+
+/* Grid Layout Styles */
+.schedule-grid {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    min-width: 100%;
+    background-color: #ffffff;
+}
+
+.schedule-header {
+    display: grid;
+    background-color: #f8f9fa;
+    font-weight: 600;
+    border-bottom: 2px solid #dee2e6;
+    grid-template-columns: repeat(var(--active-days), 1fr);
+    min-width: max-content;
+    width: 100%;
+}
+
+.schedule-week-row {
+    display: grid;
+    border-bottom: 1px solid #dee2e6;
+    grid-template-columns: repeat(var(--active-days), 1fr);
+    min-height: 80px;
+    width: 100%;
+    min-width: 0;
+}
+
+.month-header {
+    background-color: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-weight: 600;
+    color: #495057;
+    grid-column: 1 / -1;
+}
+
+.month-name {
+    font-size: 0.9rem;
+}
+
+.day-header-cell {
+    padding: 0.75rem 0.5rem;
+    text-align: center;
+    border-right: 1px solid #dee2e6;
+    background-color: #f8f9fa;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.day-cell {
+    padding: 0.5rem;
+    border-right: 1px solid #dee2e6;
+    display: flex;
+    flex-direction: column;
+    align-items: left;
+    gap: 0.25rem;
+    min-height: 80px;
+    position: relative;
+    min-width: 0;
+}
+
+.day-cell.cancelled {
+    background-color: #fff5f5;
+    border-color: #fed7d7;
+}
+
+.day-number {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #495057;
+    margin-bottom: 0.25rem;
+}
+
+.day-companions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    flex: 1;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.day-status {
+    color: #6c757d;
+    font-size: 0.7rem;
+    text-align: center;
+    padding: 0.2rem;
+    font-style: italic;
+    line-height: 1.2;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
+
+.day-number.day-inactive {
+    color: #6c757d;
+    opacity: 0.7;
+}
+
+.day-number.manual-override {
+    position: relative;
+}
+
+.day-number.manual-override::after {
+    content: '✎';
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    font-size: 0.6rem;
+    opacity: 0.7;
+}
+
+.no-data {
+    color: #adb5bd;
+    font-style: italic;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.companion-badge {
+    background-color: #0d6efd;
+    color: white;
+    padding: 0.2rem 0.3rem;
+    border-radius: 0.25rem;
+    margin: 0.1rem 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    position: relative;
+    width: 100%;
+    height: auto;
+    min-height: 20px;
+    line-height: 1.2;
+    box-sizing: border-box;
+}
+
+.companion-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    margin-right: 20px;
+}
+
+.companion-badge.substitute {
+    background-color: #6c757d;
+}
+
+.companion-badge.manual {
+    background-color: #198754;
+}
+
+.companion-badge .remove-btn {
+    background: rgba(255, 255, 255, 0.3);
+    border: none;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    color: white;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    z-index: 1;
+}
+
+.add-companion-btn {
+    background-color: #e9ecef;
+    border: 1px dashed #6c757d;
+    color: #6c757d;
+    padding: 0.3rem;
+    border-radius: 0.25rem;
+    margin: 0.1rem 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    height: auto;
+    min-height: 20px;
+    line-height: 1.2;
+    box-sizing: border-box;
+}
+
+.add-companion-btn:hover {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    color: white;
+}
+
+.add-companion-btn.warning {
+    background-color: #f8d7da;
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+.add-companion-btn.warning:hover {
+    background-color: #dc3545;
+    border-color: #dc3545;
+    color: white;
+}
+
+.companion-card {
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.days-container .form-check-input {
+    margin-right: 0.2rem;
+}
+
+.form-check-label {
+    font-size: 0.9rem;
+    margin-left: 0;
+}
+
+.form-check-input:disabled {
+    background-color: #e9ecef;
+    border-color: #ced4da;
+}
+
+.form-check-input:disabled + .form-check-label {
+    color: #6c757d;
+}
+
+.days-container {
+    display: grid;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: space-between;
+}
+
+.days-container .form-check {
+    margin-bottom: 0;
+    margin-right: 0;
+    flex: 0 1 auto;
+    min-width: fit-content;
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+    
+    .month-name {
+        font-size: 0.8rem;
+    }
+    
+    .day-header-cell {
+        padding: 0.5rem 0.3rem;
+        font-size: 0.8rem;
+    }
+    
+    .day-cell {
+        padding: 0.3rem;
+        min-height: 70px;
+        min-width: 0;
+    }
+    
+    .day-number {
+        font-size: 0.75rem;
+    }
+    
+    .add-companion-btn {
+        font-size: 0.6rem;
+        padding: 0.25rem;
+    }
+
+    .companion-badge .remove-btn {
+        width: 16px;
+        height: 16px;
+        font-size: 0.6rem;
+        top: 3px;
+        right: 1px;
+    }
+    
+    .days-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
+        gap: 0.3rem;
+        justify-content: center;
+    }
+    
+    .days-container .form-check {
+        justify-self: center;
+        text-align: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .days-container {
+        grid-template-columns: repeat(auto-fit, minmax(45px, 1fr));
+        gap: 0.2rem;
+    }
+    
+    .days-container .form-check-input {
+        margin-right: 0.15rem;
+    }
+    
+    .days-container .form-check-label {
+        font-size: 0.8rem;
+        margin-left: 0;
+    }
+    
+    .month-name {
+        font-size: 0.75rem;
+    }
+    
+    .day-header-cell {
+        padding: 0.4rem 0.2rem;
+        font-size: 0.75rem;
+    }
+    
+    .day-cell {
+        padding: 0.2rem;
+        min-height: 60px;
+        min-width: 0;
+    }
+    
+    .companion-badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.2rem;
+    }
+    
+    .add-companion-btn {
+        font-size: 0.55rem;
+        padding: 0.2rem;
+    }
+      
+    .companion-badge .remove-btn {
+        width: 14px;
+        height: 14px;
+        font-size: 0.55rem;
+        top: 3px;
+        right: 1px;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let globalSchedule = {};
+    let companions = [];
+    let selectedDate = null;
+    let addCompanionModal;
+    let minCompanions = 2;
+
+    const companionsContainer = document.getElementById('companionsContainer');
+    const addCompanionBtn = document.getElementById('addCompanionBtn');
+    const scheduleContainer = document.getElementById('scheduleContainer');
+    const companionTemplate = document.querySelector('.companion-template');
+
+    // Initialize Bootstrap modal
+    addCompanionModal = new bootstrap.Modal(document.getElementById('addCompanionModal'));
+
+    // Load initial data
+    loadWalkingBusSchedule().then(() => {
+        loadCompanions();
+        loadMinCompanionsSettings();
+        loadScheduleOverview();
+    });
+
+    // Event listeners
+    addCompanionBtn.addEventListener('click', createNewCompanion);
+    document.getElementById('confirmAddCompanion').addEventListener('click', addCompanionToDate);
+    document.getElementById('minCompanions').addEventListener('change', updateMinCompanions);
+
+    async function loadWalkingBusSchedule() {
+        try {
+            const response = await fetchWithAuth('/api/walking-bus-schedule');
+            globalSchedule = await response.json();
+    
+        } catch (error) {
+            console.error('Failed to load walking bus schedule:', error);
+        }
+    }
+
+    async function loadCompanions() {
+        try {
+            const response = await fetchWithAuth('/api/companions');
+            companions = await response.json();
+            renderCompanions();
+        } catch (error) {
+            console.error('Failed to load companions:', error);
+        }
+    }
+
+    async function loadScheduleOverview() {
+        try {
+            // Lade Kalenderdaten und Dienstplandaten für die nächsten 4 Wochen mit den neuen Routen
+            const [calendarResponse, scheduleResponse] = await Promise.all([
+                fetchWithAuth('/api/calendar/schedule-overview'),
+                fetchWithAuth('/api/companions/schedule/overview')
+            ]);
+            
+            const calendarData = await calendarResponse.json();
+            const scheduleData = await scheduleResponse.json();
+            
+
+            
+            renderScheduleOverview(scheduleData, calendarData);
+        } catch (error) {
+            console.error('Failed to load schedule overview:', error);
+            scheduleContainer.innerHTML = '<div class="alert alert-danger">Fehler beim Laden des Dienstplans</div>';
+        }
+    }
+
+    function renderScheduleOverview(scheduleData, calendarData) {
+        if (scheduleData.length === 0) {
+            scheduleContainer.innerHTML = '<div class="alert alert-info">Keine Walking Bus Tage in den nächsten 4 Wochen</div>';
+            return;
+        }
+
+        // Create schedule lookup map
+        const scheduleMap = {};
+        scheduleData.forEach(day => {
+            scheduleMap[day.date] = day;
+        });
+
+        // Filter für die nächsten 4 Wochen ab aktueller Woche
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const currentWeekStart = getWeekStart(today);
+        const fourWeeksEnd = new Date(currentWeekStart);
+        fourWeeksEnd.setDate(fourWeeksEnd.getDate() + (4 * 7) - 1);
+                
+        // Nutze Calendar-Daten als master source für alle Tage
+        const filteredData = calendarData.filter(day => {
+            const dayDate = new Date(day.date);
+            const dayName = getDayName(dayDate.getDay());
+            const activeDays = getActiveDaysFromSchedule();
+            
+            const inTimeRange = dayDate >= currentWeekStart && dayDate <= fourWeeksEnd;
+            const isActiveDay = activeDays.includes(dayName);
+            
+            // Nur Tage in den nächsten 4 Wochen UND nur normalerweise aktive Wochentage
+            return inTimeRange && isActiveDay;
+        }).map(calendarDay => {
+            // Ergänze Calendar-Daten mit Schedule-Daten falls vorhanden
+            const scheduleDay = scheduleMap[calendarDay.date];
+            
+            return {
+                date: calendarDay.date,
+                companions: scheduleDay ? scheduleDay.companions : [],
+                is_active: calendarDay.isActive,
+                reason: calendarDay.reason,
+                reason_type: calendarDay.reasonType,
+                // Zusätzliche Infos für inaktive Tage von scheduleDay
+                schedule_is_active: scheduleDay ? scheduleDay.isActive : true,
+                schedule_reason_info: scheduleDay ? scheduleDay.reasonInfo : null
+            };
+        });
+        
+
+        // Group data by weeks
+        const weekGroups = {};
+        const activeDays = getActiveDaysFromSchedule();
+        
+        // Set CSS custom property for grid columns
+        document.documentElement.style.setProperty('--active-days', activeDays.length);
+        
+        filteredData.forEach(day => {
+            const date = new Date(day.date);
+            const weekStart = getWeekStart(date);
+            const weekKey = weekStart.toISOString().split('T')[0];
+            
+            if (!weekGroups[weekKey]) {
+                weekGroups[weekKey] = {
+                    weekStart: weekStart,
+                    days: {}
+                };
+            }
+            
+            const dayName = getDayName(date.getDay());
+            if (activeDays.includes(dayName)) {
+                weekGroups[weekKey].days[dayName] = day;
+            }
+        });
+
+        // Sort weeks chronologically and group by month
+        const sortedWeeks = Object.values(weekGroups).sort((a, b) => a.weekStart - b.weekStart);
+        const monthGroups = {};
+        
+        sortedWeeks.forEach(week => {
+            const monthKey = week.weekStart.toISOString().substring(0, 7); // YYYY-MM
+            if (!monthGroups[monthKey]) {
+                monthGroups[monthKey] = [];
+            }
+            monthGroups[monthKey].push(week);
+        });
+
+        let html = '<div class="schedule-grid">';
+        
+        // Generate header with active day names
+        html += '<div class="schedule-header">';
+        activeDays.forEach(dayName => {
+            html += `<div class="day-header-cell">${getDayAbbreviation(dayName)}</div>`;
+        });
+        html += '</div>';
+
+        // Generate rows for each month and week
+        Object.entries(monthGroups).forEach(([monthKey, weeks]) => {
+            const monthDate = new Date(monthKey + '-01');
+            const monthName = monthDate.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+            
+            // Month header
+            html += `<div class="month-header">
+                        <div class="month-name">${monthName}</div>
+                     </div>`;
+            
+            // Weeks in this month
+            weeks.forEach(week => {
+                html += '<div class="schedule-week-row">';
+                
+                activeDays.forEach(dayName => {
+                    const dayData = week.days[dayName];
+                    
+                    
+                    // Add CSS classes for cancelled days
+                    const cellClasses = ['day-cell'];
+                    if (dayData && !dayData.is_active) {
+                        cellClasses.push('cancelled');
+                    }
+                    
+                    html += `<div class="${cellClasses.join(' ')}">`;
+                    
+                    if (dayData) {
+                        const date = new Date(dayData.date);
+                        const dayNumber = date.getDate();
+                        
+                        // Add day-specific CSS classes
+                        const cellClasses = [];
+                        const isActive = dayData.is_active !== false && dayData.schedule_is_active !== false;
+                        
+                        if (!isActive) {
+                            cellClasses.push('day-inactive');
+                        }
+                        if (dayData.reason_type === 'MANUAL_OVERRIDE') {
+                            cellClasses.push('manual-override');
+                        }
+                        
+                        html += `<div class="day-number ${cellClasses.join(' ')}">${dayNumber}</div>`;
+                        
+                        if (isActive) {
+                            const companionsHtml = dayData.companions.map(companion => `
+                                <span class="companion-badge ${companion.is_substitute ? 'substitute' : ''} ${companion.is_manual ? 'manual' : ''}" 
+                                      title="${companion.is_substitute ? 'Springer' : ''} ${companion.is_manual ? '(Manuell hinzugefügt)' : ''}">
+                                    <span class="companion-name">${companion.name}</span>
+                                    <button class="remove-btn" onclick="removeCompanionFromDate(${companion.id}, '${dayData.date}')" 
+                                            title="Entfernen">×</button>
+                                </span>
+                            `).join('');
+                            
+                            // Calculate missing companions and add buttons
+                            const currentCompanions = dayData.companions.length;
+                            const missingCompanions = Math.max(0, minCompanions - currentCompanions);
+                            
+                            // Build companions and buttons in correct order
+                            let dayContent = '<div class="day-companions">';
+                            
+                            // 1. First add existing companions
+                            dayContent += companionsHtml;
+                            
+                            // 2. Then add warning buttons for missing companions (red +)
+                            for (let i = 0; i < missingCompanions; i++) {
+                                dayContent += `<span class="add-companion-btn warning" 
+                                    onclick='showAddCompanionModal("${dayData.date}", ${JSON.stringify(dayData.companions)})' 
+                                    title="Begleiter fehlt (${currentCompanions + i + 1}/${minCompanions})">
+                                    <i class="fas fa-plus"></i>
+                                </span>`;
+                            }
+                            
+                            // 3. Finally add normal add button (grey +)
+                            dayContent += `<span class="add-companion-btn" 
+                                onclick='showAddCompanionModal("${dayData.date}", ${JSON.stringify(dayData.companions)})' 
+                                title="Begleiter hinzufügen">
+                                <i class="fas fa-plus"></i>
+                            </span>`;
+                            
+                            dayContent += '</div>';
+                            html += dayContent;
+                        } else {
+                            // Walking bus is not active - show reason
+                            let reason = 'Kein Walking Bus';
+                            
+                            // Prüfe verschiedene Reason-Quellen in Prioritätsreihenfolge
+                            if (dayData.schedule_reason_info) {
+                                if (typeof dayData.schedule_reason_info === 'string') {
+                                    reason = dayData.schedule_reason_info;
+                                } else if (dayData.schedule_reason_info.reason) {
+                                    const reasonObj = dayData.schedule_reason_info.reason;
+                                    if (typeof reasonObj === 'string') {
+                                        reason = reasonObj;
+                                    } else if (reasonObj.short_reason) {
+                                        reason = reasonObj.short_reason;
+                                    } else if (reasonObj.full_reason) {
+                                        reason = reasonObj.full_reason;
+                                    }
+                                }
+                            } else if (dayData.reason) {
+                                if (typeof dayData.reason === 'string') {
+                                    reason = dayData.reason;
+                                } else if (dayData.reason.short_reason) {
+                                    reason = dayData.reason.short_reason;
+                                } else if (dayData.reason.full_reason) {
+                                    reason = dayData.reason.full_reason;
+                                }
+                            }
+                            html += `<div class="day-status">${reason}</div>`;
+                        }
+                    } else {
+                        html += '<div class="no-data">-</div>';
+                    }
+                    
+                    html += '</div>';
+                });
+                
+                html += '</div>';
+            });
+        });
+        
+        html += '</div>';
+        scheduleContainer.innerHTML = html;
+    }
+
+    function getActiveDaysFromSchedule() {
+        const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        return dayNames.filter(dayName => globalSchedule[dayName] && globalSchedule[dayName].active);
+    }
+    
+
+
+    function getDayName(dayIndex) {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        return days[dayIndex];
+    }
+
+    function getDayAbbreviation(dayName) {
+        const abbreviations = {
+            'monday': 'Mo',
+            'tuesday': 'Di', 
+            'wednesday': 'Mi',
+            'thursday': 'Do',
+            'friday': 'Fr',
+            'saturday': 'Sa',
+            'sunday': 'So'
+        };
+        return abbreviations[dayName];
+    }
+
+    function getWeekStart(date) {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday as first day
+        return new Date(d.setDate(diff));
+    }
+
+    function getWeekNumber(date) {
+        const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+        const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+        return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+    }
+
+    function getWeekRange(weekStart) {
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        
+        const startStr = weekStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        const endStr = weekEnd.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        
+        return `${startStr} - ${endStr}`;
+    }
+
+    function renderCompanions() {
+        companionsContainer.innerHTML = '';
+        
+        // Sort companions by position, then by ID for stable ordering
+        const sortedCompanions = [...companions].sort((a, b) => {
+            if (a.position !== b.position) {
+                return a.position - b.position;
+            }
+            // If positions are equal, sort by ID for consistent order
+            return a.id - b.id;
+        });
+        
+        sortedCompanions.forEach(companion => {
+            const companionCard = createCompanionCard(companion);
+            companionsContainer.appendChild(companionCard);
+        });
+    }
+
+    function createCompanionCard(companion) {
+        const newCompanion = companionTemplate.cloneNode(true);
+        newCompanion.classList.remove('d-none', 'companion-template');
+        
+        const companionCard = newCompanion.querySelector('.companion-card');
+        companionCard.dataset.companionId = companion.id;
+        
+        // Set companion name
+        const nameInput = newCompanion.querySelector('.companion-name');
+        nameInput.value = companion.name;
+        nameInput.addEventListener('change', () => updateCompanion(companion.id, { name: nameInput.value }));
+        
+        // Set substitute checkbox
+        const substituteCheck = newCompanion.querySelector('.is-substitute');
+        substituteCheck.id = `substitute-${companion.id}`;
+        substituteCheck.checked = companion.is_substitute;
+        substituteCheck.addEventListener('change', () => {
+            updateCompanion(companion.id, { is_substitute: substituteCheck.checked });
+            // Hide/show day checkboxes based on substitute status
+            toggleDaysVisibility(newCompanion, substituteCheck.checked);
+            
+            // Update checkbox disabled state when substitute status changes
+            updateDaysCheckboxes(newCompanion, companion.id, substituteCheck.checked);
+        });
+        
+        // Update label for attribute
+        const substituteLabel = newCompanion.querySelector('label[for="substitute-{id}"]');
+        if (substituteLabel) {
+            substituteLabel.setAttribute('for', `substitute-${companion.id}`);
+        }
+
+        // Set weekday checkboxes
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        days.forEach(day => {
+            const checkbox = newCompanion.querySelector(`.${day}`);
+            // Find label by the template pattern and fix it
+            const label = newCompanion.querySelector(`label[for*="companion-{id}"]`) || 
+                         newCompanion.querySelector(`label[for="${day.substring(0,3)}-companion-{id}"]`);
+            
+            if (checkbox) {
+                const correctId = `${day.substring(0,3)}-companion-${companion.id}`;
+                checkbox.id = correctId;
+                
+                if (label) {
+                    label.setAttribute('for', correctId);
+                }
+                
+                checkbox.checked = companion[day];
+                
+                checkbox.addEventListener('change', () => {
+                    const updateData = {};
+                    updateData[day] = checkbox.checked;
+                    updateCompanion(companion.id, updateData);
+                });
+            }
+        });
+
+        // Update checkbox states after setting them up
+        updateDaysCheckboxes(newCompanion, companion.id, companion.is_substitute);
+
+        // Initially hide/show days based on substitute status
+        toggleDaysVisibility(newCompanion, companion.is_substitute);
+        
+        // Delete button
+        const deleteBtn = newCompanion.querySelector('.delete-companion');
+        deleteBtn.addEventListener('click', () => deleteCompanion(companion.id, newCompanion));
+        
+        return newCompanion;
+    }
+
+    function toggleDaysVisibility(companionElement, isSubstitute) {
+        const daysContainer = companionElement.querySelector('.days-container');
+        if (isSubstitute) {
+            daysContainer.style.display = 'none';
+        } else {
+            daysContainer.style.display = 'flex';
+        }
+    }
+
+    function updateDaysCheckboxes(companionElement, companionId, isSubstitute) {
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        days.forEach(day => {
+            const checkbox = companionElement.querySelector(`.${day}`);
+            
+            if (checkbox) {
+                const correctId = `${day.substring(0,3)}-companion-${companionId}`;
+                const label = companionElement.querySelector(`label[for="${correctId}"]`);
+                const checkboxContainer = checkbox.closest('.form-check');
+                
+                const isScheduleActive = globalSchedule[day] && globalSchedule[day].active;
+                
+                if (!isScheduleActive) {
+                    // Hide checkbox and label completely if schedule is not active
+                    if (checkboxContainer) {
+                        checkboxContainer.style.display = 'none';
+                    }
+                } else {
+                    // Show checkbox if schedule is active
+                    if (checkboxContainer) {
+                        checkboxContainer.style.display = '';
+                    }
+                    
+                    // Only disable if it's a substitute
+                    checkbox.disabled = isSubstitute;
+                    
+                    // Update label styling based on substitute status if label exists
+                    if (label) {
+                        if (isSubstitute) {
+                            label.classList.add('text-muted');
+                        } else {
+                            label.classList.remove('text-muted');
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    async function createNewCompanion() {
+        try {
+            // Ensure schedule is loaded before creating companion
+            if (!globalSchedule || Object.keys(globalSchedule).length === 0) {
+                await loadWalkingBusSchedule();
+            }
+            
+            const response = await fetchWithAuth('/api/companions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Neuer Begleiter' })
+            });
+            
+            const newCompanion = await response.json();
+            companions.push(newCompanion);
+            
+            // Re-render all companions to maintain correct order
+            renderCompanions();
+            
+            // Focus on name input of the new companion
+            const newCompanionCard = document.querySelector(`[data-companion-id="${newCompanion.id}"]`);
+            if (newCompanionCard) {
+                newCompanionCard.querySelector('.companion-name').focus();
+            }
+            
+        } catch (error) {
+            console.error('Failed to create companion:', error);
+        }
+    }
+
+    async function updateCompanion(companionId, data) {
+        try {
+            const response = await fetchWithAuth(`/api/companions/${companionId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            // Update local data
+            const companion = companions.find(c => c.id === companionId);
+            if (companion) {
+                Object.assign(companion, data);
+            }
+            
+            // Refresh schedule overview to reflect changes
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to update companion:', error);
+        }
+    }
+
+    async function deleteCompanion(companionId, element) {
+        if (!confirm('Begleiter wirklich löschen?')) {
+            return;
+        }
+        
+        try {
+            await fetchWithAuth(`/api/companions/${companionId}`, {
+                method: 'DELETE'
+            });
+            
+            element.remove();
+            companions = companions.filter(c => c.id !== companionId);
+            
+            // Refresh schedule overview
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to delete companion:', error);
+        }
+    }
+
+    // Global functions for onclick handlers
+    window.showAddCompanionModal = function(date, currentCompanions) {
+        selectedDate = date;
+
+        // IDs der schon eingeteilten Begleiter
+        const assignedIds = currentCompanions ? currentCompanions.map(c => c.id) : [];
+
+        // Dropdown leeren
+        const companionSelect = document.getElementById('companionSelect');
+        companionSelect.innerHTML = '<option value="">Begleiter auswählen...</option>';
+
+        // Nur freie Begleiter anzeigen
+        companions
+            .filter(companion => !assignedIds.includes(companion.id))
+            .forEach(companion => {
+                const option = document.createElement('option');
+                option.value = companion.id;
+                option.textContent = companion.name + (companion.is_substitute ? ' (Springer)' : '');
+                companionSelect.appendChild(option);
+            });
+
+        addCompanionModal.show();
+    };
+
+    window.removeCompanionFromDate = async function(companionId, date) {
+        try {
+            await fetchWithAuth('/api/companions/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    companion_id: companionId,
+                    date: date,
+                    action: 'remove'
+                })
+            });
+            
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to remove companion from date:', error);
+        }
+    };
+
+    async function addCompanionToDate() {
+        const companionSelect = document.getElementById('companionSelect');
+        const companionId = companionSelect.value;
+        
+        if (!companionId || !selectedDate) {
+            return;
+        }
+        
+        try {
+            await fetchWithAuth('/api/companions/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    companion_id: parseInt(companionId),
+                    date: selectedDate,
+                    action: 'add'
+                })
+            });
+            
+            addCompanionModal.hide();
+            loadScheduleOverview();
+            
+        } catch (error) {
+            console.error('Failed to add companion to date:', error);
+        }
+    }
+
+    async function loadMinCompanionsSettings() {
+        try {
+            const response = await fetchWithAuth('/api/walking-bus-settings');
+            const settings = await response.json();
+            minCompanions = settings.min_companions || 2;
+            document.getElementById('minCompanions').value = minCompanions;
+        } catch (error) {
+            console.error('Failed to load min companions settings:', error);
+        }
+    }
+
+    async function updateMinCompanions() {
+        const newMinCompanions = parseInt(document.getElementById('minCompanions').value);
+        try {
+            await fetchWithAuth('/api/walking-bus-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ min_companions: newMinCompanions })
+            });
+            
+            minCompanions = newMinCompanions;
+            loadScheduleOverview(); // Refresh to show updated warnings
+            
+        } catch (error) {
+            console.error('Failed to update min companions:', error);
+        }
+    }
+});
+</script>
+{% endblock %}
