@@ -2092,14 +2092,14 @@ def get_week_overview():
 
         # Get companions data for this date
         companions_count = 0
-        min_companions = 2  # Default
+        min_companions = 0  # Default
         companions_warning = False
         
         if is_active:
             # Get walking bus config for min companions
             walking_bus = WalkingBus.query.get(walking_bus_id)
             if walking_bus:
-                min_companions = walking_bus.min_companions or 2
+                min_companions = walking_bus.min_companions if walking_bus.min_companions is not None else 0
             
             # Get companions scheduled for this date
             companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
@@ -2124,7 +2124,7 @@ def get_week_overview():
                     if is_normally_scheduled:
                         companions_count += 1
             
-            companions_warning = companions_count < min_companions
+            companions_warning = min_companions > 0 and companions_count < min_companions
         
         week_data.append({
             'date': current_date.isoformat(),
@@ -3858,7 +3858,7 @@ def get_walking_bus_settings():
         return jsonify({"error": "Walking Bus nicht gefunden"}), 404
     
     return jsonify({
-        'min_companions': walking_bus.min_companions if walking_bus.min_companions is not None else 2
+        'min_companions': walking_bus.min_companions if walking_bus.min_companions is not None else 0
     })
 
 
@@ -3875,8 +3875,8 @@ def update_walking_bus_settings():
     
     if 'min_companions' in data:
         min_companions = data['min_companions']
-        if not isinstance(min_companions, int) or min_companions < 1 or min_companions > 5:
-            return jsonify({"error": "min_companions muss zwischen 1 und 5 liegen"}), 400
+        if not isinstance(min_companions, int) or min_companions < 0 or min_companions > 5:
+            return jsonify({"error": "min_companions muss zwischen 0 und 5 liegen"}), 400
         walking_bus.min_companions = min_companions
     
     db.session.commit()

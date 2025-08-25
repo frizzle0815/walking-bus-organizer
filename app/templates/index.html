@@ -1162,11 +1162,11 @@ function updateCompanionsDisplay(dailyStatus) {
 
     // Use companions data from dailyStatus
     const companions = dailyStatus.companions || [];
-    const minCompanions = dailyStatus.minCompanions || 2;
+    const minCompanions = dailyStatus.minCompanions !== undefined ? dailyStatus.minCompanions : 0;
     displayCompanions(companions, minCompanions);
 }
 
-function displayCompanions(companions, minCompanions = 2) {
+function displayCompanions(companions, minCompanions = 0) {
     const companionsDisplay = document.getElementById('companions-display');
     
     if (!companions || (companions.length === 0 && minCompanions === 0)) {
@@ -1198,15 +1198,15 @@ function displayCompanions(companions, minCompanions = 2) {
         
         companionSpan.textContent = companion.name;
         
-        if (index < companions.length - 1 || companions.length < minCompanions) {
+        if (index < companions.length - 1 || (minCompanions > 0 && companions.length < minCompanions)) {
             companionSpan.textContent += ', ';
         }
         
         companionsList.appendChild(companionSpan);
     });
     
-    // Add placeholders for missing companions
-    const missingCount = Math.max(0, minCompanions - companions.length);
+    // Add placeholders for missing companions (only if minCompanions > 0)
+    const missingCount = minCompanions > 0 ? Math.max(0, minCompanions - companions.length) : 0;
     for (let i = 0; i < missingCount; i++) {
         const placeholderSpan = document.createElement('span');
         placeholderSpan.className = 'companion-name companion-placeholder';
@@ -2248,8 +2248,8 @@ function render_addDayIndicators(dayElement, dayData) {
         dayElement.appendChild(noteIcon);
     }
     
-    // Add companions warning icon if not enough companions
-    if (dayData.companions_warning) {
+    // Add companions warning icon if not enough companions (only if minCompanions > 0)
+    if (dayData.companions_warning && dayData.min_companions > 0) {
         const warningIcon = document.createElement('i');
         warningIcon.className = 'fas fa-user-tie companions-warning-icon';
         warningIcon.title = `Zu wenig Begleiter (${dayData.companions_count}/${dayData.min_companions})`;

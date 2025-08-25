@@ -43,6 +43,7 @@
                 </div>
                 <div class="col-md-6">
                     <select id="minCompanions" class="form-select">
+                        <option value="0">0 Begleiter</option>
                         <option value="1">1 Begleiter</option>
                         <option value="2">2 Begleiter</option>
                         <option value="3">3 Begleiter</option>
@@ -1117,7 +1118,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const response = await fetchWithAuth('/api/walking-bus-settings');
             const settings = await response.json();
-            minCompanions = settings.min_companions || 2;
+            minCompanions = settings.min_companions !== undefined ? settings.min_companions : 0;
             document.getElementById('minCompanions').value = minCompanions;
         } catch (error) {
             console.error('Failed to load min companions settings:', error);

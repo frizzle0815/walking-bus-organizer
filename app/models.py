@@ -7,7 +7,7 @@ class WalkingBus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(100), nullable=False)
-    min_companions = db.Column(db.Integer, default=2)  # Mindestanzahl Begleiter
+    min_companions = db.Column(db.Integer, default=0)  # Mindestanzahl Begleiter
 
     # Relationships
     stations = db.relationship('Station', backref='walking_bus', lazy=True)
