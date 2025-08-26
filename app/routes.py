@@ -28,6 +28,7 @@ from .auth import (
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
+    TOKEN_VALIDITY_MINUTES,
     renew_auth_token, generate_pwa_temp_token,
     check_and_renew_token, cleanup_expired_tokens,
     cleanup_expired_auth_tokens, cleanup_old_tokens
@@ -249,7 +250,8 @@ def share():
     return render_template("share.html",
                          active_tokens=token_data['tokens'],
                          token_count=token_data['count'],
-                         max_tokens=token_data['max'])
+                         max_tokens=token_data['max'],
+                         login_link_validity_minutes=TOKEN_VALIDITY_MINUTES)
 
 
 @bp.route("/scheduler")

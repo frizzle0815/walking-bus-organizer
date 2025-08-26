@@ -313,7 +313,7 @@ def require_auth(f):
 
 # Configuration constants
 MAX_TEMP_TOKENS = 3
-TOKEN_VALIDITY_MINUTES = 30
+TOKEN_VALIDITY_MINUTES = int(os.getenv('LOGIN_LINK_VALIDITY_MINUTES', 60))
 TOKEN_LENGTH = 10
 
 
