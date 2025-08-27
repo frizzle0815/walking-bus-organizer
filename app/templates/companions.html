@@ -74,6 +74,9 @@
                             <input type="checkbox" class="form-check-input is-substitute" id="substitute-{id}">
                             <label class="form-check-label" for="substitute-{id}">Springer</label>
                         </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm custom-schedule-btn me-2" title="Individueller Zeitplan">
+                            <i class="fas fa-calendar-plus"></i>
+                        </button>
                         <button class="btn btn-danger btn-sm delete-companion">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
@@ -109,6 +112,20 @@
                                 <label class="form-check-label" for="sun-companion-{id}">So</label>
                             </div>
                         </div>
+                        
+                        <!-- Custom Schedule Display -->
+                        <div class="custom-schedules-display" style="display: none;">
+                            <div class="custom-schedules-list"></div>
+                        </div>
+                        
+                        <!-- Schedule Controls -->
+                        <div class="mt-3 schedule-controls">
+                            <button type="button" class="btn btn-outline-secondary btn-sm switch-to-weekly-btn" style="display: none;">
+                                <i class="fas fa-calendar-week me-1"></i>
+                                Zu wöchentlich wechseln
+                            </button>
+                        </div>
+                        
                     </div>
                 </div>
             </div>
@@ -132,6 +149,80 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
                 <button type="button" class="btn btn-primary" id="confirmAddCompanion">Hinzufügen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Schedule Modal -->
+<div class="modal fade" id="customScheduleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Individueller Zeitplan</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Individuelle Zeitpläne sind für mehrwöchige Rhythmen gedacht. Für wöchentliche Einteilung nutzen Sie bitte die Wochentags-Checkboxen.
+                </p>
+                <form id="customScheduleForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="scheduleWeekday" class="form-label">Wochentag</label>
+                            <select id="scheduleWeekday" class="form-select" required>
+                                <option value="">Bitte wählen...</option>
+                                <option value="0">Montag</option>
+                                <option value="1">Dienstag</option>
+                                <option value="2">Mittwoch</option>
+                                <option value="3">Donnerstag</option>
+                                <option value="4">Freitag</option>
+                                <option value="5">Samstag</option>
+                                <option value="6">Sonntag</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="scheduleInterval" class="form-label">Alle X Wochen</label>
+                            <input type="number" id="scheduleInterval" class="form-control" min="2" max="12" value="2" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="scheduleStartDate" class="form-label">Startdatum</label>
+                            <input type="date" id="scheduleStartDate" class="form-control" required>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="scheduleEndDate" class="form-label">Enddatum (optional)</label>
+                            <input type="date" id="scheduleEndDate" class="form-control">
+                        </div>
+                    </div>
+                    
+                    <!-- Preview Section -->
+                    <div class="mt-4" id="schedulePreview" style="display: none;">
+                        <h6 class="text-muted mb-2">
+                            <i class="fas fa-eye me-1"></i>
+                            Vorschau der nächsten Termine:
+                        </h6>
+                        <div id="previewDates" class="small text-muted"></div>
+                    </div>
+                </form>
+                
+                <!-- Existing Custom Schedules -->
+                <div class="mt-4" id="existingSchedules">
+                    <h6 class="text-muted mb-2">
+                        <i class="fas fa-list me-1"></i>
+                        Bestehende individuelle Zeitpläne:
+                    </h6>
+                    <div id="schedulesList"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="button" class="btn btn-primary" id="saveCustomSchedule">Speichern</button>
             </div>
         </div>
     </div>
@@ -863,13 +954,48 @@ document.addEventListener('DOMContentLoaded', function() {
         const substituteCheck = newCompanion.querySelector('.is-substitute');
         substituteCheck.id = `substitute-${companion.id}`;
         substituteCheck.checked = companion.is_substitute;
-        substituteCheck.addEventListener('change', () => {
-            updateCompanion(companion.id, { is_substitute: substituteCheck.checked });
+        substituteCheck.addEventListener('change', async () => {
+            // If switching to substitute, clear all custom schedules and weekly settings
+            if (substituteCheck.checked) {
+                const hasCustomSchedules = await hasCompanionCustomSchedules(companion.id);
+                const hasWeeklySchedule = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                    .some(day => companion[day] === true);
+
+                if (hasCustomSchedules || hasWeeklySchedule) {
+                    if (!confirm('Springer werden nur manuell eingeteilt. Alle bestehenden Zeitpläne (wöchentlich und individuell) werden gelöscht. Fortfahren?')) {
+                        substituteCheck.checked = false;
+                        return;
+                    }
+                    
+                    // Clear custom schedules
+                    if (hasCustomSchedules) {
+                        await deleteAllCustomSchedulesForCompanion(companion.id);
+                    }
+                    
+                    // Clear weekly schedule
+                    if (hasWeeklySchedule) {
+                        const updateData = {
+                            monday: false, tuesday: false, wednesday: false, thursday: false,
+                            friday: false, saturday: false, sunday: false
+                        };
+                        await updateCompanion(companion.id, updateData);
+                    }
+                }
+            }
+            
+            await updateCompanion(companion.id, { is_substitute: substituteCheck.checked });
+            
             // Hide/show day checkboxes based on substitute status
             toggleDaysVisibility(newCompanion, substituteCheck.checked);
             
             // Update checkbox disabled state when substitute status changes
             updateDaysCheckboxes(newCompanion, companion.id, substituteCheck.checked);
+            
+            // Reload companion display to show/hide custom schedules
+            await loadCompanionCustomSchedules(companion.id, newCompanion);
+            
+            // Refresh schedule overview
+            loadScheduleOverview();
         });
         
         // Update label for attribute
@@ -896,10 +1022,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 checkbox.checked = companion[day];
                 
-                checkbox.addEventListener('change', () => {
-                    const updateData = {};
-                    updateData[day] = checkbox.checked;
-                    updateCompanion(companion.id, updateData);
+                checkbox.addEventListener('change', async () => {
+                    // Check if companion has custom schedules before allowing weekly changes
+                    try {
+                        const response = await fetchWithAuth(`/api/companions/${companion.id}/custom-schedules`);
+                        const customSchedules = await response.json();
+                        
+                        if (customSchedules.length > 0 && checkbox.checked) {
+                            checkbox.checked = false;
+                            alert('Dieser Begleiter hat individuelle Zeitpläne. Bitte wechseln Sie zuerst zu wöchentlichem Zeitplan.');
+                            return;
+                        }
+                        
+                        const updateData = {};
+                        updateData[day] = checkbox.checked;
+                        await updateCompanion(companion.id, updateData);
+                        
+                        // Reload companion custom schedules to update display
+                        await loadCompanionCustomSchedules(companion.id, newCompanion);
+                    } catch (error) {
+                        console.error('Error checking custom schedules:', error);
+                        const updateData = {};
+                        updateData[day] = checkbox.checked;
+                        updateCompanion(companion.id, updateData);
+                    }
                 });
             }
         });
@@ -913,6 +1059,17 @@ document.addEventListener('DOMContentLoaded', function() {
         // Delete button
         const deleteBtn = newCompanion.querySelector('.delete-companion');
         deleteBtn.addEventListener('click', () => deleteCompanion(companion.id, newCompanion));
+        
+        // Custom schedule button
+        const customScheduleBtn = newCompanion.querySelector('.custom-schedule-btn');
+        customScheduleBtn.addEventListener('click', () => openCustomScheduleModal(companion.id));
+        
+        // Switch to weekly button
+        const switchToWeeklyBtn = newCompanion.querySelector('.switch-to-weekly-btn');
+        switchToWeeklyBtn.addEventListener('click', () => switchToWeeklySchedule(companion.id, newCompanion));
+        
+        // Load and display custom schedules
+        loadCompanionCustomSchedules(companion.id, newCompanion);
         
         return newCompanion;
     }
@@ -1141,6 +1298,410 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Failed to update min companions:', error);
         }
     }
+
+    // ========================================
+    // CUSTOM SCHEDULE FUNCTIONALITY
+    // ========================================
+    
+    let currentCompanionId = null;
+    let customScheduleModal = null;
+
+    async function openCustomScheduleModal(companionId) {
+        currentCompanionId = companionId;
+        const companion = companions.find(c => c.id === companionId);
+        
+        if (!companion) {
+            console.error('Companion not found:', companionId);
+            return;
+        }
+
+        // Check if companion already has weekly schedule (any day checked)
+        const hasWeeklySchedule = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            .some(day => companion[day] === true);
+
+        if (hasWeeklySchedule && !confirm('Dieser Begleiter hat bereits einen wöchentlichen Zeitplan. Möchten Sie zu individuellen Zeitplänen wechseln? Der wöchentliche Zeitplan wird deaktiviert.')) {
+            return;
+        }
+
+        // If switching from weekly to custom, clear weekly schedule
+        if (hasWeeklySchedule) {
+            const updateData = {
+                monday: false, tuesday: false, wednesday: false, thursday: false,
+                friday: false, saturday: false, sunday: false
+            };
+            await updateCompanion(companionId, updateData);
+        }
+
+        // Set modal title with companion name
+        document.querySelector('#customScheduleModal .modal-title').textContent = 
+            `Individueller Zeitplan - ${companion.name}`;
+
+        // Set default start date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('scheduleStartDate').value = today;
+
+        // Load existing custom schedules
+        await loadExistingCustomSchedules(companionId);
+
+        // Show modal
+        if (!customScheduleModal) {
+            customScheduleModal = new bootstrap.Modal(document.getElementById('customScheduleModal'));
+        }
+        customScheduleModal.show();
+    }
+
+    async function loadExistingCustomSchedules(companionId) {
+        try {
+            const response = await fetchWithAuth(`/api/companions/${companionId}/custom-schedules`);
+            const schedules = await response.json();
+            
+            const schedulesList = document.getElementById('schedulesList');
+            
+            if (schedules.length === 0) {
+                schedulesList.innerHTML = '<p class="text-muted small">Keine individuellen Zeitpläne vorhanden.</p>';
+                return;
+            }
+
+            const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+            let html = '';
+            schedules.forEach(schedule => {
+                const startDate = new Date(schedule.start_date).toLocaleDateString('de-DE');
+                const endDate = schedule.end_date ? 
+                    new Date(schedule.end_date).toLocaleDateString('de-DE') : 'unbegrenzt';
+                
+                const patternDesc = `alle ${schedule.interval_weeks} Wochen`;
+
+                html += `
+                    <div class="card mb-2">
+                        <div class="card-body py-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>${weekdayNames[schedule.weekday]}</strong> - ${patternDesc}
+                                    <br>
+                                    <small class="text-muted">
+                                        ${startDate} bis ${endDate}
+                                    </small>
+                                </div>
+                                <button class="btn btn-outline-danger btn-sm" 
+                                        onclick="deleteCustomSchedule(${schedule.id})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            schedulesList.innerHTML = html;
+        } catch (error) {
+            console.error('Failed to load custom schedules:', error);
+            document.getElementById('schedulesList').innerHTML = 
+                '<p class="text-danger small">Fehler beim Laden der Zeitpläne.</p>';
+        }
+    }
+
+    // Form field change handlers for preview
+    ['scheduleWeekday', 'scheduleStartDate', 'scheduleEndDate', 'scheduleInterval'].forEach(id => {
+        document.getElementById(id).addEventListener('change', updatePreview);
+        if (id === 'scheduleInterval') {
+            document.getElementById(id).addEventListener('input', updatePreview);
+        }
+    });
+
+    function updatePreview() {
+        const weekday = parseInt(document.getElementById('scheduleWeekday').value);
+        const startDate = document.getElementById('scheduleStartDate').value;
+        const endDate = document.getElementById('scheduleEndDate').value;
+        const interval = parseInt(document.getElementById('scheduleInterval').value) || 2;
+
+        if (isNaN(weekday) || !startDate || interval < 2) {
+            document.getElementById('schedulePreview').style.display = 'none';
+            return;
+        }
+
+        const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+        const start = new Date(startDate);
+        const end = endDate ? new Date(endDate) : null;
+
+        // Find next occurrences
+        const dates = [];
+        let currentDate = new Date(start);
+        
+        // Adjust to first occurrence
+        const targetWeekday = weekday;
+        const currentWeekday = currentDate.getDay() === 0 ? 6 : currentDate.getDay() - 1; // Convert Sunday=0 to Sunday=6
+        
+        let daysUntilTarget = targetWeekday - currentWeekday;
+        if (daysUntilTarget < 0) {
+            daysUntilTarget += 7;
+        }
+        currentDate.setDate(currentDate.getDate() + daysUntilTarget);
+
+        // Generate next 10 dates
+        for (let i = 0; i < 10 && (!end || currentDate <= end); i++) {
+            dates.push(new Date(currentDate));
+            
+            // Always use the custom interval (minimum 2 weeks)
+            currentDate.setDate(currentDate.getDate() + (interval * 7));
+        }
+
+        if (dates.length > 0) {
+            const dateStrings = dates.map(date => date.toLocaleDateString('de-DE')).join(', ');
+            document.getElementById('previewDates').textContent = dateStrings;
+            document.getElementById('schedulePreview').style.display = 'block';
+        } else {
+            document.getElementById('schedulePreview').style.display = 'none';
+        }
+    }
+
+    // This will be overridden later for companion card refresh
+
+    // Delete custom schedule
+    window.deleteCustomSchedule = async function(scheduleId) {
+        if (!currentCompanionId || !confirm('Individuellen Zeitplan wirklich löschen?')) {
+            return;
+        }
+
+        try {
+            await fetchWithAuth(`/api/companions/${currentCompanionId}/custom-schedules/${scheduleId}`, {
+                method: 'DELETE'
+            });
+
+            // Reload existing schedules
+            await loadExistingCustomSchedules(currentCompanionId);
+
+            // Refresh schedule overview
+            loadScheduleOverview();
+        } catch (error) {
+            console.error('Failed to delete custom schedule:', error);
+            alert('Fehler beim Löschen des Zeitplans.');
+        }
+    };
+
+    // ========================================
+    // HELPER FUNCTIONS FOR SUBSTITUTE HANDLING
+    // ========================================
+    
+    async function hasCompanionCustomSchedules(companionId) {
+        try {
+            const response = await fetchWithAuth(`/api/companions/${companionId}/custom-schedules`);
+            const schedules = await response.json();
+            return schedules.length > 0;
+        } catch (error) {
+            console.error('Error checking custom schedules:', error);
+            return false;
+        }
+    }
+
+    async function deleteAllCustomSchedulesForCompanion(companionId) {
+        try {
+            const response = await fetchWithAuth(`/api/companions/${companionId}/custom-schedules`);
+            const schedules = await response.json();
+            
+            // Delete all custom schedules
+            for (const schedule of schedules) {
+                await fetchWithAuth(`/api/companions/${companionId}/custom-schedules/${schedule.id}`, {
+                    method: 'DELETE'
+                });
+            }
+        } catch (error) {
+            console.error('Error deleting custom schedules:', error);
+            throw error;
+        }
+    }
+
+    // ========================================
+    // SCHEDULE MODE SWITCHING
+    // ========================================
+
+    async function loadCompanionCustomSchedules(companionId, companionElement) {
+        try {
+            const response = await fetchWithAuth(`/api/companions/${companionId}/custom-schedules`);
+            const schedules = await response.json();
+            
+            const customDisplay = companionElement.querySelector('.custom-schedules-display');
+            const customList = companionElement.querySelector('.custom-schedules-list');
+            const daysContainer = companionElement.querySelector('.days-container');
+            const customScheduleBtn = companionElement.querySelector('.custom-schedule-btn');
+            const switchToWeeklyBtn = companionElement.querySelector('.switch-to-weekly-btn');
+            
+            if (schedules.length > 0) {
+                // Has custom schedules - show them and hide weekly checkboxes
+                displayCustomSchedules(schedules, customList);
+                customDisplay.style.display = 'block';
+                daysContainer.style.display = 'none';
+                customScheduleBtn.style.display = 'inline-block';
+                switchToWeeklyBtn.style.display = 'inline-block';
+            } else {
+                // No custom schedules - show weekly checkboxes
+                customDisplay.style.display = 'none';
+                daysContainer.style.display = 'flex';
+                customScheduleBtn.style.display = 'inline-block';
+                switchToWeeklyBtn.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Failed to load custom schedules for companion:', error);
+        }
+    }
+
+    function displayCustomSchedules(schedules, container) {
+        const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+        let html = '';
+        schedules.forEach(schedule => {
+            const patternDesc = `alle ${schedule.interval_weeks} Wochen`;
+
+            html += `
+                <div class="custom-schedule-item mb-2 p-2 bg-light rounded">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${weekdayNames[schedule.weekday]}</strong> - ${patternDesc}
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm" 
+                                onclick="deleteCustomScheduleFromCard(${schedule.id})" 
+                                title="Löschen">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+    }
+
+    async function switchToWeeklySchedule(companionId, companionElement) {
+        if (!confirm('Wirklich zu wöchentlichem Zeitplan wechseln? Alle individuellen Zeitpläne werden gelöscht.')) {
+            return;
+        }
+
+        try {
+            // Get all custom schedules for this companion
+            const response = await fetchWithAuth(`/api/companions/${companionId}/custom-schedules`);
+            const schedules = await response.json();
+
+            // Delete all custom schedules
+            for (const schedule of schedules) {
+                await fetchWithAuth(`/api/companions/${companionId}/custom-schedules/${schedule.id}`, {
+                    method: 'DELETE'
+                });
+            }
+
+            // Reload the companion display
+            await loadCompanionCustomSchedules(companionId, companionElement);
+            
+            // Refresh schedule overview
+            loadScheduleOverview();
+
+        } catch (error) {
+            console.error('Failed to switch to weekly schedule:', error);
+            alert('Fehler beim Wechseln zu wöchentlichem Zeitplan.');
+        }
+    }
+
+    // Delete custom schedule from companion card
+    window.deleteCustomScheduleFromCard = async function(scheduleId) {
+        if (!confirm('Individuellen Zeitplan wirklich löschen?')) {
+            return;
+        }
+
+        try {
+            // Find the companion ID by looking at the schedule ID
+            // We need to find which companion this belongs to
+            let companionId = null;
+            let companionElement = null;
+
+            // Go through all companion cards to find the right one
+            const companionCards = document.querySelectorAll('.companion-card');
+            for (const card of companionCards) {
+                const cardCompanionId = parseInt(card.dataset.companionId);
+                const response = await fetchWithAuth(`/api/companions/${cardCompanionId}/custom-schedules`);
+                const schedules = await response.json();
+                
+                if (schedules.some(s => s.id === scheduleId)) {
+                    companionId = cardCompanionId;
+                    companionElement = card.closest('.companion-template') || card.closest('[data-companion-id]').parentElement;
+                    break;
+                }
+            }
+
+            if (!companionId) {
+                throw new Error('Companion nicht gefunden');
+            }
+
+            await fetchWithAuth(`/api/companions/${companionId}/custom-schedules/${scheduleId}`, {
+                method: 'DELETE'
+            });
+
+            // Reload the companion display
+            await loadCompanionCustomSchedules(companionId, companionElement);
+            
+            // Refresh schedule overview
+            loadScheduleOverview();
+
+        } catch (error) {
+            console.error('Failed to delete custom schedule:', error);
+            alert('Fehler beim Löschen des Zeitplans.');
+        }
+    };
+
+    // Set up save custom schedule handler
+    
+    document.getElementById('saveCustomSchedule').addEventListener('click', async function() {
+        if (!currentCompanionId) {
+            return;
+        }
+
+        const formData = {
+            pattern_type: 'custom', // Always custom for multi-weekly schedules
+            weekday: parseInt(document.getElementById('scheduleWeekday').value),
+            start_date: document.getElementById('scheduleStartDate').value,
+            end_date: document.getElementById('scheduleEndDate').value || null,
+            interval_weeks: parseInt(document.getElementById('scheduleInterval').value) || 2
+        };
+
+        // Validate required fields
+        if (isNaN(formData.weekday) || !formData.start_date || formData.interval_weeks < 2) {
+            alert('Bitte füllen Sie alle Pflichtfelder aus und stellen Sie sicher, dass das Intervall mindestens 2 Wochen beträgt.');
+            return;
+        }
+
+        try {
+            const response = await fetchWithAuth(`/api/companions/${currentCompanionId}/custom-schedules`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Fehler beim Speichern');
+            }
+
+            // Reset form
+            document.getElementById('customScheduleForm').reset();
+            document.getElementById('schedulePreview').style.display = 'none';
+
+            // Reload existing schedules in modal
+            await loadExistingCustomSchedules(currentCompanionId);
+
+            // Reload the companion card display
+            const companionCard = document.querySelector(`[data-companion-id="${currentCompanionId}"]`);
+            if (companionCard) {
+                const companionElement = companionCard.closest('.companion-template') || companionCard.parentElement;
+                await loadCompanionCustomSchedules(currentCompanionId, companionElement);
+            }
+
+            // Refresh schedule overview
+            loadScheduleOverview();
+
+            alert('Individueller Zeitplan wurde erfolgreich gespeichert.');
+        } catch (error) {
+            console.error('Failed to save custom schedule:', error);
+            alert('Fehler beim Speichern: ' + error.message);
+        }
+    });
 });
 </script>
 {% endblock %}
