@@ -14,7 +14,7 @@ from .models import (
     Weather, WeatherCalculation,
     PushSubscription, SchedulerJob,
     PushNotificationLog, Companion,
-    CompanionSchedule
+    CompanionSchedule, CompanionCustomSchedule
 )
 from .services.holiday_service import HolidayService
 from .services.weather_service import WeatherService
@@ -28,6 +28,7 @@ from .auth import (
     get_consistent_hash, login_attempts, 
     MAX_ATTEMPTS, LOCKOUT_TIME, generate_temp_token, 
     temp_login, get_active_temp_tokens, create_auth_token,
+    TOKEN_VALIDITY_MINUTES,
     renew_auth_token, generate_pwa_temp_token,
     check_and_renew_token, cleanup_expired_tokens,
     cleanup_expired_auth_tokens, cleanup_old_tokens
@@ -249,7 +250,8 @@ def share():
     return render_template("share.html",
                          active_tokens=token_data['tokens'],
                          token_count=token_data['count'],
-                         max_tokens=token_data['max'])
+                         max_tokens=token_data['max'],
+                         login_link_validity_minutes=TOKEN_VALIDITY_MINUTES)
 
 
 @bp.route("/scheduler")
@@ -2092,14 +2094,14 @@ def get_week_overview():
 
         # Get companions data for this date
         companions_count = 0
-        min_companions = 2  # Default
+        min_companions = 0  # Default
         companions_warning = False
         
         if is_active:
             # Get walking bus config for min companions
             walking_bus = WalkingBus.query.get(walking_bus_id)
             if walking_bus:
-                min_companions = walking_bus.min_companions or 2
+                min_companions = walking_bus.min_companions if walking_bus.min_companions is not None else 0
             
             # Get companions scheduled for this date
             companions = Companion.query.filter_by(walking_bus_id=walking_bus_id).all()
@@ -2124,7 +2126,7 @@ def get_week_overview():
                     if is_normally_scheduled:
                         companions_count += 1
             
-            companions_warning = companions_count < min_companions
+            companions_warning = min_companions > 0 and companions_count < min_companions
         
         week_data.append({
             'date': current_date.isoformat(),
@@ -3669,6 +3671,18 @@ def get_companion_schedule_overview():
                 # Springer are not automatically scheduled - only manually
                 is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
                 
+                # Check custom schedules
+                custom_schedules = CompanionCustomSchedule.query.filter_by(
+                    companion_id=companion.id,
+                    walking_bus_id=walking_bus_id,
+                    is_active=True
+                ).all()
+                
+                for custom_schedule in custom_schedules:
+                    if custom_schedule.is_date_scheduled(current_date):
+                        is_normally_scheduled = True
+                        break
+                
                 # Check for manual overrides
                 schedule_entry = CompanionSchedule.query.filter_by(
                     companion_id=companion.id,
@@ -3819,6 +3833,18 @@ def get_companions_for_date(date_str):
         # Springer are not automatically scheduled - only manually
         is_normally_scheduled = getattr(companion, weekday_attr, False) and not companion.is_substitute
         
+        # Check custom schedules
+        custom_schedules = CompanionCustomSchedule.query.filter_by(
+            companion_id=companion.id,
+            walking_bus_id=walking_bus_id,
+            is_active=True
+        ).all()
+        
+        for custom_schedule in custom_schedules:
+            if custom_schedule.is_date_scheduled(target_date):
+                is_normally_scheduled = True
+                break
+        
         # Check for manual overrides
         schedule_entry = CompanionSchedule.query.filter_by(
             companion_id=companion.id,
@@ -3847,6 +3873,193 @@ def get_companions_for_date(date_str):
     })
 
 
+# ========================================
+# COMPANION CUSTOM SCHEDULE API ROUTES
+# ========================================
+
+@bp.route("/api/companions/<int:companion_id>/custom-schedules", methods=["GET"])
+@require_auth
+def get_companion_custom_schedules(companion_id):
+    """Get all custom schedules for a companion"""
+    walking_bus_id = get_current_walking_bus_id()
+    
+    # Verify companion belongs to this walking bus
+    companion = Companion.query.filter_by(id=companion_id, walking_bus_id=walking_bus_id).first()
+    if not companion:
+        return jsonify({"error": "Begleiter nicht gefunden"}), 404
+    
+    custom_schedules = CompanionCustomSchedule.query.filter_by(
+        companion_id=companion_id, 
+        walking_bus_id=walking_bus_id,
+        is_active=True
+    ).order_by(CompanionCustomSchedule.created_at.desc()).all()
+    
+    return jsonify([{
+        'id': cs.id,
+        'pattern_type': cs.pattern_type,
+        'weekday': cs.weekday,
+        'interval_weeks': cs.interval_weeks,
+        'start_date': cs.start_date.isoformat(),
+        'end_date': cs.end_date.isoformat() if cs.end_date else None,
+        'is_active': cs.is_active,
+        'created_at': cs.created_at.isoformat(),
+        'updated_at': cs.updated_at.isoformat()
+    } for cs in custom_schedules])
+
+
+@bp.route("/api/companions/<int:companion_id>/custom-schedules", methods=["POST"])
+@require_auth
+def create_companion_custom_schedule(companion_id):
+    """Create a new custom schedule for a companion"""
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    # Verify companion belongs to this walking bus
+    companion = Companion.query.filter_by(id=companion_id, walking_bus_id=walking_bus_id).first()
+    if not companion:
+        return jsonify({"error": "Begleiter nicht gefunden"}), 404
+    
+    # Validate required fields
+    required_fields = ['pattern_type', 'weekday', 'start_date']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"Feld '{field}' fehlt"}), 400
+    
+    try:
+        start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        end_date = None
+        if data.get('end_date'):
+            end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+            if end_date <= start_date:
+                return jsonify({"error": "Enddatum muss nach Startdatum liegen"}), 400
+    except ValueError:
+        return jsonify({"error": "Ungültiges Datumsformat"}), 400
+    
+    # Validate pattern_type
+    valid_patterns = ['weekly', 'biweekly', 'custom']
+    if data['pattern_type'] not in valid_patterns:
+        return jsonify({"error": f"Ungültiger Pattern-Typ. Erlaubt: {valid_patterns}"}), 400
+    
+    # Validate weekday (0=Monday, 6=Sunday)
+    if not (0 <= data['weekday'] <= 6):
+        return jsonify({"error": "Wochentag muss zwischen 0 (Montag) und 6 (Sonntag) liegen"}), 400
+    
+    custom_schedule = CompanionCustomSchedule(
+        companion_id=companion_id,
+        walking_bus_id=walking_bus_id,
+        pattern_type=data['pattern_type'],
+        weekday=data['weekday'],
+        interval_weeks=data.get('interval_weeks', 1),
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    db.session.add(custom_schedule)
+    db.session.commit()
+    
+    return jsonify({
+        'id': custom_schedule.id,
+        'pattern_type': custom_schedule.pattern_type,
+        'weekday': custom_schedule.weekday,
+        'interval_weeks': custom_schedule.interval_weeks,
+        'start_date': custom_schedule.start_date.isoformat(),
+        'end_date': custom_schedule.end_date.isoformat() if custom_schedule.end_date else None,
+        'is_active': custom_schedule.is_active,
+        'created_at': custom_schedule.created_at.isoformat(),
+        'updated_at': custom_schedule.updated_at.isoformat()
+    })
+
+
+@bp.route("/api/companions/<int:companion_id>/custom-schedules/<int:schedule_id>", methods=["PUT"])
+@require_auth
+def update_companion_custom_schedule(companion_id, schedule_id):
+    """Update a custom schedule"""
+    walking_bus_id = get_current_walking_bus_id()
+    data = request.get_json()
+    
+    # Verify companion and schedule belong to this walking bus
+    custom_schedule = CompanionCustomSchedule.query.filter_by(
+        id=schedule_id,
+        companion_id=companion_id,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if not custom_schedule:
+        return jsonify({"error": "Individueller Zeitplan nicht gefunden"}), 404
+    
+    # Update fields if provided
+    if 'pattern_type' in data:
+        if data['pattern_type'] not in ['weekly', 'biweekly', 'custom']:
+            return jsonify({"error": "Ungültiger Pattern-Typ"}), 400
+        custom_schedule.pattern_type = data['pattern_type']
+    
+    if 'weekday' in data:
+        if not (0 <= data['weekday'] <= 6):
+            return jsonify({"error": "Ungültiger Wochentag"}), 400
+        custom_schedule.weekday = data['weekday']
+    
+    if 'interval_weeks' in data:
+        custom_schedule.interval_weeks = data['interval_weeks']
+    
+    if 'start_date' in data:
+        try:
+            start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+            custom_schedule.start_date = start_date
+        except ValueError:
+            return jsonify({"error": "Ungültiges Startdatum"}), 400
+    
+    if 'end_date' in data:
+        if data['end_date']:
+            try:
+                end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+                if end_date <= custom_schedule.start_date:
+                    return jsonify({"error": "Enddatum muss nach Startdatum liegen"}), 400
+                custom_schedule.end_date = end_date
+            except ValueError:
+                return jsonify({"error": "Ungültiges Enddatum"}), 400
+        else:
+            custom_schedule.end_date = None
+    
+    if 'is_active' in data:
+        custom_schedule.is_active = bool(data['is_active'])
+    
+    custom_schedule.updated_at = get_current_time()
+    db.session.commit()
+    
+    return jsonify({
+        'id': custom_schedule.id,
+        'pattern_type': custom_schedule.pattern_type,
+        'weekday': custom_schedule.weekday,
+        'interval_weeks': custom_schedule.interval_weeks,
+        'start_date': custom_schedule.start_date.isoformat(),
+        'end_date': custom_schedule.end_date.isoformat() if custom_schedule.end_date else None,
+        'is_active': custom_schedule.is_active,
+        'created_at': custom_schedule.created_at.isoformat(),
+        'updated_at': custom_schedule.updated_at.isoformat()
+    })
+
+
+@bp.route("/api/companions/<int:companion_id>/custom-schedules/<int:schedule_id>", methods=["DELETE"])
+@require_auth
+def delete_companion_custom_schedule(companion_id, schedule_id):
+    """Delete a custom schedule"""
+    walking_bus_id = get_current_walking_bus_id()
+    
+    custom_schedule = CompanionCustomSchedule.query.filter_by(
+        id=schedule_id,
+        companion_id=companion_id,
+        walking_bus_id=walking_bus_id
+    ).first()
+    
+    if not custom_schedule:
+        return jsonify({"error": "Individueller Zeitplan nicht gefunden"}), 404
+    
+    db.session.delete(custom_schedule)
+    db.session.commit()
+    
+    return jsonify({"success": True})
+
+
 @bp.route("/api/walking-bus-settings")
 @require_auth
 def get_walking_bus_settings():
@@ -3858,7 +4071,7 @@ def get_walking_bus_settings():
         return jsonify({"error": "Walking Bus nicht gefunden"}), 404
     
     return jsonify({
-        'min_companions': walking_bus.min_companions if walking_bus.min_companions is not None else 2
+        'min_companions': walking_bus.min_companions if walking_bus.min_companions is not None else 0
     })
 
 
@@ -3875,8 +4088,8 @@ def update_walking_bus_settings():
     
     if 'min_companions' in data:
         min_companions = data['min_companions']
-        if not isinstance(min_companions, int) or min_companions < 1 or min_companions > 5:
-            return jsonify({"error": "min_companions muss zwischen 1 und 5 liegen"}), 400
+        if not isinstance(min_companions, int) or min_companions < 0 or min_companions > 5:
+            return jsonify({"error": "min_companions muss zwischen 0 und 5 liegen"}), 400
         walking_bus.min_companions = min_companions
     
     db.session.commit()

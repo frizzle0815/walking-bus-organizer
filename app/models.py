@@ -7,7 +7,7 @@ class WalkingBus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(100), nullable=False)
-    min_companions = db.Column(db.Integer, default=2)  # Mindestanzahl Begleiter
+    min_companions = db.Column(db.Integer, default=0)  # Mindestanzahl Begleiter
 
     # Relationships
     stations = db.relationship('Station', backref='walking_bus', lazy=True)
@@ -400,3 +400,53 @@ class CompanionSchedule(db.Model):
     __table_args__ = (
         db.UniqueConstraint('companion_id', 'date', name='uq_companion_date'),
     )
+
+
+class CompanionCustomSchedule(db.Model):
+    __tablename__ = 'companion_custom_schedules'
+    
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    companion_id = db.Column(db.Integer, db.ForeignKey('companions.id'), nullable=False)
+    
+    # Zeitplan-Einstellungen
+    pattern_type = db.Column(db.String(20), nullable=False)  # 'weekly', 'biweekly', 'monthly', 'custom'
+    weekday = db.Column(db.Integer, nullable=False)  # 0=Montag, 1=Dienstag, ..., 6=Sonntag
+    interval_weeks = db.Column(db.Integer, default=1)  # Alle X Wochen (für biweekly, custom)
+    start_date = db.Column(db.Date, nullable=False)  # Ab wann gilt der Zeitplan
+    end_date = db.Column(db.Date, nullable=True)  # Bis wann (optional)
+    
+    # Metadaten
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    
+    # Relationships
+    companion = db.relationship('Companion', backref='custom_schedules')
+    walking_bus = db.relationship('WalkingBus', backref='companion_custom_schedules')
+    
+    def is_date_scheduled(self, date):
+        """Prüft ob der Begleiter an diesem Datum nach dem individuellen Zeitplan eingeteilt ist"""
+        if not self.is_active:
+            return False
+        
+        # Prüfe ob Datum im Gültigkeitsbereich liegt
+        if date < self.start_date:
+            return False
+        if self.end_date and date > self.end_date:
+            return False
+        
+        # Prüfe ob der Wochentag stimmt
+        if date.weekday() != self.weekday:
+            return False
+        
+        # Prüfe Intervall
+        if self.pattern_type == 'weekly':
+            return True
+        elif self.pattern_type in ['biweekly', 'custom']:
+            # Berechne Wochen seit Startdatum
+            days_diff = (date - self.start_date).days
+            weeks_diff = days_diff // 7
+            return weeks_diff % self.interval_weeks == 0
+        
+        return False
