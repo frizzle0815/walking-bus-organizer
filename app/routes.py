@@ -338,9 +338,9 @@ def temp_login_route(token):
         session['bus_password_hash'] = temp_token.bus_password_hash
         session.permanent = True
 
-        # Clean up used token
-        db.session.delete(temp_token)
-        db.session.commit()
+        # Token bleibt bestehen bis zum Ablauf (mehrfach verwendbar)
+        # db.session.delete(temp_token) - REMOVED: Token soll mehrfach verwendbar sein
+        db.session.commit()  # Commit nur für Session-Updates
 
         response = jsonify({
             'success': True,
