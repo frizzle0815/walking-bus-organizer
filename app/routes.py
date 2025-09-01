@@ -3097,7 +3097,7 @@ def get_schedule_overview():
     """Lädt Kalenderdaten für die nächsten 4 Wochen ab heute"""
     walking_bus_id = get_current_walking_bus_id()
     
-    today = datetime.now().date()
+    today = get_current_date()
     
     # Berechne Wochenstart (Montag) der aktuellen Woche
     days_since_monday = today.weekday()
@@ -3630,7 +3630,7 @@ def get_companion_schedule_overview():
     from datetime import date, timedelta
     
     walking_bus_id = get_current_walking_bus_id()
-    today = date.today()
+    today = get_current_date()
     
     # Berechne Wochenstart (Montag) der aktuellen Woche
     days_since_monday = today.weekday()

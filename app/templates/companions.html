@@ -301,6 +301,12 @@
     border-color: #fed7d7;
 }
 
+.day-cell.current-day {
+    background-color: #e7f3ff !important;
+    border: 2px solid #0d6efd !important;
+    box-shadow: 0 0 5px rgba(13, 110, 253, 0.3);
+}
+
 .day-number {
     font-weight: 600;
     font-size: 0.8rem;
@@ -669,6 +675,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Filter für die nächsten 4 Wochen ab aktueller Woche
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const todayString = now.toDateString();
         const currentWeekStart = getWeekStart(today);
         const fourWeeksEnd = new Date(currentWeekStart);
         fourWeeksEnd.setDate(fourWeeksEnd.getDate() + (4 * 7) - 1);
@@ -764,11 +771,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 activeDays.forEach(dayName => {
                     const dayData = week.days[dayName];
                     
-                    
-                    // Add CSS classes for cancelled days
+                    // Add CSS classes for cancelled days and current day
                     const cellClasses = ['day-cell'];
                     if (dayData && !dayData.is_active) {
                         cellClasses.push('cancelled');
+                    }
+                    if (dayData && new Date(dayData.date).toDateString() === todayString) {
+                        cellClasses.push('current-day');
                     }
                     
                     html += `<div class="${cellClasses.join(' ')}">`;
@@ -1226,6 +1235,17 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.removeCompanionFromDate = async function(companionId, date) {
+        const companion = companions.find(c => c.id === parseInt(companionId));
+        const companionName = companion ? companion.name : 'Unbekannter Begleiter';
+        const dateObj = new Date(date);
+        const formattedDate = dateObj.toLocaleDateString('de-DE');
+        const weekdayNames = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+        const weekday = weekdayNames[dateObj.getDay()];
+        
+        if (!confirm(`Möchten Sie ${companionName} wirklich vom ${weekday}, ${formattedDate} entfernen?`)) {
+            return;
+        }
+        
         try {
             await fetchWithAuth('/api/companions/schedule', {
                 method: 'POST',
