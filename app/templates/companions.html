@@ -165,7 +165,7 @@
             <div class="modal-body">
                 <p class="text-muted small mb-3">
                     <i class="fas fa-info-circle me-1"></i>
-                    Individuelle Zeitpläne sind für mehrwöchige Rhythmen gedacht. Für wöchentliche Einteilung nutzen Sie bitte die Wochentags-Checkboxen.
+                    Individuelle Zeitpläne sind für komplexere Rhythmen gedacht. Für eine einfache wöchentliche Einteilung nutzt bitte die Wochentags-Checkboxen.
                 </p>
                 <form id="customScheduleForm">
                     <div class="row">
@@ -185,7 +185,7 @@
                         
                         <div class="col-md-6 mb-3">
                             <label for="scheduleInterval" class="form-label">Alle X Wochen</label>
-                            <input type="number" id="scheduleInterval" class="form-control" min="2" max="12" value="2" required>
+                            <input type="number" id="scheduleInterval" class="form-control" min="1" max="12" value="2" required>
                         </div>
                     </div>
                     
@@ -1339,7 +1339,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const hasWeeklySchedule = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
             .some(day => companion[day] === true);
 
-        if (hasWeeklySchedule && !confirm('Dieser Begleiter hat bereits einen wöchentlichen Zeitplan. Möchten Sie zu individuellen Zeitplänen wechseln? Der wöchentliche Zeitplan wird deaktiviert.')) {
+        if (hasWeeklySchedule && !confirm('Dieser Begleiter hat bereits einen wöchentlichen Zeitplan. Möchten Sie zu individuellen Zeitplänen wechseln? Der wöchentliche Zeitplan wird gelöscht.')) {
             return;
         }
 
@@ -1433,9 +1433,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const weekday = parseInt(document.getElementById('scheduleWeekday').value);
         const startDate = document.getElementById('scheduleStartDate').value;
         const endDate = document.getElementById('scheduleEndDate').value;
-        const interval = parseInt(document.getElementById('scheduleInterval').value) || 2;
+        const interval = parseInt(document.getElementById('scheduleInterval').value) || 1;
 
-        if (isNaN(weekday) || !startDate || interval < 2) {
+        if (isNaN(weekday) || !startDate || interval < 1) {
             document.getElementById('schedulePreview').style.display = 'none';
             return;
         }
@@ -1462,7 +1462,7 @@ document.addEventListener('DOMContentLoaded', function() {
         for (let i = 0; i < 10 && (!end || currentDate <= end); i++) {
             dates.push(new Date(currentDate));
             
-            // Always use the custom interval (minimum 2 weeks)
+            // Use the custom interval (minimum 1 week)
             currentDate.setDate(currentDate.getDate() + (interval * 7));
         }
 
@@ -1682,8 +1682,8 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         // Validate required fields
-        if (isNaN(formData.weekday) || !formData.start_date || formData.interval_weeks < 2) {
-            alert('Bitte füllen Sie alle Pflichtfelder aus und stellen Sie sicher, dass das Intervall mindestens 2 Wochen beträgt.');
+        if (isNaN(formData.weekday) || !formData.start_date) {
+            alert('Bitte füllen Sie alle Pflichtfelder aus.');
             return;
         }
 
