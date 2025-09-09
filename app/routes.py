@@ -1547,6 +1547,10 @@ def weather_debug():
     records = Weather.query.order_by(Weather.timestamp).all()
     calculations = WeatherCalculation.query.all()
     
+    # Filter records to show only current and future data
+    current_time = get_current_time()
+    future_records = [r for r in records if (r.timestamp.replace(tzinfo=TIMEZONE) if r.timestamp.tzinfo is None else r.timestamp) >= current_time]
+    
     response = {
         'query_timeframe': {
             'oldest': records[0].timestamp.astimezone(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S %Z') if records else 'No records',
@@ -1564,7 +1568,7 @@ def weather_debug():
             'precipitation': r.precipitation if r.forecast_type == 'minutely' else r.total_precipitation,
             'pop': r.pop,
             'weather_icon': r.weather_icon
-        } for r in records[:500]],
+        } for r in future_records[:500]],
         'weather_calculations': [{
             'walking_bus_id': calc.walking_bus_id,
             'date': calc.date.strftime('%Y-%m-%d'),
