@@ -638,12 +638,12 @@ class WeatherService:
 
         logger.info(f"[WEATHER][TIMEFRAME] Time window: {start_datetime.strftime('%H:%M')} - {end_datetime.strftime('%H:%M')}")
 
-        # Convert local time to UTC for database query
-        start_datetime_utc = start_datetime.astimezone(timezone.utc)
-        end_datetime_utc = end_datetime.astimezone(timezone.utc)
+        # Use local timezone for database query to match stored data
+        logger.info(f"[WEATHER][TIMEFRAME] Searching minutely records from {start_datetime} to {end_datetime}")
         
         minutely_records = Weather.query.filter(
-            Weather.timestamp.between(start_datetime_utc, end_datetime_utc),
+            Weather.timestamp >= start_datetime,
+            Weather.timestamp <= end_datetime,
             Weather.forecast_type == 'minutely'
         ).order_by(Weather.timestamp).all()
 
@@ -685,28 +685,37 @@ class WeatherService:
         else:
             logger.info("[WEATHER][TIMEFRAME] Insufficient minutely data, trying hourly")
 
-        # Convert local time to UTC for hourly query
-        hourly_start_utc = start_datetime.replace(minute=0).astimezone(timezone.utc)
-        hourly_end_utc = (end_datetime.replace(minute=0) + timedelta(hours=1)).astimezone(timezone.utc)
+        # Use local timezone for hourly query to match stored data
+        hourly_start = start_datetime.replace(minute=0)  # Keep in TIMEZONE
+        hourly_end = (end_datetime.replace(minute=0) + timedelta(hours=1))  # Keep in TIMEZONE
+        
+        logger.info(f"[WEATHER][TIMEFRAME] Searching hourly records from {hourly_start} to {hourly_end}")
         
         hourly_records = Weather.query.filter(
-            Weather.timestamp.between(hourly_start_utc, hourly_end_utc),
+            Weather.timestamp >= hourly_start,
+            Weather.timestamp <= hourly_end,
             Weather.forecast_type == 'hourly'
         ).order_by(Weather.timestamp).all()
 
         if hourly_records:
-            logger.info(f"[WEATHER][TIMEFRAME] Using hourly data ({len(hourly_records)} records)")
+            logger.info(f"[WEATHER][TIMEFRAME] Found hourly data ({len(hourly_records)} records), checking for overlaps")
             max_pop = 0
             total_precipitation = 0
             hourly_details = []
             
             for record in hourly_records:
                 hour_start = record.timestamp
+                logger.info(f"[WEATHER][HOURLY] Processing record: {record.timestamp} (tzinfo: {record.timestamp.tzinfo})")
                 if hour_start.tzinfo is None:
                     hour_start = hour_start.replace(tzinfo=TIMEZONE)
+                    logger.info(f"[WEATHER][HOURLY] Added timezone: {hour_start}")
                 hour_end = hour_start + timedelta(hours=1)
                 
+                logger.info(f"[WEATHER][HOURLY] Checking overlap: hour_start={hour_start}, hour_end={hour_end}")
+                logger.info(f"[WEATHER][HOURLY] Target window: start_datetime={start_datetime}, end_datetime={end_datetime}")
+                
                 if hour_end > start_datetime and hour_start < end_datetime:
+                    logger.info(f"[WEATHER][HOURLY] Found overlap for record {record.timestamp}")
                     overlap_start = max(start_datetime, hour_start)
                     overlap_end = min(end_datetime, hour_end)
                     
@@ -728,28 +737,38 @@ class WeatherService:
                             'contribution': contribution,
                             'pop': record.pop
                         })
+                        logger.info(f"[WEATHER][HOURLY] Added to hourly_details: {record.timestamp.strftime('%H:%M')}")
+                    else:
+                        logger.info(f"[WEATHER][HOURLY] No valid overlap for record {record.timestamp}")
+                else:
+                    logger.info(f"[WEATHER][HOURLY] No overlap condition met for record {record.timestamp}")
 
-            result = {
-                'icon': hourly_records[0].weather_icon,
-                'pop': max_pop,
-                'precipitation': round(total_precipitation, 2),
-                'created_at': get_current_time().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            if include_details:
-                return {
-                    'available': True,
-                    'date': date.strftime('%Y-%m-%d'),
-                    'startTime': start_time.strftime('%H:%M'),
-                    'endTime': end_time.strftime('%H:%M'),
-                    'calculation_details': {
-                        'coverage_type': 'hourly',
-                        'hourly_used': hourly_details,
-                        'data_type': 'hourly'
-                    },
-                    'result': result
+            # Only use hourly data if we actually found overlapping records
+            if hourly_details:
+                logger.info(f"[WEATHER][TIMEFRAME] Using hourly data with {len(hourly_details)} overlapping records")
+                result = {
+                    'icon': hourly_records[0].weather_icon,
+                    'pop': max_pop,
+                    'precipitation': round(total_precipitation, 2),
+                    'created_at': get_current_time().strftime('%Y-%m-%d %H:%M:%S')
                 }
-            return result
+                
+                if include_details:
+                    return {
+                        'available': True,
+                        'date': date.strftime('%Y-%m-%d'),
+                        'startTime': start_time.strftime('%H:%M'),
+                        'endTime': end_time.strftime('%H:%M'),
+                        'calculation_details': {
+                            'coverage_type': 'hourly',
+                            'hourly_used': hourly_details,
+                            'data_type': 'hourly'
+                        },
+                        'result': result
+                    }
+                return result
+            else:
+                logger.info("[WEATHER][TIMEFRAME] No overlapping hourly data found, falling back to daily")
 
         logger.info("[WEATHER][TIMEFRAME] No hourly data, falling back to daily")
         # Search for daily record for the given date (regardless of exact time)
