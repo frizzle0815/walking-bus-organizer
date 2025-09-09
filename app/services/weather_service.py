@@ -595,8 +595,9 @@ class WeatherService:
         if not is_active:
             logger.info(f"[WEATHER][TIMEFRAME] Schedule inactive, using daily data")
             daily_timestamp = datetime.combine(date, time(12, 0), tzinfo=TIMEZONE)
+            daily_timestamp_utc = daily_timestamp.astimezone(timezone.utc)
             daily_record = Weather.query.filter(
-                Weather.timestamp == daily_timestamp,
+                Weather.timestamp == daily_timestamp_utc,
                 Weather.forecast_type == 'daily'
             ).first()
             
@@ -638,12 +639,14 @@ class WeatherService:
 
         logger.info(f"[WEATHER][TIMEFRAME] Time window: {start_datetime.strftime('%H:%M')} - {end_datetime.strftime('%H:%M')}")
 
-        # Use local timezone for database query to match stored data
-        logger.info(f"[WEATHER][TIMEFRAME] Searching minutely records from {start_datetime} to {end_datetime}")
+        # Convert to UTC for consistent database query
+        start_datetime_utc = start_datetime.astimezone(timezone.utc)
+        end_datetime_utc = end_datetime.astimezone(timezone.utc)
+        logger.info(f"[WEATHER][TIMEFRAME] Searching minutely records from {start_datetime_utc} to {end_datetime_utc} (UTC)")
         
         minutely_records = Weather.query.filter(
-            Weather.timestamp >= start_datetime,
-            Weather.timestamp <= end_datetime,
+            Weather.timestamp >= start_datetime_utc,
+            Weather.timestamp <= end_datetime_utc,
             Weather.forecast_type == 'minutely'
         ).order_by(Weather.timestamp).all()
 
@@ -685,15 +688,17 @@ class WeatherService:
         else:
             logger.info("[WEATHER][TIMEFRAME] Insufficient minutely data, trying hourly")
 
-        # Use local timezone for hourly query to match stored data
-        hourly_start = start_datetime.replace(minute=0)  # Keep in TIMEZONE
-        hourly_end = (end_datetime.replace(minute=0) + timedelta(hours=1))  # Keep in TIMEZONE
+        # Convert to UTC for consistent database query
+        hourly_start = start_datetime.replace(minute=0)
+        hourly_end = (end_datetime.replace(minute=0) + timedelta(hours=1))
+        hourly_start_utc = hourly_start.astimezone(timezone.utc)
+        hourly_end_utc = hourly_end.astimezone(timezone.utc)
         
-        logger.info(f"[WEATHER][TIMEFRAME] Searching hourly records from {hourly_start} to {hourly_end}")
+        logger.info(f"[WEATHER][TIMEFRAME] Searching hourly records from {hourly_start_utc} to {hourly_end_utc} (UTC)")
         
         hourly_records = Weather.query.filter(
-            Weather.timestamp >= hourly_start,
-            Weather.timestamp <= hourly_end,
+            Weather.timestamp >= hourly_start_utc,
+            Weather.timestamp <= hourly_end_utc,
             Weather.forecast_type == 'hourly'
         ).order_by(Weather.timestamp).all()
 
@@ -771,12 +776,14 @@ class WeatherService:
                 logger.info("[WEATHER][TIMEFRAME] No overlapping hourly data found, falling back to daily")
 
         logger.info("[WEATHER][TIMEFRAME] No hourly data, falling back to daily")
-        # Search for daily record for the given date (regardless of exact time)
+        # Search for daily record for the given date (convert to UTC)
         date_start = datetime.combine(date, time(0, 0), tzinfo=TIMEZONE)
         date_end = datetime.combine(date, time(23, 59, 59), tzinfo=TIMEZONE)
+        date_start_utc = date_start.astimezone(timezone.utc)
+        date_end_utc = date_end.astimezone(timezone.utc)
         
         daily_record = Weather.query.filter(
-            Weather.timestamp.between(date_start, date_end),
+            Weather.timestamp.between(date_start_utc, date_end_utc),
             Weather.forecast_type == 'daily'
         ).first()
 
