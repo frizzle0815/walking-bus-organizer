@@ -684,12 +684,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const filteredData = calendarData.filter(day => {
             const dayDate = new Date(day.date);
             const dayName = getDayName(dayDate.getDay());
-            const activeDays = getActiveDaysFromSchedule();
+            const activeDays = getActiveDaysFromSchedule(calendarData);
             
             const inTimeRange = dayDate >= currentWeekStart && dayDate <= fourWeeksEnd;
             const isActiveDay = activeDays.includes(dayName);
             
-            // Nur Tage in den nächsten 4 Wochen UND nur normalerweise aktive Wochentage
+            // Nur Tage in den nächsten 4 Wochen UND aktive Wochentage (inkl. Override-Tage)
             return inTimeRange && isActiveDay;
         }).map(calendarDay => {
             // Ergänze Calendar-Daten mit Schedule-Daten falls vorhanden
@@ -710,7 +710,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Group data by weeks
         const weekGroups = {};
-        const activeDays = getActiveDaysFromSchedule();
+        const activeDays = getActiveDaysFromSchedule(calendarData);
         
         // Set CSS custom property for grid columns
         document.documentElement.style.setProperty('--active-days', activeDays.length);
@@ -881,9 +881,30 @@ document.addEventListener('DOMContentLoaded', function() {
         scheduleContainer.innerHTML = html;
     }
 
-    function getActiveDaysFromSchedule() {
+    function getActiveDaysFromSchedule(calendarData = null) {
         const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        return dayNames.filter(dayName => globalSchedule[dayName] && globalSchedule[dayName].active);
+        const basicActiveDays = dayNames.filter(dayName => globalSchedule[dayName] && globalSchedule[dayName].active);
+        
+        // If no calendar data provided, return basic schedule
+        if (!calendarData || !Array.isArray(calendarData)) {
+            return basicActiveDays;
+        }
+        
+        // Check for override days that make normally inactive days active
+        const overrideDays = new Set();
+        calendarData.forEach(day => {
+            if (day.isActive && day.reasonType === 'MANUAL_OVERRIDE') {
+                const dayDate = new Date(day.date);
+                const dayName = getDayName(dayDate.getDay());
+                if (!basicActiveDays.includes(dayName)) {
+                    overrideDays.add(dayName);
+                }
+            }
+        });
+        
+        // Combine basic active days with override days
+        const allActiveDays = [...new Set([...basicActiveDays, ...overrideDays])];
+        return allActiveDays;
     }
     
 
