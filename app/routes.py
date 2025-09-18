@@ -3038,28 +3038,12 @@ def validate_token():
 
 
 
-def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):
+def check_walking_bus_day_base(date, include_reason=False, walking_bus_id=None):
     """
-    Central function to determine if Walking Bus operates on a given date
-    Args:
-        date: The date to check
-        include_reason: If True, returns tuple (is_active, reason, reason_type), otherwise just boolean
-        walking_bus_id: ID of the walking bus to check. If None, gets current from session.
-    Returns:
-        bool or (bool, str, str) depending on include_reason parameter
+    Helper function to determine base Walking Bus status (without overrides)
     """
     if walking_bus_id is None:
         walking_bus_id = get_current_walking_bus_id()
-
-    # Check for manual override first
-    override = WalkingBusOverride.query.filter_by(
-        date=date,
-        walking_bus_id=walking_bus_id
-    ).first()
-    if override:
-        return (override.is_active, 
-                override.reason,
-                "MANUAL_OVERRIDE") if include_reason else override.is_active
 
     # Check for school holidays
     holiday = SchoolHoliday.query\
@@ -3088,6 +3072,32 @@ def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):
   
     # Base case: Walking Bus is active
     return (True, "Active", "ACTIVE") if include_reason else True
+
+
+def check_walking_bus_day(date, include_reason=False, walking_bus_id=None):
+    """
+    Central function to determine if Walking Bus operates on a given date
+    Args:
+        date: The date to check
+        include_reason: If True, returns tuple (is_active, reason, reason_type), otherwise just boolean
+        walking_bus_id: ID of the walking bus to check. If None, gets current from session.
+    Returns:
+        bool or (bool, str, str) depending on include_reason parameter
+    """
+    if walking_bus_id is None:
+        walking_bus_id = get_current_walking_bus_id()
+
+    # Check for manual override first
+    override = WalkingBusOverride.query.filter_by(
+        date=date,
+        walking_bus_id=walking_bus_id
+    ).first()
+    if override:
+        return (override.is_active, 
+                override.reason,
+                "MANUAL_OVERRIDE") if include_reason else override.is_active
+
+    return check_walking_bus_day_base(date, include_reason, walking_bus_id)
 
 
 def update_holiday_cache():
@@ -3178,6 +3188,23 @@ def get_calendar_months(year, month, count):
             walking_bus_id=walking_bus_id
         ).first()
         
+        # For overrides, get original reason
+        original_reason = None
+        if reason_type == "MANUAL_OVERRIDE":
+            _, orig_reason, orig_type = check_walking_bus_day_base(
+                current_date,
+                include_reason=True,
+                walking_bus_id=walking_bus_id
+            )
+            # Map original reason to display text
+            original_reason = {
+                "NO_SCHEDULE": "Keine Planung",
+                "INACTIVE_WEEKDAY": "Kein Bus",
+                "WEEKEND": "Wochenende",
+                "HOLIDAY": orig_reason["short_reason"] if orig_type == "HOLIDAY" else orig_reason,
+                "ACTIVE": ""
+            }.get(orig_type, orig_reason)
+        
         # Map reason types to display text - keeping the original mapping
         display_reason = {
             "NO_SCHEDULE": "Keine Planung",
@@ -3193,6 +3220,7 @@ def get_calendar_months(year, month, count):
             'is_active': is_active,
             'reason': display_reason,
             'reason_type': reason_type,
+            'original_reason': original_reason,
             'note': daily_note.note if daily_note else None
         })
         current_date += timedelta(days=1)
@@ -3208,8 +3236,8 @@ def toggle_walking_bus_override():
     date = datetime.strptime(data['date'], '%Y-%m-%d').date()
     reason = data.get('reason')
     
-    # Get original state with walking bus context
-    original_state, original_reason, original_type = check_walking_bus_day(
+    # Get original state with walking bus context (without overrides)
+    original_state, original_reason, original_type = check_walking_bus_day_base(
         date, 
         include_reason=True,
         walking_bus_id=walking_bus_id
