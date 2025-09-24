@@ -3030,6 +3030,7 @@ document.addEventListener('visibilitychange', () => {
                         updateStationStats(station.id, enhancedDailyStatus);
                     });
                     updateTotalStats(enhancedDailyStatus);
+                    updateCompanionsDisplay(enhancedDailyStatus);
                     
                     console.log('[RELOAD] Initial load complete');
                     initializeSSE();
