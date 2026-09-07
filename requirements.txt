@@ -5,6 +5,7 @@ psycopg2-binary
 pytz
 gunicorn
 gevent
+packaging
 requests
 PyJWT
 qrcode[pil]

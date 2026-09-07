@@ -2137,6 +2137,18 @@ def get_week_overview():
                 else:
                     # Use default weekday schedule
                     is_normally_scheduled = getattr(companion, weekday, False) and not companion.is_substitute
+
+                    # Include recurring individual schedules in the count
+                    custom_schedules = CompanionCustomSchedule.query.filter_by(
+                        companion_id=companion.id,
+                        walking_bus_id=walking_bus_id,
+                        is_active=True
+                    ).all()
+
+                    if any(custom_schedule.is_date_scheduled(current_date)
+                           for custom_schedule in custom_schedules):
+                        is_normally_scheduled = True
+
                     if is_normally_scheduled:
                         companions_count += 1
             
