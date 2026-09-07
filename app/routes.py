@@ -1193,6 +1193,16 @@ def get_daily_status():
         # Check if companion is normally scheduled for this day
         # Springer are not automatically scheduled - only manually
         is_normally_scheduled = getattr(companion, weekday, False) and not companion.is_substitute
+
+        # Check individual schedules for recurring or otherwise complex plans
+        custom_schedules = CompanionCustomSchedule.query.filter_by(
+            companion_id=companion.id,
+            walking_bus_id=walking_bus_id,
+            is_active=True
+        ).all()
+
+        if any(custom_schedule.is_date_scheduled(target_date) for custom_schedule in custom_schedules):
+            is_normally_scheduled = True
         
         # Check for manual overrides
         schedule_entry = CompanionSchedule.query.filter_by(
