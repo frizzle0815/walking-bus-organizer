@@ -48,9 +48,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Trigger Portainer deployment for develop
-        if: github.ref == 'refs/heads/develop'
-        env:
-          PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
-        run: curl --fail --silent --show-error --request POST "$PORTAINER_WEBHOOK_URL"
