@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - '**'
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -38,6 +40,7 @@ jobs:
           images: ghcr.io/frizzle0815/walking-bus-organizer
           tags: |
             type=ref,event=branch
+            type=ref,event=tag
             type=sha,prefix=sha-
 
       - name: Build and push image
