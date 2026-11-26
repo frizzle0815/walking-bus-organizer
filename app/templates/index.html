@@ -503,7 +503,8 @@
         font-weight: 500;
     }
 
-    .companion-name.substitute {
+    .companion-name.substitute,
+    .companion-name.manual {
         color: #6c757d;
         font-style: italic;
     }
@@ -1194,6 +1195,9 @@ function displayCompanions(companions, minCompanions = 0) {
         
         if (companion.is_substitute) {
             companionSpan.classList.add('substitute');
+        }
+        if (companion.is_manual) {
+            companionSpan.classList.add('manual');
         }
         
         companionSpan.textContent = companion.name;
