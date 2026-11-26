@@ -143,7 +143,7 @@ def register_prospect():
         data = request.get_json()
         
         # Validierung
-        required_fields = ['child_first_name', 'child_last_name', 'school_class', 'phone', 'address']
+        required_fields = ['child_first_name', 'child_last_name', 'school_class', 'phone', 'address', 'accompaniment_type']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'error': f'{field} ist erforderlich'}), 400
@@ -151,6 +151,10 @@ def register_prospect():
         # Schulklasse validieren
         if data['school_class'] not in SCHOOL_CLASSES:
             return jsonify({'error': 'Ungültige Schulklasse'}), 400
+            
+        # Begleitungstyp validieren
+        if data['accompaniment_type'] not in ['companion', 'substitute']:
+            return jsonify({'error': 'Ungültiger Begleitungstyp'}), 400
             
         # Route validieren (kann null sein für "Nur Interesse")
         walking_bus_route_id = data.get('walking_bus_route_id')
@@ -184,7 +188,8 @@ def register_prospect():
             email=data.get('email', ''),
             latitude=lat,
             longitude=lon,
-            walking_bus_route_id=walking_bus_route_id
+            walking_bus_route_id=walking_bus_route_id,
+            accompaniment_type=data['accompaniment_type']
         )
         
         db.session.add(prospect)

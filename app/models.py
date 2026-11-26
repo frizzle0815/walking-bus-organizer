@@ -7,6 +7,7 @@ class WalkingBus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(100), nullable=False)
+    min_companions = db.Column(db.Integer, default=0)  # Mindestanzahl Begleiter
 
     # Relationships
     stations = db.relationship('Station', backref='walking_bus', lazy=True)
@@ -145,7 +146,7 @@ class AuthToken(db.Model):
     renewed_to = db.Column(db.String(512), db.ForeignKey('auth_tokens.id'), nullable=True)
     invalidated_at = db.Column(db.DateTime, default=None, onupdate=get_current_time)
     invalidation_reason = db.Column(db.String(100))
-    token_identifier = db.Column(db.String(64), unique=True, nullable=False)
+    token_identifier = db.Column(db.String(64), nullable=False)
     is_pwa_installed = db.Column(db.Boolean, default=False)
     pwa_status_updated_at = db.Column(db.DateTime, default=None)
     
@@ -191,7 +192,7 @@ class WeatherCalculation(db.Model):
 
 class PushSubscription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    token_identifier = db.Column(db.String(64), db.ForeignKey('auth_tokens.token_identifier'), nullable=False)
+    token_identifier = db.Column(db.String(64), nullable=False)
     endpoint = db.Column(db.String(500), nullable=False)
     p256dh = db.Column(db.String(200), nullable=False)
     auth = db.Column(db.String(100), nullable=False)
@@ -204,8 +205,15 @@ class PushSubscription(db.Model):
     last_error_code = db.Column(db.Integer, nullable=True)
     
     # Relationships
-    auth_token = db.relationship('AuthToken', backref=db.backref('push_subscriptions', lazy=True))
     walking_bus = db.relationship('WalkingBus', backref=db.backref('push_subscriptions', lazy=True))
+    
+    def get_current_auth_token(self):
+        """Get the current active AuthToken for this subscription's token_identifier"""
+        return AuthToken.query.filter_by(
+            token_identifier=self.token_identifier,
+            walking_bus_id=self.walking_bus_id,
+            is_active=True
+        ).first()
 
     __table_args__ = (
         db.UniqueConstraint('token_identifier', 'endpoint', name='uq_subscription_token_endpoint'),
@@ -349,3 +357,96 @@ class Route(db.Model):
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class Companion(db.Model):
+    __tablename__ = 'companions'
+    
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    position = db.Column(db.Integer, nullable=False, default=0)  # Reihenfolge für die Anzeige
+    
+    # Wochentage wie bei den Participants
+    monday = db.Column(db.Boolean, default=False)
+    tuesday = db.Column(db.Boolean, default=False)
+    wednesday = db.Column(db.Boolean, default=False)
+    thursday = db.Column(db.Boolean, default=False)
+    friday = db.Column(db.Boolean, default=False)
+    saturday = db.Column(db.Boolean, default=False)
+    sunday = db.Column(db.Boolean, default=False)
+    
+    # Springer haben keinen festen Wochentag
+    is_substitute = db.Column(db.Boolean, default=False)
+    
+    # Relationships
+    walking_bus = db.relationship('WalkingBus', backref='companions')
+
+
+class CompanionSchedule(db.Model):
+    __tablename__ = 'companion_schedules'
+    
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    companion_id = db.Column(db.Integer, db.ForeignKey('companions.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    is_scheduled = db.Column(db.Boolean, default=True)  # True = eingeteilt, False = abgesagt
+    is_manual_override = db.Column(db.Boolean, default=False)  # True = manuell hinzugefügt/entfernt
+    
+    # Relationships
+    companion = db.relationship('Companion', backref='schedules')
+    walking_bus = db.relationship('WalkingBus', backref='companion_schedules')
+    
+    __table_args__ = (
+        db.UniqueConstraint('companion_id', 'date', name='uq_companion_date'),
+    )
+
+
+class CompanionCustomSchedule(db.Model):
+    __tablename__ = 'companion_custom_schedules'
+    
+    walking_bus_id = db.Column(db.Integer, db.ForeignKey('walking_bus.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    companion_id = db.Column(db.Integer, db.ForeignKey('companions.id'), nullable=False)
+    
+    # Zeitplan-Einstellungen
+    pattern_type = db.Column(db.String(20), nullable=False)  # 'weekly', 'biweekly', 'monthly', 'custom'
+    weekday = db.Column(db.Integer, nullable=False)  # 0=Montag, 1=Dienstag, ..., 6=Sonntag
+    interval_weeks = db.Column(db.Integer, default=1)  # Alle X Wochen (für biweekly, custom)
+    start_date = db.Column(db.Date, nullable=False)  # Ab wann gilt der Zeitplan
+    end_date = db.Column(db.Date, nullable=True)  # Bis wann (optional)
+    
+    # Metadaten
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=get_current_time)
+    updated_at = db.Column(db.DateTime, default=get_current_time, onupdate=get_current_time)
+    
+    # Relationships
+    companion = db.relationship('Companion', backref='custom_schedules')
+    walking_bus = db.relationship('WalkingBus', backref='companion_custom_schedules')
+    
+    def is_date_scheduled(self, date):
+        """Prüft ob der Begleiter an diesem Datum nach dem individuellen Zeitplan eingeteilt ist"""
+        if not self.is_active:
+            return False
+        
+        # Prüfe ob Datum im Gültigkeitsbereich liegt
+        if date < self.start_date:
+            return False
+        if self.end_date and date > self.end_date:
+            return False
+        
+        # Prüfe ob der Wochentag stimmt
+        if date.weekday() != self.weekday:
+            return False
+        
+        # Prüfe Intervall
+        if self.pattern_type == 'weekly':
+            return True
+        elif self.pattern_type in ['biweekly', 'custom']:
+            # Berechne Wochen seit Startdatum
+            days_diff = (date - self.start_date).days
+            weeks_diff = days_diff // 7
+            return weeks_diff % self.interval_weeks == 0
+        
+        return False

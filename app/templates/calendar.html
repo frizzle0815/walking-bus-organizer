@@ -265,16 +265,18 @@ async function showReasonPrompt(isCurrentlyActive, isOverride, day, dayElement) 
     return new Promise((resolve) => {
         const modal = document.createElement('div');
         
-        // Determine button text based on current state and override status
+        // Einfache Logik: Schaue nur auf den aktuellen Zustand des Tages
         let buttonText;
         let needsReason = false;
         
-        if (isCurrentlyActive) {
-            buttonText = isOverride ? "Walking Bus findet doch statt" : "Walking Bus absagen";
-            needsReason = !isOverride;
+        if (day.is_active) {
+            // Tag ist grün (Bus findet statt) -> Button zum Absagen
+            buttonText = "Walking Bus absagen";
+            needsReason = !isOverride; // Nur bei neuem Override Grund nötig
         } else {
-            buttonText = isOverride ? "Walking Bus findet doch statt" : "Walking Bus findet doch statt";
-            needsReason = !isOverride;
+            // Tag ist rot/grau (Bus findet nicht statt) -> Button zum Aktivieren  
+            buttonText = "Walking Bus findet doch statt";
+            needsReason = !isOverride; // Nur bei neuem Override Grund nötig
         }
 
         modal.innerHTML = `
@@ -574,7 +576,7 @@ function renderMonths(calendarData, container) {
                     
                     // Update reason display
                     const reasonElement = dayElement.querySelector('.day-reason');
-                    if (result.is_active && result.reason_type === 'MANUAL_OVERRIDE') {
+                    if (result.reason_type === 'MANUAL_OVERRIDE' && result.original_reason) {
                         reasonElement.textContent = `${result.original_reason} → ${result.reason}`;
                     } else {
                         reasonElement.textContent = result.reason || '';
@@ -600,7 +602,9 @@ function renderMonths(calendarData, container) {
             // Create reason display element
             const dayReason = document.createElement('div');
             dayReason.className = 'day-reason';
-            if (day.is_active && day.reason_type === 'MANUAL_OVERRIDE') {
+            if (day.is_active && day.reason_type === 'MANUAL_OVERRIDE' && day.original_reason) {
+                dayReason.textContent = `${day.original_reason} → ${day.reason}`;
+            } else if (!day.is_active && day.reason_type === 'MANUAL_OVERRIDE' && day.original_reason) {
                 dayReason.textContent = `${day.original_reason} → ${day.reason}`;
             } else if (!day.is_active) {
                 dayReason.textContent = day.reason;

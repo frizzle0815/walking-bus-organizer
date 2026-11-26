@@ -105,9 +105,10 @@ class PushService:
             )
 
             enhanced_notification_data = notification_data.copy()
+            current_token = subscription.get_current_auth_token()
             enhanced_notification_data['subscription_info'] = {
                 'endpoint': subscription.endpoint,
-                'client_info': subscription.auth_token.client_info
+                'client_info': current_token.client_info if current_token else 'Unknown'
             }
             enhanced_notification_data['attempted_send'] = True
 
@@ -135,9 +136,10 @@ class PushService:
             
             # Log the error with enhanced data
             enhanced_notification_data = notification_data.copy()
+            current_token = subscription.get_current_auth_token()
             enhanced_notification_data['subscription_info'] = {
                 'endpoint': subscription.endpoint,
-                'client_info': subscription.auth_token.client_info
+                'client_info': current_token.client_info if current_token else 'Unknown'
             }
             
             # Create error log entry
